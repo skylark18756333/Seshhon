@@ -1,0 +1,4 @@
+node_modules/
+tools/preview/dist/
+.DS_Store
+.expo/

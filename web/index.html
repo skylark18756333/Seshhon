@@ -1,0 +1,443 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<style>body{margin:0}[hidden]{display:none!important}:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}</style>
+</head>
+<body>
+<title>Seshhon</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;700;800&family=DM+Sans:wght@400;500;700&display=swap">
+<style>
+/* Layout: one phone-width column, scrolling content above a four-tab bar; the status colour is the only loud thing on screen. */
+:root {
+  color-scheme: dark;
+  --bg: #121110;
+  --surface: #1F1D1A;
+  --surface-2: #2A2723;
+  --line: #3A362F;
+  --fg: #F4F1EA;
+  --muted: #ABA59B;
+  --on: #3DDC84;
+  --thinking: #F5C542;
+  --off: #F0524B;
+  --ink: #121110;
+  --display: 'Bricolage Grotesque', 'Trebuchet MS', system-ui, sans-serif;
+  --body: 'DM Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+html, body { height: 100%; }
+body { background: var(--bg); color: var(--fg); font-family: var(--body); font-size: 16px; line-height: 1.4; }
+* { box-sizing: border-box; }
+button, input { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
+#app { height: 100%; max-width: 440px; margin: 0 auto; display: flex; flex-direction: column; }
+main { flex: 1; min-height: 0; overflow-y: auto; padding-block: 20px; padding-inline: 20px; display: flex; flex-direction: column; gap: 20px; }
+h1, h2, h3, p { margin: 0; }
+h1 { font-family: var(--display); font-weight: 800; font-size: 34px; line-height: 1.05; letter-spacing: -1px; text-wrap: balance; }
+h2 { font-family: var(--display); font-weight: 700; font-size: 20px; }
+.eyebrow { font-size: 13px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; color: var(--muted); }
+.muted { color: var(--muted); }
+.small { font-size: 14px; }
+.stack { display: flex; flex-direction: column; gap: 10px; }
+.row { display: flex; align-items: center; gap: 12px; }
+.between { justify-content: space-between; }
+.grow { flex: 1; min-width: 0; }
+.top { display: flex; align-items: center; justify-content: space-between; }
+.wordmark { font-family: var(--display); font-weight: 800; font-size: 24px; letter-spacing: -0.5px; }
+.pill { font-size: 12px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; padding: 5px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+.status-word { font-family: var(--display); font-weight: 800; font-size: 52px; line-height: 1; letter-spacing: -1.5px; }
+.switch { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.seg { height: 52px; border-radius: 26px; border: 1px solid var(--line); background: var(--surface); font-weight: 700; font-size: 15px; display: flex; align-items: center; justify-content: center; gap: 8px; }
+.seg .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--c); }
+.seg[aria-pressed="true"] { background: var(--c); border-color: var(--c); color: var(--ink); }
+.seg[aria-pressed="true"] .dot { background: var(--ink); }
+.btn { min-height: 54px; padding: 0 20px; border-radius: 27px; border: 0; background: var(--c, var(--on)); color: var(--ink); font-weight: 700; font-size: 16px; width: 100%; }
+.btn.ghost { background: transparent; color: var(--fg); border: 1px solid var(--fg); }
+.btn.small-btn { min-height: 44px; width: auto; padding: 0 18px; font-size: 14px; border-radius: 22px; }
+.btn:disabled { background: var(--surface-2); color: var(--muted); cursor: default; border: 0; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+.card.lead { border: 2px solid var(--on); }
+.card.deal-active { border-color: var(--thinking); }
+.avatar { width: 40px; height: 40px; flex: none; border-radius: 50%; border: 2px solid var(--c, var(--line)); background: var(--surface); display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; }
+.avatar.dashed { border-style: dashed; }
+.avatars { display: flex; }
+.avatars .avatar { background: var(--bg); }
+.avatars .avatar + .avatar { margin-left: -8px; }
+.friend { display: flex; align-items: center; gap: 12px; min-height: 54px; }
+.friend .state { font-size: 13px; font-weight: 700; color: var(--c); }
+.deal-title { font-weight: 700; color: var(--thinking); }
+.bar { flex: 1; height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; }
+.bar i { display: block; height: 100%; background: var(--muted); border-radius: 4px; }
+.lead .bar i { background: var(--on); }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { min-height: 44px; padding: 0 16px; border-radius: 22px; border: 1px solid var(--line); background: var(--surface); font-size: 14px; font-weight: 500; }
+.chip[aria-pressed="true"] { background: var(--fg); border-color: var(--fg); color: var(--ink); font-weight: 700; }
+.stars { display: flex; gap: 2px; }
+.star { width: 48px; height: 48px; border: 0; background: transparent; color: var(--muted); display: flex; align-items: center; justify-content: center; }
+.star svg { fill: none; }
+.star[aria-pressed="true"] { color: var(--thinking); }
+.star[aria-pressed="true"] svg { fill: currentColor; }
+.back { width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface); display: flex; align-items: center; justify-content: center; }
+.code-box { background: var(--fg); color: var(--ink); border-radius: 20px; padding: 28px 20px; display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; }
+.code { font-family: var(--display); font-weight: 800; font-size: 38px; letter-spacing: 3px; font-variant-numeric: tabular-nums; }
+.code-box .note { color: #5C574F; font-size: 14px; }
+.tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.tile-num { font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.field { display: flex; flex-direction: column; gap: 8px; }
+.field input[type="text"] { height: 52px; border-radius: 14px; border: 1px solid var(--line); background: var(--surface); padding: 0 16px; }
+.check { display: flex; align-items: center; gap: 12px; min-height: 44px; }
+.check input { width: 22px; height: 22px; accent-color: var(--on); }
+nav { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-top: 1px solid var(--line); padding: 8px 8px calc(10px + env(safe-area-inset-bottom, 0px)); background: var(--bg); }
+nav button { background: none; border: 0; min-height: 50px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; font-size: 12px; font-weight: 500; color: var(--muted); border-radius: 12px; }
+nav button[aria-current="page"] { color: var(--fg); font-weight: 700; }
+#toast { position: fixed; left: 50%; bottom: calc(96px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); max-width: min(360px, calc(100% - 32px)); background: var(--fg); color: var(--ink); font-weight: 700; font-size: 14px; padding: 12px 18px; border-radius: 999px; text-align: center; }
+.error { color: var(--off); font-size: 14px; font-weight: 500; }
+</style>
+
+<div id="app">
+  <main id="view"></main>
+  <nav id="tabs" aria-label="Sections" hidden></nav>
+</div>
+<div id="toast" role="status" aria-live="polite" hidden></div>
+
+<script>
+(function () {
+  var GREEN_MS = 4 * 60 * 60 * 1000, YELLOW_MS = 2 * 60 * 60 * 1000, CODE_MS = 15 * 60 * 1000;
+  var COLORS = { on: 'var(--on)', thinking: 'var(--thinking)', off: 'var(--off)' };
+  var LABELS = { on: 'On', thinking: 'Thinking', off: 'Off' };
+
+  var VENUES = {
+    lowtide: { name: 'Lowtide Bar', kind: 'Cocktail bar', km: 0.9, close: 'open till 1am', base: 4.6, count: 212 },
+    bodega: { name: 'Bodega Nine', kind: 'Pizza bar', km: 1.6, close: 'open till 12am', base: 4.3, count: 148 },
+    lantern: { name: 'The Paper Lantern', kind: 'Live music venue', km: 2.1, close: 'open till 12am', base: 4.4, count: 96 }
+  };
+  var VENUE_ORDER = ['lowtide', 'bodega', 'lantern'];
+  var DEALS = [
+    { id: 'd1', venue: 'lowtide', type: 'Food', title: 'Free share plate for groups of 4+', from: 17, to: 23 },
+    { id: 'd2', venue: 'lowtide', type: 'Drinks', title: 'Happy hour: 25% off house drinks', from: 17, to: 18 },
+    { id: 'd3', venue: 'bodega', type: 'Food', title: '2-for-1 pizzas', from: 17, to: 21 },
+    { id: 'd4', venue: 'lantern', type: 'Entry', title: 'Free entry for groups of 4+', from: 20, to: 24 },
+    { id: 'd5', venue: 'lantern', type: 'Events', title: 'Live music tonight, table held for your sesh', from: 19, to: 23 }
+  ];
+  var FRIENDS = [
+    { id: 'jess', name: 'Jess M', status: 'on', note: 'On since 8:40pm, 1.2 km away', vote: 'lowtide' },
+    { id: 'tom', name: 'Tom K', status: 'on', note: 'On since 9:05pm, 2.4 km away', vote: 'lowtide' },
+    { id: 'aisha', name: 'Aisha R', status: 'on', note: 'On since 9:20pm, 0.8 km away', vote: 'bodega' },
+    { id: 'dan', name: 'Dan L', status: 'thinking', note: 'Looking at deals', vote: 'lantern' },
+    { id: 'priya', name: 'Priya S', status: 'thinking', note: 'Looking at deals' }
+  ];
+  var TAGS = ['Good vibe', 'Good value', 'Fast service'];
+
+  var KEY = 'seshhon-demo-v1';
+  var fresh = function () {
+    return { name: '', status: 'off', until: 0, danOn: false, sesh: null, codes: {}, ratings: {}, tab: 'home', screen: null, filter: 'All', demoClock: true };
+  };
+  var state = fresh();
+  try {
+    var saved = JSON.parse(localStorage.getItem(KEY) || 'null');
+    if (saved && typeof saved === 'object') { for (var k in saved) state[k] = saved[k]; }
+  } catch (e) {}
+  state.screen = null;
+  function save() { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} }
+
+  var view = document.getElementById('view'), tabs = document.getElementById('tabs'), toastEl = document.getElementById('toast');
+  var toastTimer = null, danTimer = null;
+
+  function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function initials(n) { var p = String(n).trim().split(/\s+/); return esc(((p[0] || '?')[0] + (p[1] ? p[1][0] : '')).toUpperCase()); }
+  function toast(msg) {
+    toastEl.textContent = msg; toastEl.hidden = false;
+    clearTimeout(toastTimer); toastTimer = setTimeout(function () { toastEl.hidden = true; }, 3200);
+  }
+  function hourNow() { if (state.demoClock) return 20.5; var d = new Date(); return d.getHours() + d.getMinutes() / 60; }
+  function fmtHour(h) { if (h === 24) return 'midnight'; var s = h >= 12 ? 'pm' : 'am', x = h % 12 || 12; return x + s; }
+  function dealState(d) {
+    var h = hourNow();
+    if (h < d.from) return { active: false, text: 'Starts ' + fmtHour(d.from) };
+    if (h >= d.to) return { active: false, text: 'Ended ' + fmtHour(d.to) };
+    return { active: true, text: 'Until ' + fmtHour(d.to) };
+  }
+  function today() { return new Date().toDateString(); }
+  function fmtLeft(ms) {
+    if (ms < 0) ms = 0;
+    var s = Math.floor(ms / 1000), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), r = s % 60;
+    if (h > 0) return h + 'h ' + m + 'm';
+    return (m < 10 ? '0' : '') + m + ':' + (r < 10 ? '0' : '') + r;
+  }
+  function friendStatus(f) { return f.id === 'dan' && state.danOn ? 'on' : f.status; }
+  function onFriends() { return FRIENDS.filter(function (f) { return friendStatus(f) === 'on'; }); }
+  function tally(v) {
+    var n = onFriends().filter(function (f) { return f.vote === v; }).length;
+    if (state.sesh && state.sesh.myVote === v) n += 1;
+    return n;
+  }
+  function leader() {
+    var best = VENUE_ORDER[0];
+    VENUE_ORDER.forEach(function (v) { if (tally(v) > tally(best)) best = v; });
+    return best;
+  }
+  function rating(v) {
+    var ven = VENUES[v], mine = state.ratings[v];
+    if (!mine || !mine.stars) return { avg: ven.base.toFixed(1), count: ven.count };
+    return { avg: ((ven.base * ven.count + mine.stars) / (ven.count + 1)).toFixed(1), count: ven.count + 1 };
+  }
+
+  var ICON = {
+    home: '<path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/>',
+    sesh: '<circle cx="9" cy="8" r="4"/><path d="M2 21c0-4 3-6 7-6s7 2 7 6"/><path d="M17 4a4 4 0 0 1 0 8"/><path d="M22 21c0-3-1-5-4-6"/>',
+    deals: '<path d="M3 12V3h9l9 9-9 9z"/><circle cx="8" cy="8" r="1.5"/>',
+    you: '<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/>',
+    back: '<path d="M15 5l-7 7 7 7"/>',
+    star: '<path d="M12 3l2.7 5.6 6.1.8-4.5 4.3 1.1 6.1L12 16.9 6.6 19.8l1.1-6.1L3.2 9.4l6.1-.8z"/>'
+  };
+  function svg(name, size) {
+    return '<svg width="' + size + '" height="' + size + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + ICON[name] + '</svg>';
+  }
+
+  /* ---------- screens ---------- */
+  function welcome() {
+    return '<div class="stack" style="gap:24px;margin-block:auto">' +
+      '<div class="wordmark">seshhon</div>' +
+      '<h1>Tell your friends you\'re up for a sesh.</h1>' +
+      '<p class="muted">This is a test version. Friends, venues and deals are examples, and everything you do stays on this phone.</p>' +
+      '<form id="join" class="stack" style="gap:16px" novalidate>' +
+      '<div class="field"><label for="name">Your first name</label><input id="name" type="text" autocomplete="given-name" maxlength="24"></div>' +
+      '<label class="check" for="adult"><input id="adult" type="checkbox"><span>I am 18 or over</span></label>' +
+      '<p id="join-error" class="error" hidden></p>' +
+      '<button class="btn" type="submit">Get started</button>' +
+      '</form></div>';
+  }
+
+  function home() {
+    var s = state.status;
+    var copy = {
+      on: ["You're on.", "Friends can see you're up for a sesh."],
+      thinking: ['Thinking.', "You're browsing. Friends see you might be keen, but nobody gets pinged."],
+      off: ["You're off.", "You're hidden and won't get sesh alerts until you switch back."]
+    }[s];
+    var h = '<div class="top"><div class="wordmark">seshhon</div><span class="pill">Test version</span></div>';
+    h += '<section class="stack"><div class="eyebrow">Your status</div>' +
+      '<div class="status-word" style="color:' + COLORS[s] + '">' + copy[0] + '</div>' +
+      '<p class="muted">' + copy[1] + (s !== 'off' ? ' Back to off in <span data-until="' + state.until + '" data-kind="status">' + fmtLeft(state.until - Date.now()) + '</span>.' : '') + '</p>' +
+      '<div class="switch" role="group" aria-label="Set your status">' +
+      ['on', 'thinking', 'off'].map(function (k) {
+        return '<button class="seg" style="--c:' + COLORS[k] + '" data-act="status" data-v="' + k + '" aria-pressed="' + (s === k) + '"><span class="dot"></span>' + LABELS[k] + '</button>';
+      }).join('') + '</div></section>';
+
+    if (s === 'off') {
+      h += '<div class="card"><h2>Friends are hidden while you\'re off</h2><p class="muted small">Switch to On or Thinking to see who\'s up for it tonight.</p></div>';
+    } else {
+      var on = onFriends().length, th = FRIENDS.length - on;
+      h += '<section class="stack" style="gap:4px"><div class="row between"><h2>Up for it now</h2><span class="muted small">' + on + ' on, ' + th + ' thinking</span></div>' +
+        '<p class="muted small">Example friends</p>' +
+        FRIENDS.map(function (f) {
+          var fs = friendStatus(f);
+          return '<div class="friend"><div class="avatar' + (fs === 'thinking' ? ' dashed' : '') + '" style="--c:' + COLORS[fs] + '">' + initials(f.name) + '</div>' +
+            '<div class="grow"><div style="font-weight:500">' + f.name + '</div><div class="muted small">' + (fs === 'on' && f.status !== 'on' ? 'Just went on' : f.note) + '</div></div>' +
+            '<div class="state" style="--c:' + COLORS[fs] + '">' + LABELS[fs] + '</div></div>';
+        }).join('') + '</section>';
+      if (s === 'on') h += '<button class="btn" data-act="go-sesh">' + (state.sesh ? 'Open tonight\'s sesh' : 'Start a sesh') + '</button>';
+      else h += '<button class="btn" style="--c:var(--thinking)" data-act="tab" data-v="deals">See tonight\'s deals</button>';
+    }
+    return h;
+  }
+
+  function sesh() {
+    var h = '<div class="stack" style="gap:6px"><div class="eyebrow" style="color:var(--on)">' + (state.sesh ? 'Live now' : 'No sesh yet') + '</div><h1>Tonight\'s sesh</h1></div>';
+    if (!state.sesh) {
+      if (state.status === 'on') h += '<p class="muted">Start a sesh and everyone who is on gets asked to join and vote on where to go.</p><button class="btn" data-act="start-sesh">Start a sesh</button>';
+      else h += '<p class="muted">You need to be On to start a sesh.</p><button class="btn" data-act="status" data-v="on">Go on</button>';
+      return h;
+    }
+    var members = onFriends();
+    h += '<div class="card" style="flex-direction:row;align-items:center;gap:14px"><div class="avatars"><div class="avatar" style="--c:var(--on)">' + initials(state.name) + '</div>' +
+      members.map(function (f) { return '<div class="avatar" style="--c:var(--on)">' + initials(f.name) + '</div>'; }).join('') + '</div>' +
+      '<div class="grow"><div style="font-weight:700">' + (members.length + 1) + ' in</div><div class="muted small">You, ' + members.map(function (f) { return f.name.split(' ')[0]; }).join(', ') + '</div></div></div>';
+
+    if (state.sesh.locked) {
+      var lv = VENUES[state.sesh.locked];
+      h += '<div class="card lead"><div class="eyebrow" style="color:var(--on)">Locked in</div><h2>' + lv.name + '</h2><p class="muted small">' + lv.kind + ', ' + lv.km + ' km from the group, ' + lv.close + '</p>' +
+        '<button class="btn" data-act="venue" data-v="' + state.sesh.locked + '">See venue and deals</button></div>' +
+        '<button class="btn ghost" data-act="end-sesh">End the sesh</button>';
+      return h;
+    }
+    var total = VENUE_ORDER.reduce(function (a, v) { return a + tally(v); }, 0), lead = leader();
+    h += '<div class="row between"><h2>Where to?</h2><span class="muted small">' + total + ' vote' + (total === 1 ? '' : 's') + ' in</span></div><div class="stack">';
+    VENUE_ORDER.forEach(function (v) {
+      var ven = VENUES[v], n = tally(v), mine = state.sesh.myVote === v, isLead = v === lead && n > 0;
+      var deal = DEALS.filter(function (d) { return d.venue === v && dealState(d).active; })[0];
+      h += '<div class="card' + (isLead ? ' lead' : '') + '"><div class="row between"><div class="grow"><div style="font-weight:700;font-size:17px">' + ven.name + '</div>' +
+        '<div class="muted small">' + ven.km + ' km from the group, ' + ven.close + '</div></div>' +
+        '<button class="btn small-btn' + (mine ? '' : ' ghost') + '" data-act="vote" data-v="' + v + '" aria-pressed="' + mine + '">' + (mine ? 'Your vote' : 'Vote') + '</button></div>' +
+        (deal ? '<div class="deal-title small">' + deal.title + '</div>' : '') +
+        '<div class="row"><div class="bar"><i style="width:' + (total ? Math.round(n / total * 100) : 0) + '%"></i></div><div class="small" style="font-weight:700">' + n + ' vote' + (n === 1 ? '' : 's') + '</div></div></div>';
+    });
+    h += '</div><button class="btn" data-act="lock">Lock in ' + VENUES[lead].name + '</button>';
+    return h;
+  }
+
+  function dealCard(d, showVenue) {
+    var st = dealState(d), used = state.codes[d.id] && state.codes[d.id].used === today();
+    return '<div class="card' + (st.active ? ' deal-active' : '') + '">' +
+      '<div class="row between"><span class="eyebrow">' + d.type + '</span><span class="small muted">' + st.text + '</span></div>' +
+      '<div class="deal-title" style="font-size:17px">' + d.title + '</div>' +
+      (showVenue ? '<div class="small muted">' + VENUES[d.venue].name + ', ' + VENUES[d.venue].km + ' km away</div>' : '') +
+      '<div class="row">' +
+      (showVenue ? '<button class="btn small-btn ghost" data-act="venue" data-v="' + d.venue + '">Venue</button>' : '') +
+      '<button class="btn small-btn" style="--c:var(--thinking)" data-act="redeem" data-v="' + d.id + '"' + (st.active && !used ? '' : ' disabled') + '>' + (used ? 'Used tonight' : st.active ? 'Use deal' : 'Not on now') + '</button></div></div>';
+  }
+
+  function deals() {
+    var types = ['All', 'Food', 'Drinks', 'Entry', 'Events'];
+    var list = DEALS.filter(function (d) { return state.filter === 'All' || d.type === state.filter; });
+    return '<div class="stack" style="gap:6px"><h1>Deals near you</h1><p class="muted small">Example venues. ' + (state.demoClock ? 'Test clock is set to Friday 8:30pm.' : 'Using the real time on this phone.') + '</p></div>' +
+      '<div class="chips" role="group" aria-label="Filter deals">' + types.map(function (t) {
+        return '<button class="chip" data-act="filter" data-v="' + t + '" aria-pressed="' + (state.filter === t) + '">' + t + '</button>';
+      }).join('') + '</div>' +
+      '<div class="stack" style="gap:12px">' + (list.length ? list.map(function (d) { return dealCard(d, true); }).join('') : '<p class="muted">No deals of this type tonight.</p>') + '</div>';
+  }
+
+  function venue(v) {
+    var ven = VENUES[v], r = rating(v), mine = state.ratings[v] || { stars: 0, tags: [] };
+    var h = '<button class="back" data-act="close" aria-label="Back">' + svg('back', 20) + '</button>' +
+      '<div class="stack" style="gap:6px"><h1>' + ven.name + '</h1><p class="muted small"><strong style="color:var(--fg)">' + r.avg + '</strong> from ' + r.count + ' ratings. ' + ven.kind + ', ' + ven.km + ' km, ' + ven.close + '</p></div>' +
+      '<div class="stack" style="gap:12px"><h2>Deals here</h2>' + DEALS.filter(function (d) { return d.venue === v; }).map(function (d) { return dealCard(d, false); }).join('') + '</div>' +
+      '<div class="stack" style="gap:12px;padding-top:18px;border-top:1px solid var(--line)"><h2>Rate this venue</h2>' +
+      '<div class="stars" role="group" aria-label="Star rating">' + [1, 2, 3, 4, 5].map(function (n) {
+        return '<button class="star" data-act="star" data-v="' + n + '" aria-label="' + n + ' star' + (n > 1 ? 's' : '') + '" aria-pressed="' + (mine.stars >= n) + '"><svg width="30" height="30" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true">' + ICON.star + '</svg></button>';
+      }).join('') + '</div>' +
+      '<div class="chips">' + TAGS.map(function (t) {
+        return '<button class="chip" data-act="tag" data-v="' + t + '" aria-pressed="' + (mine.tags.indexOf(t) >= 0) + '">' + t + '</button>';
+      }).join('') + '</div></div>';
+    if (state.sesh && !state.sesh.locked) h += '<button class="btn" data-act="suggest" data-v="' + v + '">Vote for this in tonight\'s sesh</button>';
+    return h;
+  }
+
+  function redeem(id) {
+    var d = DEALS.filter(function (x) { return x.id === id; })[0], c = state.codes[id];
+    var h = '<div class="row"><button class="back" data-act="close" aria-label="Back">' + svg('back', 20) + '</button><div style="font-weight:700">' + VENUES[d.venue].name + '</div></div>';
+    if (c && c.used === today()) {
+      return h + '<h1>Deal used</h1><p class="deal-title">' + d.title + '</p><p class="muted">Each person can use a deal once per night. It will be available again tomorrow.</p>' +
+        '<button class="btn" data-act="venue" data-v="' + d.venue + '">Rate ' + VENUES[d.venue].name + '</button>';
+    }
+    var expired = Date.now() >= c.until;
+    h += '<div class="stack" style="gap:8px"><h1>Show this at the bar</h1><p class="deal-title">' + d.title + '</p></div>';
+    if (expired) {
+      h += '<div class="card"><h2>This code ran out</h2><p class="muted small">Codes last 15 minutes so they can\'t be passed around.</p></div><button class="btn" style="--c:var(--thinking)" data-act="redeem" data-v="' + id + '">Get a new code</button>';
+    } else {
+      h += '<div class="code-box"><div class="code">' + c.code + '</div><div class="note">Staff type this code in to confirm it</div></div>' +
+        '<div class="tiles"><div class="card" style="gap:2px"><div class="muted small">Code runs out in</div><div class="tile-num" data-until="' + c.until + '" data-kind="code">' + fmtLeft(c.until - Date.now()) + '</div></div>' +
+        '<div class="card" style="gap:2px"><div class="muted small">Limit</div><div class="tile-num">1 per night</div></div></div>' +
+        '<p class="muted small">In the real app the venue confirms the code on their side. Here, press the button to play the staff member.</p>' +
+        '<button class="btn" data-act="confirm" data-v="' + id + '">Staff: confirm this code</button>';
+    }
+    return h;
+  }
+
+  function you() {
+    return '<div class="row"><div class="avatar" style="width:56px;height:56px;font-size:18px;--c:' + COLORS[state.status] + '">' + initials(state.name) + '</div><div><h1 style="font-size:28px">' + esc(state.name) + '</h1><p class="muted small">Status: ' + LABELS[state.status] + '</p></div></div>' +
+      '<div class="card"><h2>Test clock</h2><p class="muted small">Deals only work during their hours. The test clock pretends it is Friday 8:30pm so you can try them at any time of day.</p>' +
+      '<div class="chips" role="group" aria-label="Clock"><button class="chip" data-act="clock" data-v="1" aria-pressed="' + state.demoClock + '">Friday 8:30pm</button><button class="chip" data-act="clock" data-v="0" aria-pressed="' + !state.demoClock + '">Real time</button></div></div>' +
+      '<div class="card"><h2>What this test version does</h2><p class="muted small">Your status, votes, deal codes and ratings work and are saved on this phone only. The friends, venues and deals are examples. Nothing is sent to anyone.</p></div>' +
+      '<div class="card"><h2>Start again</h2><p class="muted small">Clears your name and everything you have done here.</p><button class="btn ghost" data-act="reset">Reset the test version</button></div>';
+  }
+
+  /* ---------- render ---------- */
+  function render() {
+    if (!state.name) { tabs.hidden = true; view.innerHTML = welcome(); return; }
+    var html;
+    if (state.screen && state.screen.type === 'venue') html = venue(state.screen.id);
+    else if (state.screen && state.screen.type === 'redeem') html = redeem(state.screen.id);
+    else html = { home: home, sesh: sesh, deals: deals, you: you }[state.tab]();
+    view.innerHTML = html;
+    tabs.hidden = false;
+    tabs.innerHTML = [['home', 'Home'], ['sesh', 'Sesh'], ['deals', 'Deals'], ['you', 'You']].map(function (t) {
+      return '<button data-act="tab" data-v="' + t[0] + '"' + (state.tab === t[0] && !state.screen ? ' aria-current="page"' : '') + '>' + svg(t[0], 22) + '<span>' + t[1] + '</span></button>';
+    }).join('');
+  }
+  function go(top) { save(); render(); if (top) view.scrollTop = 0; }
+
+  function setStatus(v) {
+    state.status = v;
+    clearTimeout(danTimer);
+    if (v === 'on') {
+      state.until = Date.now() + GREEN_MS;
+      toast('You are on. Friends who are on have been told.');
+      if (!state.danOn) danTimer = setTimeout(function () { state.danOn = true; toast('Dan just went on too.'); go(false); }, 5000);
+    } else if (v === 'thinking') {
+      state.until = Date.now() + YELLOW_MS;
+    } else {
+      state.until = 0; state.danOn = false; state.sesh = null;
+    }
+  }
+
+  var ACT = {
+    tab: function (v) { state.tab = v; state.screen = null; go(true); },
+    status: function (v) { setStatus(v); state.tab = 'home'; state.screen = null; go(false); },
+    'go-sesh': function () { if (!state.sesh) state.sesh = { myVote: null, locked: null }; state.tab = 'sesh'; go(true); },
+    'start-sesh': function () { state.sesh = { myVote: null, locked: null }; toast('Sesh started. Everyone who is on can vote.'); go(false); },
+    vote: function (v) { state.sesh.myVote = state.sesh.myVote === v ? null : v; go(false); },
+    lock: function () { state.sesh.locked = leader(); toast(VENUES[state.sesh.locked].name + ' is locked in.'); go(true); },
+    'end-sesh': function () { state.sesh = null; go(true); },
+    filter: function (v) { state.filter = v; go(false); },
+    venue: function (v) { state.screen = { type: 'venue', id: v }; go(true); },
+    close: function () {
+      if (state.screen && state.screen.type === 'redeem') { var d = DEALS.filter(function (x) { return x.id === state.screen.id; })[0]; state.screen = { type: 'venue', id: d.venue }; }
+      else state.screen = null;
+      go(true);
+    },
+    redeem: function (v) {
+      var c = state.codes[v];
+      if (!c || (c.used !== today() && Date.now() >= c.until)) state.codes[v] = { code: 'SESH-' + (1000 + Math.floor(Math.random() * 9000)), until: Date.now() + CODE_MS, used: null };
+      state.screen = { type: 'redeem', id: v }; go(true);
+    },
+    confirm: function (v) { state.codes[v].used = today(); toast('Code confirmed.'); go(true); },
+    star: function (v) {
+      var id = state.screen.id, r = state.ratings[id] || { stars: 0, tags: [] };
+      r.stars = Number(v); state.ratings[id] = r; toast('Rating saved.'); go(false);
+    },
+    tag: function (v) {
+      var id = state.screen.id, r = state.ratings[id] || { stars: 0, tags: [] }, i = r.tags.indexOf(v);
+      if (i >= 0) r.tags.splice(i, 1); else r.tags.push(v);
+      state.ratings[id] = r; go(false);
+    },
+    suggest: function (v) { state.sesh.myVote = v; state.screen = null; state.tab = 'sesh'; go(true); },
+    clock: function (v) { state.demoClock = v === '1'; go(false); },
+    reset: function () { clearTimeout(danTimer); state = fresh(); go(true); }
+  };
+
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest('[data-act]');
+    if (!b || b.disabled) return;
+    var fn = ACT[b.getAttribute('data-act')];
+    if (fn) fn(b.getAttribute('data-v'));
+  });
+  document.addEventListener('submit', function (e) {
+    if (e.target.id !== 'join') return;
+    e.preventDefault();
+    var name = document.getElementById('name').value.trim(), adult = document.getElementById('adult').checked, err = document.getElementById('join-error');
+    if (!name) { err.textContent = 'Enter your first name to continue.'; err.hidden = false; return; }
+    if (!adult) { err.textContent = 'Seshhon is for people aged 18 and over. Tick the box to confirm.'; err.hidden = false; return; }
+    state.name = name; go(true);
+  });
+
+  setInterval(function () {
+    var now = Date.now();
+    if (state.name && state.status !== 'off' && state.until && now >= state.until) {
+      setStatus('off'); toast('Your status ran out, so you are off again.'); go(false); return;
+    }
+    var els = view.querySelectorAll('[data-until]');
+    for (var i = 0; i < els.length; i++) {
+      var until = Number(els[i].getAttribute('data-until'));
+      if (els[i].getAttribute('data-kind') === 'code' && now >= until) { render(); return; }
+      els[i].textContent = fmtLeft(until - now);
+    }
+  }, 1000);
+
+  if (state.status !== 'off' && Date.now() >= state.until) { state.status = 'off'; state.until = 0; state.danOn = false; state.sesh = null; }
+  render();
+})();
+</script>
+</body>
+</html>
