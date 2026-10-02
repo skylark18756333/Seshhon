@@ -1,0 +1,19 @@
+{
+  "name": "seshhon",
+  "private": true,
+  "description": "Seshhon: tell your friends you're up for a sesh, pick a place, use a deal.",
+  "scripts": {
+    "test": "tsx --test app/src/core/rules.test.ts",
+    "preview": "node tools/preview/build.mjs",
+    "check": "node tools/preview/build.mjs && node tools/preview/check.mjs",
+    "test:db": "bash supabase/tests/run.sh"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "playwright": "^1.56.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "tsx": "^4.23.12",
+    "typescript": "^6.0.3"
+  }
+}
