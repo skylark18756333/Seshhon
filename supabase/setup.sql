@@ -1262,3 +1262,5 @@ insert into public.deals (id, venue_id, type, title, start_time, end_time, is_al
   -- Runs all day so the deal code screen can be tried at any time.
   ('d0000000-0000-4000-8000-000000000006', 'a0000000-0000-4000-8000-000000000002', 'Food', 'Test deal: free garlic bread, any time', '00:00', '23:59:59', false, null)
 on conflict (id) do nothing;
+
+notify pgrst, 'reload schema';

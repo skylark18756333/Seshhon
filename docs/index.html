@@ -224,6 +224,11 @@ a { color: var(--fg); }
       return res.text().then(function (text) {
         var json = null;
         try { json = text ? JSON.parse(text) : null; } catch (e) {}
+        if (!res.ok && json && json.code === 'PGRST202') {
+          // The database is missing a function this page calls: an update in supabase/ has not been run yet.
+          console.error('Seshhon database is out of date. Run supabase/update.sql in the Supabase SQL editor.', json.message);
+          throw new Error('Seshhon is being updated. Try again soon.');
+        }
         if (!res.ok) throw new Error((json && json.message) || 'Something went wrong. Try again.');
         return json;
       });

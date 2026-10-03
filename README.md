@@ -87,3 +87,6 @@ functions in `supabase/migrations/0002_live_web_app.sql`.
 - `bash supabase/tests/run.sh`: database rule tests.
 
 `supabase/migrations/0004_sesh_chat.sql` adds the self-erasing sesh chat with block and report. Run new migrations in the Supabase SQL editor in order.
+
+If your project was set up before the age gate and sign up says it cannot find `public.api_sign_up(p_birth_date, p_name)`,
+paste `supabase/update.sql` into the Supabase SQL editor and press Run once. It adds migrations 0003 onwards.
