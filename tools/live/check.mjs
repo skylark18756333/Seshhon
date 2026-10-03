@@ -49,7 +49,7 @@ const tap = (p, label) => p.page.getByRole('button', { name: label, exact: true 
 async function signUp(p, name, link) {
   await p.page.goto(`http://127.0.0.1:${WEB_PORT}/${link || ''}`);
   await p.page.fill('#name', name);
-  await p.page.check('#adult');
+  await p.page.fill('#dob', '1995-04-12');
   await tap(p, 'Get started');
   await has(p, 'Your status');
 }
@@ -62,8 +62,13 @@ try {
   console.log('Sign-up');
   await ana.page.goto(`http://127.0.0.1:${WEB_PORT}/`);
   await ana.page.fill('#name', 'Ana'); await tap(ana, 'Get started');
-  ok(await has(ana, 'Tick the box to confirm'), 'cannot sign up without the 18+ box');
-  await ana.page.check('#adult'); await tap(ana, 'Get started');
+  ok(await has(ana, 'Enter your date of birth'), 'cannot sign up without a date of birth');
+  await ana.page.fill('#dob', '2015-06-01'); await tap(ana, 'Get started');
+  ok(await has(ana, 'aged 18 and over') && (await ana.page.locator('#name').count()) === 0, 'an under-18 date of birth is turned away');
+  await ana.page.reload(); 
+  ok(await has(ana, 'aged 18 and over') && (await ana.page.locator('#name').count()) === 0, 'and stays turned away after a reload');
+  await ana.page.evaluate(() => localStorage.clear()); await ana.page.reload();
+  await ana.page.fill('#name', 'Ana'); await ana.page.fill('#dob', '1995-04-12'); await tap(ana, 'Get started');
   ok(await has(ana, "You're off."), 'Ana signs up and starts Off');
   ok(await has(ana, 'Add your friends'), 'a new person is told to add friends');
 
