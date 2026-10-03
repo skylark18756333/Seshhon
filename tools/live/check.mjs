@@ -28,6 +28,11 @@ const web = http.createServer((req, res) => {
   if (p === '/config.js') { res.setHeader('Content-Type', 'text/javascript'); // Serve the real docs/config.js, only swapping the address and key, so a misnamed setting is caught here.
     return res.end(fs.readFileSync(path.join(root, 'docs/config.js'), 'utf8').replace(/url: '[^']*'/, `url: '${API}'`).replace(/key: '[^']*'/, "key: 'test-anon-key'").replace(/pollMs: \d+/, 'pollMs: 600, chatPollMs: 500').replace(/deals: (true|false)/, 'deals: ' + dealsOn)); }
   const f = path.join(root, 'docs', p === '/' ? 'index.html' : p);
+  if (f === path.join(root, 'docs/index.html')) { // The security policy must allow the real Supabase address; here it is swapped for the stand-in.
+    const html = fs.readFileSync(f, 'utf8'), live = fs.readFileSync(path.join(root, 'docs/config.js'), 'utf8').match(/url: '([^']*)'/)[1];
+    if (!html.includes('connect-src ' + live + ';')) { res.statusCode = 500; return res.end('index.html connect-src does not match config.js url ' + live); }
+    res.setHeader('Content-Type', 'text/html'); return res.end(html.replace('connect-src ' + live + ';', 'connect-src ' + API + ';'));
+  }
   if (!f.startsWith(path.join(root, 'docs')) || !fs.existsSync(f)) { res.statusCode = 404; return res.end(); }
   const types = { '.html': 'text/html', '.js': 'text/javascript', '.png': 'image/png', '.webmanifest': 'application/manifest+json' };
   res.setHeader('Content-Type', types[path.extname(f)] || 'application/octet-stream'); res.end(fs.readFileSync(f));
@@ -41,6 +46,7 @@ async function phone(name) {
   await ctx.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
   const page = await ctx.newPage();
   page.on('pageerror', (e) => consoleErrors.push(name + ': ' + e.message));
+  page.on('console', (m) => { if (/Content Security Policy/.test(m.text())) consoleErrors.push(name + ': ' + m.text()); });
   return { name, ctx, page };
 }
 const text = (p) => p.page.locator('body').innerText();

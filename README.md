@@ -83,6 +83,17 @@ functions in `supabase/migrations/0002_live_web_app.sql`.
 
 - `supabase/setup.sql`: everything to paste into the Supabase SQL editor on a new project (rebuild with `tools/live/build-setup.sh`).
 - `docs/config.js`: the project URL and public (anon/publishable) key. Never put a service_role key or the database password here.
+- `docs/app.js`: the app's code. It is a separate file, not inline in `index.html`, because the page's Content Security Policy
+  forbids inline scripts. If the Supabase project URL changes, update `connect-src` in `docs/index.html` too (`check.mjs` fails if they differ).
+
+### Security
+
+- Every table has row level security, signed-out visitors can read or call nothing, and since `0006_security_hardening.sql`
+  anything new added to the database starts locked until a migration grants it.
+- Sign-up spam: set a Cloudflare Turnstile site key as `captchaSiteKey` in `docs/config.js` first, then switch on CAPTCHA
+  protection in Supabase (Authentication, Attack Protection). The other order breaks sign-up.
+- Old data is deleted on a schedule (`purge_old_data()` via pg_cron): seshes after 7 days, deal codes after the night,
+  unfinished sign-ins after 2 days, chat when the sesh ends, reports after 90 days.
 - `node tools/live/check.mjs`: three simulated phones use the app against a local test database (needs PostgreSQL 15+ and Chromium).
 - `bash supabase/tests/run.sh`: database rule tests.
 

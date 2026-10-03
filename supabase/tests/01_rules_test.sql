@@ -34,7 +34,7 @@ begin
   return 'PASS  ' || label;
 end;
 $$;
-grant execute on function public.expect_error(text, text), public.expect(boolean, text) to authenticated;
+grant execute on function public.expect_error(text, text), public.expect(boolean, text) to authenticated, anon, service_role;   -- anon too: 0006 stops new functions being callable by everyone
 
 insert into auth.users (id) values (:a), (:b), (:c), (:s);
 insert into public.venues (id, name) values (:venue, 'Test Bar'), (:venue2, 'Other Bar');
