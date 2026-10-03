@@ -3,7 +3,7 @@
   "private": true,
   "description": "SeshOn: tell your friends you're up for a sesh, pick a place, use a deal.",
   "scripts": {
-    "test": "tsx --test app/src/core/rules.test.ts",
+    "test": "tsx --test app/src/core/rules.test.ts supabase/functions/age-check/providers.test.ts",
     "preview": "node tools/preview/build.mjs",
     "check": "node tools/preview/build.mjs && node tools/preview/check.mjs",
     "test:db": "bash supabase/tests/run.sh"

@@ -26,8 +26,13 @@ const api = spawn('node', [path.join(here, 'fake-supabase.mjs'), sock, dbPort, '
 const web = http.createServer((req, res) => {
   const p = new URL(req.url, 'http://x').pathname;
   if (p === '/config.js') { res.setHeader('Content-Type', 'text/javascript'); // Serve the real docs/config.js, only swapping the address and key, so a misnamed setting is caught here.
-    return res.end(fs.readFileSync(path.join(root, 'docs/config.js'), 'utf8').replace(/url: '[^']*'/, `url: '${API}'`).replace(/key: '[^']*'/, "key: 'test-anon-key'").replace(/pollMs: \d+/, 'pollMs: 600, chatPollMs: 500').replace(/deals: (true|false)/, 'deals: ' + dealsOn)); }
+    return res.end(fs.readFileSync(path.join(root, 'docs/config.js'), 'utf8').replace(/url: '[^']*'/, `url: '${API}'`).replace(/key: '[^']*'/, "key: 'test-anon-key'").replace(/pollMs: \d+/, 'pollMs: 600, chatPollMs: 500').replace(/deals: (true|false)/, 'deals: ' + dealsOn).replace(/captchaSiteKey: '[^']*'/, "captchaSiteKey: ''")); }
   const f = path.join(root, 'docs', p === '/' ? 'index.html' : p);
+  if (f === path.join(root, 'docs/index.html')) { // The security policy must allow the real Supabase address; here it is swapped for the stand-in.
+    const html = fs.readFileSync(f, 'utf8'), live = fs.readFileSync(path.join(root, 'docs/config.js'), 'utf8').match(/url: '([^']*)'/)[1];
+    if (!html.includes('connect-src ' + live + ';')) { res.statusCode = 500; return res.end('index.html connect-src does not match config.js url ' + live); }
+    res.setHeader('Content-Type', 'text/html'); return res.end(html.replace('connect-src ' + live + ';', 'connect-src ' + API + ';'));
+  }
   if (!f.startsWith(path.join(root, 'docs')) || !fs.existsSync(f)) { res.statusCode = 404; return res.end(); }
   const types = { '.html': 'text/html', '.js': 'text/javascript', '.png': 'image/png', '.webmanifest': 'application/manifest+json' };
   res.setHeader('Content-Type', types[path.extname(f)] || 'application/octet-stream'); res.end(fs.readFileSync(f));
@@ -41,6 +46,7 @@ async function phone(name) {
   await ctx.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
   const page = await ctx.newPage();
   page.on('pageerror', (e) => consoleErrors.push(name + ': ' + e.message));
+  page.on('console', (m) => { if (/Content Security Policy/.test(m.text())) consoleErrors.push(name + ': ' + m.text()); });
   return { name, ctx, page };
 }
 const text = (p) => p.page.locator('body').innerText();
@@ -219,6 +225,67 @@ try {
   ok((await dan.page.locator('nav button:has-text("Deals")').count()) === 0 && (await dan.page.locator('nav button:has-text("Venues")').count()) === 1, 'with deals off there is a Venues tab and no Deals tab');
   await tab(dan, 'Venues'); await dan.page.getByRole('button', { name: 'Open' }).first().click();
   ok(await has(dan, 'Rate this venue') && !(await text(dan)).includes('Deals here'), 'a venue page shows ratings but no deals');
+
+  console.log('Third-party age check');
+  const ageSet = (b) => fetch(API + '/__fake/age-check', { method: 'POST', headers: { apikey: 'test-anon-key', 'Content-Type': 'application/json' }, body: JSON.stringify(b) });
+  await ageSet({ required: true, outcome: 'failed' });
+  const eve = await phone('Eve');
+  await eve.page.goto(`http://127.0.0.1:${WEB_PORT}/`);
+  await eve.page.fill('#name', 'Eve'); await eve.page.fill('#dob', '1999-02-03'); await tap(eve, 'Get started');
+  ok(await has(eve, 'Quick age check') && await has(eve, 'Yoti checks your age with a quick selfie'), 'with the check switched on, sign-up asks for the age check');
+  await tap(eve, 'Start age check');
+  ok(await has(eve, "couldn't confirm you're 18"), 'a failed check is explained and Eve is not let in');
+  ok(!eve.page.url().includes('age_check'), 'the return address is tidied away');
+  await ageSet({ outcome: 'pending' });
+  await tap(eve, 'Start age check');
+  ok(await has(eve, 'still being looked at'), 'a check still under review says so');
+  await ageSet({ outcome: 'passed' });
+  await tap(eve, "I've finished, check again");
+  ok(await has(eve, "You're red."), 'once the check passes, Eve is signed up');
+  ok(await eve.page.evaluate(() => sessionStorage.getItem('seshhon-signup-waiting')) === null, 'the date of birth held during the check is cleared');
+  await dan.page.reload();
+  ok(await has(dan, 'Quick age check'), 'someone who joined before the check was switched on is asked to do it');
+  await tap(dan, 'Start age check');
+  ok(await has(dan, 'Your status'), 'and gets back in once they pass');
+  await ageSet({ required: false });
+
+  console.log('Username and password');
+  const fay = await phone('Fay');
+  await signUp(fay, 'Fay');
+  await tab(fay, 'You');
+  ok(await has(fay, 'Keep your account'), 'a new account is offered a username and password');
+  await fay.page.fill('#save-user', 'x'); await fay.page.fill('#save-pass', 'longenough1'); await tap(fay, 'Save my account');
+  ok(await has(fay, '3 to 20 letters'), 'a bad username is explained');
+  await fay.page.fill('#save-user', 'Fay_99'); await tap(fay, 'Save my account');
+  ok(await has(fay, 'Save your recovery code'), 'saving shows a recovery code');
+  const code1 = (await fay.page.locator('#recovery-code').innerText()).trim();
+  ok(/^[A-Z2-9]{4}(-[A-Z2-9]{4}){3}$/.test(code1), 'the recovery code looks like XXXX-XXXX-XXXX-XXXX');
+  await tap(fay, "I've saved it");
+  ok(await has(fay, 'logged in as fay_99'), 'Fay sees her username');
+  const fay2 = await phone('Fay on a new phone');
+  await fay2.page.goto(`http://127.0.0.1:${WEB_PORT}/`);
+  await tap(fay2, 'I already have an account');
+  await fay2.page.fill('#login-user', 'fay_99'); await fay2.page.fill('#login-pass', 'wrongpassword');
+  await tap(fay2, 'Log in');
+  ok(await has(fay2, "don't match"), 'a wrong password is turned away');
+  await fay2.page.fill('#login-pass', 'longenough1'); await tap(fay2, 'Log in');
+  ok(await has(fay2, 'Your status'), 'Fay logs in on a new phone with her username and password');
+  await tab(fay2, 'You');
+  ok(await has(fay2, 'logged in as fay_99'), 'and it is the same account');
+  await tap(fay2, 'Log out');
+  ok(await has(fay2, 'I already have an account'), 'logging out goes back to the start');
+  await tap(fay2, 'I already have an account'); await tap(fay2, 'Forgot your password?');
+  await fay2.page.fill('#rec-user', 'fay_99'); await fay2.page.fill('#rec-code', 'AAAA-AAAA-AAAA-AAAA'); await fay2.page.fill('#rec-pass', 'brandnewpass');
+  await tap(fay2, 'Set new password');
+  ok(await has(fay2, "recovery code don't match"), 'a wrong recovery code is turned away');
+  await fay2.page.fill('#rec-code', code1.toLowerCase()); await tap(fay2, 'Set new password');
+  ok(await has(fay2, 'Save your recovery code'), 'the right recovery code sets a new password and gives a new code');
+  const code2 = (await fay2.page.locator('#recovery-code').innerText()).trim();
+  ok(code2 !== code1, 'the used code is replaced');
+  await tap(fay2, "I've saved it");
+  ok(await fay2.page.locator('#login-user').inputValue() === 'fay_99', 'then the log-in form has the username filled in');
+  await fay2.page.fill('#login-pass', 'brandnewpass'); await tap(fay2, 'Log in');
+  ok(await has(fay2, 'Your status'), 'and the new password works');
 
   ok(consoleErrors.length === 0, 'no script errors on any phone' + (consoleErrors.length ? ': ' + consoleErrors.join('; ') : ''));
   await ana.page.screenshot({ path: path.join(copy, 'ana.png') });
