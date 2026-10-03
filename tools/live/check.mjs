@@ -26,7 +26,7 @@ const api = spawn('node', [path.join(here, 'fake-supabase.mjs'), sock, dbPort, '
 const web = http.createServer((req, res) => {
   const p = new URL(req.url, 'http://x').pathname;
   if (p === '/config.js') { res.setHeader('Content-Type', 'text/javascript'); // Serve the real docs/config.js, only swapping the address and key, so a misnamed setting is caught here.
-    return res.end(fs.readFileSync(path.join(root, 'docs/config.js'), 'utf8').replace(/url: '[^']*'/, `url: '${API}'`).replace(/key: '[^']*'/, "key: 'test-anon-key'").replace(/pollMs: \d+/, 'pollMs: 600, chatPollMs: 500').replace(/deals: (true|false)/, 'deals: ' + dealsOn)); }
+    return res.end(fs.readFileSync(path.join(root, 'docs/config.js'), 'utf8').replace(/url: '[^']*'/, `url: '${API}'`).replace(/key: '[^']*'/, "key: 'test-anon-key'").replace(/pollMs: \d+/, 'pollMs: 600, chatPollMs: 500').replace(/deals: (true|false)/, 'deals: ' + dealsOn).replace(/captchaSiteKey: '[^']*'/, "captchaSiteKey: ''")); }
   const f = path.join(root, 'docs', p === '/' ? 'index.html' : p);
   if (f === path.join(root, 'docs/index.html')) { // The security policy must allow the real Supabase address; here it is swapped for the stand-in.
     const html = fs.readFileSync(f, 'utf8'), live = fs.readFileSync(path.join(root, 'docs/config.js'), 'utf8').match(/url: '([^']*)'/)[1];
