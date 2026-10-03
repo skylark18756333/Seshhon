@@ -5,5 +5,6 @@
 window.SESHHON_CONFIG = {
   url: 'https://xfwrhetohauzhqqhkibm.supabase.co',
   key: 'sb_publishable_hv2mIG5TfKBI-iXURTd9WQ_FFHRnj-Y',   // public key, safe to publish
-  pollMs: 5000
+  pollMs: 5000,
+  deals: false   // deals are hidden for now; set to true to show the Deals tab and staff code checking
 };
