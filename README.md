@@ -13,7 +13,9 @@ Your status is a traffic light:
 | Folder | What it is | State |
 | --- | --- | --- |
 | `web/` | The test version that runs in a web browser. Open `web/index.html`. | Works. Single player, example friends and venues. |
-| `app/` | The phone app code (React Native, for iPhone and Android). | Written and tested in a browser stand-in. **Not yet run on a phone.** |
+| `docs/` | The live, multi-friend web app. | Live on GitHub Pages. |
+| `mobile/` | The App Store / Google Play app: a native shell around the live web app, built in the cloud. See `mobile/README.md`. | Ready to build once the Expo, Apple and Google accounts exist. |
+| `app/` | An earlier phone app version (React Native, single player, sample data). | Kept for reference; `mobile/` replaces it for the stores. |
 | `app/src/core/` | The rules: status expiry, deal limits, deal codes, vote counting. | Covered by automated tests. |
 | `supabase/` | The database for the real, multi-phone version. | Tested on a local database. **Not yet connected to a Supabase project.** |
 | `tools/preview/` | Lets a developer run the phone app's code in a web browser. | Works. |
