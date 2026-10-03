@@ -1,4 +1,4 @@
-// The rules of Seshhon, with no screen or database code.
+// The rules of SeshOn, with no screen or database code.
 // The phone app and the tests both use this file, so the rules live in one place.
 
 export type Status = 'on' | 'thinking' | 'off';

@@ -54,12 +54,12 @@ export function Welcome({ ctx }: { ctx: Ctx }) {
   const [error, setError] = useState('');
   const submit = () => {
     if (!name.trim()) return setError('Enter your first name to continue.');
-    if (!adult) return setError('Seshhon is for people aged 18 and over. Tick the box to confirm.');
+    if (!adult) return setError('SeshOn is for people aged 18 and over. Tick the box to confirm.');
     ctx.actions.join(name.trim());
   };
   return (
     <View style={{ gap: 24 }}>
-      <Text style={st.wordmark}>seshhon</Text>
+      <Text style={st.wordmark}>SeshOn</Text>
       <H1>Tell your friends you're up for a sesh.</H1>
       <Muted>This is a test version. Friends, venues and deals are examples, and everything you do stays on this phone.</Muted>
       <View style={{ gap: 8 }}>
@@ -90,7 +90,7 @@ export function Home({ ctx }: { ctx: Ctx }) {
   return (
     <View style={{ gap: 20 }}>
       <Row between>
-        <Text style={st.wordmark}>seshhon</Text>
+        <Text style={st.wordmark}>SeshOn</Text>
         <Text style={st.pill}>TEST VERSION</Text>
       </Row>
       <View style={{ gap: 10 }}>

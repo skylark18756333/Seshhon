@@ -1,4 +1,4 @@
-// Seshhon web app. Loaded by index.html; kept in its own file so the page can forbid inline scripts.
+// SeshOn web app. Loaded by index.html; kept in its own file so the page can forbid inline scripts.
 (function () {
   'use strict';
   var CFG = window.SESHHON_CONFIG || window.SESSHON_CONFIG || {};
@@ -139,8 +139,8 @@
         try { json = text ? JSON.parse(text) : null; } catch (e) {}
         if (!res.ok && json && json.code === 'PGRST202') {
           // The database is missing a function this page calls: an update in supabase/ has not been run yet.
-          console.error('Seshhon database is out of date. Run supabase/update.sql in the Supabase SQL editor.', json.message);
-          throw new Error('Seshhon is being updated. Try again soon.');
+          console.error('SeshOn database is out of date. Run supabase/update.sql in the Supabase SQL editor.', json.message);
+          throw new Error('SeshOn is being updated. Try again soon.');
         }
         if (!res.ok) throw new Error((json && json.message) || 'Something went wrong. Try again.');
         return json;
@@ -274,21 +274,21 @@
 
   /* ---------- screens ---------- */
   function notConnected() {
-    return '<div class="stack" style="gap:20px;margin-block:auto"><div class="wordmark">seshhon</div><h1>Not connected yet</h1>' +
-      '<p class="muted">This copy of Seshhon has not been pointed at its database. Add the project address and public key to config.js.</p></div>';
+    return '<div class="stack" style="gap:20px;margin-block:auto"><div class="wordmark">SeshOn</div><h1>Not connected yet</h1>' +
+      '<p class="muted">This copy of SeshOn has not been pointed at its database. Add the project address and public key to config.js.</p></div>';
   }
   function starting() {
-    return '<div class="stack" style="gap:20px;margin-block:auto"><div class="wordmark">seshhon</div><p class="muted">Loading…</p></div>';
+    return '<div class="stack" style="gap:20px;margin-block:auto"><div class="wordmark">SeshOn</div><p class="muted">Loading…</p></div>';
   }
   function tooYoung() {
-    return '<div class="stack" style="gap:20px;margin-block:auto"><div class="wordmark">seshhon</div><h1>Seshhon is for people aged 18 and over.</h1>' +
+    return '<div class="stack" style="gap:20px;margin-block:auto"><div class="wordmark">SeshOn</div><h1>SeshOn is for people aged 18 and over.</h1>' +
       '<p class="muted">We can\'t set up an account for you. If you entered your date of birth wrongly, contact us through the Privacy Policy page.</p></div>';
   }
   function ageCheck() {
     var who = PROVIDER_NAMES[ui.age && ui.age.provider] || 'Our age check partner';
-    var h = '<div class="stack" style="gap:20px;margin-block:auto"><div class="wordmark">seshhon</div><h1>Quick age check</h1>' +
-      '<p class="muted">Seshhon is for people aged 18 and over. ' + esc(who) + ' checks your age with a quick selfie. If it can\'t tell from your face, it asks you to show ID instead.</p>' +
-      '<p class="muted small">' + esc(who) + ' only tells us whether you passed. Seshhon never sees or keeps your photo or ID. See the <a href="privacy.html">Privacy Policy</a>.</p>';
+    var h = '<div class="stack" style="gap:20px;margin-block:auto"><div class="wordmark">SeshOn</div><h1>Quick age check</h1>' +
+      '<p class="muted">SeshOn is for people aged 18 and over. ' + esc(who) + ' checks your age with a quick selfie. If it can\'t tell from your face, it asks you to show ID instead.</p>' +
+      '<p class="muted small">' + esc(who) + ' only tells us whether you passed. SeshOn never sees or keeps your photo or ID. See the <a href="privacy.html">Privacy Policy</a>.</p>';
     if (ui.ageNote) h += '<p class="error" id="age-note">' + esc(ui.ageNote) + '</p>';
     if (ui.age && ui.age.pending) h += '<button class="btn" data-act="age-finish"' + (ui.ageBusy ? ' disabled' : '') + '>I\'ve finished, check again</button><button class="btn ghost" data-act="age-start"' + (ui.ageBusy ? ' disabled' : '') + '>Start again</button>';
     else h += '<button class="btn" data-act="age-start"' + (ui.ageBusy ? ' disabled' : '') + '>Start age check</button>';
@@ -298,12 +298,12 @@
     if (store(UNDERAGE_KEY)) return tooYoung();
     var invited = store(INVITE_KEY);
     return '<div class="stack" style="gap:24px;margin-block:auto">' +
-      '<div class="wordmark">seshhon</div>' +
+      '<div class="wordmark">SeshOn</div>' +
       '<h1>Tell your friends you\'re up for a sesh.</h1>' +
       '<p class="muted">' + (invited ? 'A friend invited you. Sign up and they will get your friend request.' : 'Go On when you\'re keen, see which friends are too, and pick a place together.') + '</p>' +
       '<form id="join" class="stack" style="gap:16px" novalidate>' +
       '<div class="field"><label for="name">Your first name</label><input id="name" type="text" autocomplete="given-name" maxlength="24"></div>' +
-      '<div class="field"><label for="dob">Date of birth</label><input id="dob" type="date" autocomplete="bday" min="1900-01-01"><span class="muted small">Seshhon is for people aged 18 and over. We only use this to check your age and do not keep it.</span></div>' +
+      '<div class="field"><label for="dob">Date of birth</label><input id="dob" type="date" autocomplete="bday" min="1900-01-01"><span class="muted small">SeshOn is for people aged 18 and over. We only use this to check your age and do not keep it.</span></div>' +
       (CAPTCHA_KEY ? '<div id="captcha"></div>' : '') +
       '<p id="join-error" class="error" hidden></p>' +
       '<button class="btn" type="submit" id="join-btn">Get started</button>' +
@@ -318,7 +318,7 @@
       thinking: ["You're amber.", "Thinking about it. Friends see you might be keen."],
       off: ["You're red.", "You're off and hidden, and you can't see who else is out until you slide back."]
     }[s];
-    var h = '<div class="top"><div class="wordmark">seshhon</div>' + (ui.offline ? '<span class="pill" style="border-color:var(--off);color:var(--off)">Offline</span>' : '') + '</div>';
+    var h = '<div class="top"><div class="wordmark">SeshOn</div>' + (ui.offline ? '<span class="pill" style="border-color:var(--off);color:var(--off)">Offline</span>' : '') + '</div>';
     h += '<section class="stack"><div class="eyebrow">Your status</div>' +
       '<div class="status-word" id="status-word" style="color:' + COLORS[s] + '">' + copy[0] + '</div>' +
       '<p class="muted">' + copy[1] + (s !== 'off' && me.expires_at ? ' Back to red in <span data-until="' + new Date(me.expires_at).getTime() + '" data-kind="status">' + fmtLeft(new Date(me.expires_at).getTime() - now()) + '</span>.' : '') + '</p>' +
@@ -337,7 +337,7 @@
 
     var friends = D.friends;
     if (!friends.length) {
-      h += '<div class="card"><h2>Add your friends</h2><p class="muted small">Seshhon only works with friends on it. Send them your invite link, then accept their request when it arrives.</p>' +
+      h += '<div class="card"><h2>Add your friends</h2><p class="muted small">SeshOn only works with friends on it. Send them your invite link, then accept their request when it arrives.</p>' +
         '<button class="btn" data-act="share">Send your invite link</button>' + linkBox() + '</div>';
     } else if (s === 'off') {
       h += '<div class="card"><h2>Friends are hidden while you\'re red</h2><p class="muted small">Slide to green or amber to see who\'s up for it tonight.</p></div>';
@@ -594,7 +594,7 @@
       }).join('') + '</div>';
     }
 
-    h += '<div class="card"><h2>Put Seshhon on your home screen</h2><p class="muted small">On iPhone, tap the Share button in Safari, then Add to Home Screen. On Android, open the browser menu and tap Add to Home screen.</p></div>';
+    h += '<div class="card"><h2>Put SeshOn on your home screen</h2><p class="muted small">On iPhone, tap the Share button in Safari, then Add to Home Screen. On Android, open the browser menu and tap Add to Home screen.</p></div>';
 
     h += '<div class="card"><h2>About</h2><p class="small"><a href="privacy.html">Privacy Policy</a></p><p class="small"><a href="terms.html">Terms of use</a></p></div>';
 
@@ -655,7 +655,7 @@
     var link = inviteLink();
     ui.linkShown = true;
     if (navigator.share) {
-      navigator.share({ title: 'Seshhon', text: 'Add me on Seshhon so we can see when we\'re both up for a sesh.', url: link }).catch(function () {});
+      navigator.share({ title: 'SeshOn', text: 'Add me on SeshOn so we can see when we\'re both up for a sesh.', url: link }).catch(function () {});
       render();
       return;
     }

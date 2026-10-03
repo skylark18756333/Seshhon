@@ -1,4 +1,4 @@
-# Seshhon
+# SeshOn
 
 Tell your friends you're up for a sesh, pick a place together, and use a deal when you get there.
 
