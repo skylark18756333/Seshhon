@@ -73,3 +73,13 @@ npm run test:db   # the database rules, on a throwaway local Postgres
 4. Replace `app/src/data/sample.ts` with calls to the database. This step is not built yet.
 
 Do not run `supabase/tests/00_supabase_stub.sql` on a real project. It exists only for local testing.
+
+## Live web version (docs/)
+
+`docs/` is the shared, multi-friend web app (plain HTML, no build step). It talks to a Supabase project through the
+functions in `supabase/migrations/0002_live_web_app.sql`.
+
+- `supabase/setup.sql`: everything to paste into the Supabase SQL editor on a new project (rebuild with `tools/live/build-setup.sh`).
+- `docs/config.js`: the project URL and public (anon/publishable) key. Never put a service_role key or the database password here.
+- `node tools/live/check.mjs`: three simulated phones use the app against a local test database (needs PostgreSQL 15+ and Chromium).
+- `bash supabase/tests/run.sh`: database rule tests.

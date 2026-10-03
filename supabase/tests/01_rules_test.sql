@@ -80,7 +80,9 @@ select public.expect_error($$update public.statuses set expires_at = now() + int
 select public.expect_error($$insert into public.statuses (user_id, colour) values ('00000000-0000-0000-0000-00000000000b', 'on')$$, 'cannot set someone else''s status');
 
 select set_config('request.jwt.claim.sub', :b, false) \g /dev/null
-select public.expect((select colour from public.statuses where user_id = :a) = 'on', 'a friend sees that you are On');
+select public.expect((select count(*) from public.statuses where user_id = :a) = 0, 'a friend who is Off cannot see that you are On');
+select colour from public.set_status('thinking') \g /dev/null
+select public.expect((select colour from public.statuses where user_id = :a) = 'on', 'a friend who is Thinking or On sees that you are On');
 select set_config('request.jwt.claim.sub', :c, false) \g /dev/null
 select public.expect((select count(*) from public.statuses) = 0, 'a stranger cannot see your status');
 

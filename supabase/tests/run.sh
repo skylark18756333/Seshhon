@@ -14,5 +14,12 @@ run "$bin/initdb" -D "$dir/data" -U postgres -A trust >/dev/null
 run "$bin/pg_ctl" -D "$dir/data" -o "-p $port -c listen_addresses='' -k $dir" -w start >/dev/null
 psql() { command psql -X -v ON_ERROR_STOP=1 -h "$dir" -p "$port" -U postgres -d postgres "$@"; }
 psql -q -f "$here/00_supabase_stub.sql"
-psql -q -f "$here/../migrations/0001_init.sql"
-psql -f "$here/01_rules_test.sql"
+for f in "$here"/../migrations/*.sql; do psql -q -f "$f"; done
+psql -q -f "$here/../examples.sql"
+# KEEP=1 leaves the database running for other tools (used by the live app check).
+if [ "${ONLY_SETUP:-}" = "1" ]; then
+  echo "Database ready at socket dir $dir port $port"
+  trap - EXIT
+  exit 0
+fi
+for t in "$here"/0[1-9]_*.sql; do psql -f "$t"; done

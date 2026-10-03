@@ -9,3 +9,8 @@ create role authenticated nologin;
 create role anon nologin;
 grant usage on schema auth to authenticated, anon;
 grant execute on function auth.uid() to authenticated, anon;
+
+-- Supabase hands these roles full rights on anything new in the public schema.
+-- Copying that here means the tests prove the migration takes those rights back.
+alter default privileges in schema public grant all on tables to anon, authenticated;
+alter default privileges in schema public grant execute on functions to anon, authenticated;
