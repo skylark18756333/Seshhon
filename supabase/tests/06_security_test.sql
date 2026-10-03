@@ -56,6 +56,9 @@ set role authenticated;
 select set_config('request.jwt.claim.sub', :k1, false) \g /dev/null
 select public.expect_error($$update public.seshes set created_at = now() + interval '1 year' where creator = '00000000-0000-0000-0000-0000000000c1'$$, 'a sesh''s start time cannot be moved to keep it alive');
 select public.expect((select public.end_sesh('00000000-0000-0000-0000-0000000000d1')) = '{}'::jsonb, 'the creator can still end a sesh');
+reset role;
+select public.expect(not exists (select 1 from public.seshes where id = '00000000-0000-0000-0000-0000000000d1'), 'ending a sesh deletes it straight away');
+set role authenticated;
 
 -- ---- rating tags are limited however they are written
 select public.expect_error($$insert into public.ratings (venue_id, user_id, stars, tags) values ('10000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-0000000000c1', 3, array['a','b','c','d','e','f'])$$, 'no more than 5 rating tags');
@@ -73,12 +76,12 @@ select public.expect_error($$select public.report_message('00000000-0000-0000-00
 reset role;
 
 -- ---- old data is deleted
-insert into public.seshes (id, creator, created_at) values ('00000000-0000-0000-0000-0000000000d3', :k1, now() - interval '8 days');
+insert into public.seshes (id, creator, created_at) values ('00000000-0000-0000-0000-0000000000d3', :k1, now() - interval '9 hours');
 insert into public.sesh_members (sesh_id, user_id) values ('00000000-0000-0000-0000-0000000000d3', :k1);
 insert into public.redemptions (deal_id, user_id, code, night, expires_at)
   select id, :k1, 'SESH-1111', public.night_of() - 3, now() - interval '3 days' from public.deals limit 1;
 select public.purge_old_data() \g /dev/null
-select public.expect(not exists (select 1 from public.seshes where id = '00000000-0000-0000-0000-0000000000d3'), 'seshes older than 7 days are deleted');
+select public.expect(not exists (select 1 from public.seshes where id = '00000000-0000-0000-0000-0000000000d3'), 'seshes that ran out (over 8 hours old) are deleted');
 select public.expect(not exists (select 1 from public.sesh_members where sesh_id = '00000000-0000-0000-0000-0000000000d3'), 'and who joined them');
 select public.expect(not exists (select 1 from public.redemptions where user_id = :k1 and code = 'SESH-1111'), 'deal codes from earlier nights are deleted');
 select public.expect(exists (select 1 from public.seshes where id = '00000000-0000-0000-0000-0000000000d2'), 'recent seshes are kept');

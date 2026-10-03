@@ -3,7 +3,7 @@
 --   2. A blocked person can no longer undo the block or turn it into a friendship.
 --   3. Only the functions can change a sesh, so its start time can't be moved to keep it alive.
 --   4. Limits on friend requests, reports and rating tags, so one account can't flood the database.
---   5. Old data is deleted on a schedule: seshes after 7 days, used deal codes after the night,
+--   5. Old data is deleted: a sesh (who joined, the votes, the chat) as soon as it ends, used deal codes after the night,
 --      and sign-ins that never finished signing up after 2 days.
 -- Safe to run more than once.
 
@@ -88,12 +88,25 @@ $$;
 
 -- ---------------------------------------------------------------- 5. delete old data
 -- Australian Privacy Principle 11.2: personal information that is no longer needed is destroyed.
+
+-- Ending a sesh deletes it straight away, with who joined, the votes and the chat.
+-- (Before, it was only marked as ended and kept.)
+create or replace function public.end_sesh(p_sesh uuid) returns jsonb
+language plpgsql security definer set search_path = public as $$
+begin
+  delete from public.seshes where id = p_sesh and creator = auth.uid();
+  if not found then raise exception 'Only the person who started the sesh can end it.'; end if;
+  return '{}'::jsonb;
+end;
+$$;
+revoke all on function public.end_sesh(uuid) from public, anon;
+grant execute on function public.end_sesh(uuid) to authenticated;
 create or replace function public.purge_old_data() returns integer
 language plpgsql security definer set search_path = public as $$
 declare n integer := 0; k integer;
 begin
-  -- Seshes from more than 7 days ago, with who joined and who voted for what (and any chat left).
-  delete from public.seshes where created_at < now() - interval '7 days';
+  -- Seshes that have ended, or run out (8 hours after they started), with who joined, the votes and any chat left.
+  delete from public.seshes where ended_at is not null or created_at < now() - interval '8 hours';
   get diagnostics k = row_count; n := n + k;
   -- Deal codes: a record is only needed for the night, so the same deal can't be used twice.
   delete from public.redemptions where night < public.night_of() - 1;

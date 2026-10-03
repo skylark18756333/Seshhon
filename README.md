@@ -92,7 +92,7 @@ functions in `supabase/migrations/0002_live_web_app.sql`.
   anything new added to the database starts locked until a migration grants it.
 - Sign-up spam: set a Cloudflare Turnstile site key as `captchaSiteKey` in `docs/config.js` first, then switch on CAPTCHA
   protection in Supabase (Authentication, Attack Protection). The other order breaks sign-up.
-- Old data is deleted on a schedule (`purge_old_data()` via pg_cron): seshes after 7 days, deal codes after the night,
+- Old data is deleted on a schedule (`purge_old_data()` via pg_cron): seshes as soon as they end (8 hours at most), deal codes after the night,
   unfinished sign-ins after 2 days, chat when the sesh ends, reports after 90 days.
 - `node tools/live/check.mjs`: three simulated phones use the app against a local test database (needs PostgreSQL 15+ and Chromium).
 - `bash supabase/tests/run.sh`: database rule tests.
