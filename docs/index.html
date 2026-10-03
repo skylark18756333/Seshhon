@@ -132,6 +132,8 @@ a { color: var(--fg); }
   var SESSION_KEY = 'seshhon-session-v1';
   var INVITE_KEY = 'seshhon-pending-invite';
   var UNDERAGE_KEY = 'seshhon-under-18';
+  var SIGNUP_KEY = 'seshhon-signup-waiting';   // name and date of birth, kept in this tab only while the age check runs
+  var PROVIDER_NAMES = { yoti: 'Yoti', didit: 'Didit' };
 
   var COLORS = { on: 'var(--on)', thinking: 'var(--thinking)', off: 'var(--off)' };
   var LABELS = { on: 'Green', thinking: 'Amber', off: 'Red' };
@@ -235,11 +237,40 @@ a { color: var(--fg); }
     });
   }
 
+  // The age check runs in a Supabase Edge Function, which holds the provider's keys.
+  function ageCheckCall(action, extra) {
+    var ready = session && session.expires_at - Date.now() / 1000 < 60 ? refreshSession() : Promise.resolve();
+    return ready.then(function () {
+      if (!session) { var gone = new Error('You have been signed out.'); gone.signedOut = true; throw gone; }
+      var body = { action: action };
+      for (var k in extra || {}) body[k] = extra[k];
+      return fetch(API_URL + '/functions/v1/age-check', {
+        method: 'POST',
+        headers: { apikey: API_KEY, Authorization: 'Bearer ' + session.access_token, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+    }).then(function (res) {
+      return res.text().then(function (text) {
+        var json = null;
+        try { json = text ? JSON.parse(text) : null; } catch (e) {}
+        if (!res.ok) throw new Error((json && json.message) || 'The age check is not working right now. Try again soon.');
+        return json;
+      });
+    });
+  }
+  function waiting(value) {   // the sign-up details waiting on the age check; sessionStorage, so they go when the tab closes
+    try {
+      if (value === undefined) return JSON.parse(sessionStorage.getItem(SIGNUP_KEY) || 'null');
+      if (value === null) sessionStorage.removeItem(SIGNUP_KEY); else sessionStorage.setItem(SIGNUP_KEY, JSON.stringify(value));
+    } catch (e) {}
+    return null;
+  }
+
   /* ---------- state ---------- */
   var D = null;            // the latest answer from api_state()
   var lastKey = '';        // used to skip redraws when nothing changed
   var clockOffset = 0;     // server time minus this phone's time
-  var ui = { messages: [], tab: 'home', screen: null, filter: 'All', confirm: null, staffError: '', offline: false, booted: false, linkShown: false };
+  var ui = { messages: [], tab: 'home', screen: null, filter: 'All', confirm: null, staffError: '', offline: false, booted: false, linkShown: false, age: null, ageNote: '', ageBusy: false };
   var seen = null;         // friend id -> colour at the last look, for "just went on" notices
   var acting = false;
 
@@ -269,8 +300,13 @@ a { color: var(--fg); }
   function mySesh() { return (D.seshes || []).filter(function (s) { return s.am_member; })[0] || null; }
   function inviteLink() { return location.origin + location.pathname + '?invite=' + D.me.invite_code; }
 
+  // Whether this person still needs the third-party age check. An older database without it means "no".
+  function loadAge() {
+    return rpc('age_check_state').then(function (a) { ui.age = a || { required: false }; }, function () { ui.age = ui.age || { required: false }; });
+  }
+  function needsAgeCheck() { return !!(session && ui.age && ui.age.required && !ui.age.passed); }
   function load(quiet) {
-    return rpc('api_state').then(function (data) {
+    return (session && !ui.age ? loadAge() : Promise.resolve()).then(function () { return rpc('api_state'); }).then(function (data) {
       ui.offline = false;
       clockOffset = new Date(data.now).getTime() - Date.now();
       noticeFriends(data);
@@ -336,6 +372,16 @@ a { color: var(--fg); }
   function tooYoung() {
     return '<div class="stack" style="gap:20px;margin-block:auto"><div class="wordmark">seshhon</div><h1>Seshhon is for people aged 18 and over.</h1>' +
       '<p class="muted">We can\'t set up an account for you. If you entered your date of birth wrongly, contact us through the Privacy Policy page.</p></div>';
+  }
+  function ageCheck() {
+    var who = PROVIDER_NAMES[ui.age && ui.age.provider] || 'Our age check partner';
+    var h = '<div class="stack" style="gap:20px;margin-block:auto"><div class="wordmark">seshhon</div><h1>Quick age check</h1>' +
+      '<p class="muted">Seshhon is for people aged 18 and over. ' + esc(who) + ' checks your age with a quick selfie. If it can\'t tell from your face, it asks you to show ID instead.</p>' +
+      '<p class="muted small">' + esc(who) + ' only tells us whether you passed. Seshhon never sees or keeps your photo or ID. See the <a href="privacy.html">Privacy Policy</a>.</p>';
+    if (ui.ageNote) h += '<p class="error" id="age-note">' + esc(ui.ageNote) + '</p>';
+    if (ui.age && ui.age.pending) h += '<button class="btn" data-act="age-finish"' + (ui.ageBusy ? ' disabled' : '') + '>I\'ve finished, check again</button><button class="btn ghost" data-act="age-start"' + (ui.ageBusy ? ' disabled' : '') + '>Start again</button>';
+    else h += '<button class="btn" data-act="age-start"' + (ui.ageBusy ? ' disabled' : '') + '>Start age check</button>';
+    return h + '</div>';
   }
   function welcome() {
     if (store(UNDERAGE_KEY)) return tooYoung();
@@ -659,6 +705,11 @@ a { color: var(--fg); }
 
     if (!API_URL || !API_KEY) { tabs.hidden = true; view.innerHTML = notConnected(); return; }
     if (!ui.booted) { tabs.hidden = true; view.innerHTML = starting(); return; }
+    if (needsAgeCheck() && (D && D.me || waiting())) {
+      tabs.hidden = true;
+      view.innerHTML = ageCheck();
+      return;
+    }
     if (!session || !D || !D.me) {
       tabs.hidden = true;
       if (!document.getElementById('join')) view.innerHTML = welcome();
@@ -751,6 +802,13 @@ a { color: var(--fg); }
       act('rate_venue', { p_venue: ven.id, p_stars: ven.my_stars, p_tags: tags });
     },
     share: shareInvite,
+    'age-start': function () {
+      ui.ageBusy = true; ui.ageNote = ''; render();
+      ageCheckCall('start', { return_to: location.origin + location.pathname }).then(function (r) {
+        location.href = r.url;   // the provider's page sends the person back here with ?age_check=done
+      }).catch(function (x) { ui.ageBusy = false; ui.ageNote = x.message; render(); });
+    },
+    'age-finish': function () { finishAgeCheck(); },
     'report-msg': function (v) {
       ui.confirm = null;
       rpc('report_message', { p_message: v, p_reason: '' }).then(function () { toast('Reported. Thanks for telling us.'); paintChat(false); }).catch(function (e) { toast(e.message); });
@@ -834,6 +892,32 @@ a { color: var(--fg); }
     }).catch(function (e) { toast(e.message); });
   }
 
+  function finishSignUp(name, dob) {
+    return rpc('api_sign_up', { p_name: name, p_birth_date: dob })
+      .then(function () { waiting(null); })
+      .then(sendPendingInvite)
+      .then(function () { document.activeElement && document.activeElement.blur(); view.innerHTML = ''; return load(); });
+  }
+  // After the provider's page sends the person back (or they tap "check again").
+  function finishAgeCheck() {
+    if (!session) return Promise.resolve();
+    ui.ageBusy = true; ui.ageNote = ''; render();
+    return ageCheckCall('finish').then(function (r) {
+      var result = r && r.result;
+      return loadAge().then(function () {
+        if (result === 'passed') {
+          var w = waiting();
+          if (w && !(D && D.me)) return finishSignUp(w.name, w.dob);
+          toast('Thanks, you\'re verified.');
+          return load();
+        }
+        if (result === 'pending') ui.ageNote = 'Your check is still being looked at. This can take a few minutes.';
+        else if (result === 'failed') ui.ageNote = 'We couldn\'t confirm you\'re 18 or over. You can try again, for example with ID.';
+      });
+    }).catch(function (x) { ui.ageNote = x.message; })
+      .then(function () { ui.ageBusy = false; render(); });
+  }
+
   document.addEventListener('submit', function (e) {
     e.preventDefault();
     if (e.target.id === 'join') {
@@ -845,9 +929,11 @@ a { color: var(--fg); }
       if (dob > eighteenYearsAgo()) { store(UNDERAGE_KEY, true); view.innerHTML = tooYoung(); return; }
       btn.disabled = true; err.hidden = true;
       (session ? Promise.resolve() : signInAnonymously())
-        .then(function () { return rpc('api_sign_up', { p_name: name, p_birth_date: dob }); })
-        .then(sendPendingInvite)
-        .then(function () { document.activeElement && document.activeElement.blur(); view.innerHTML = ''; return load(); })
+        .then(loadAge)
+        .then(function () {
+          if (needsAgeCheck()) { waiting({ name: name, dob: dob }); ui.ageNote = ''; document.activeElement && document.activeElement.blur(); render(); return; }
+          return finishSignUp(name, dob);
+        })
         .catch(function (x) { fail(x.message); });
     }
     if (e.target.id === 'chat-form') {
@@ -890,16 +976,17 @@ a { color: var(--fg); }
 
   /* ---------- start ---------- */
   try {
-    var params = new URLSearchParams(location.search), invite = params.get('invite');
-    if (invite) {
-      store(INVITE_KEY, invite.slice(0, 16));
-      history.replaceState(null, '', location.pathname);
-    }
+    var params = new URLSearchParams(location.search), invite = params.get('invite'), backFromCheck = params.has('age_check');
+    if (invite) store(INVITE_KEY, invite.slice(0, 16));
+    if (invite || backFromCheck) history.replaceState(null, '', location.pathname);
   } catch (e) {}
 
   render();
   if (API_URL && API_KEY) {
-    if (session) load().then(function () { if (D && D.me) return sendPendingInvite().then(function () { return load(true); }); });
+    if (session) load().then(function () {
+      if (needsAgeCheck() && (backFromCheck || (ui.age.pending && (D && D.me || waiting())))) return finishAgeCheck();
+      if (D && D.me) return sendPendingInvite().then(function () { return load(true); });
+    });
     else { ui.booted = true; render(); }
   }
 })();

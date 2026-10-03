@@ -7,6 +7,7 @@ create function auth.uid() returns uuid language sql stable as $$
 $$;
 create role authenticated nologin;
 create role anon nologin;
+create role service_role nologin;
 grant usage on schema auth to authenticated, anon;
 grant execute on function auth.uid() to authenticated, anon;
 

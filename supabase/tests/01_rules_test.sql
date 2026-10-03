@@ -42,15 +42,15 @@ insert into public.venues (id, name) values (:venue, 'Test Bar'), (:venue2, 'Oth
 -- ---- sign-up
 set role authenticated;
 select set_config('request.jwt.claim.sub', :a, false) \g /dev/null
-insert into public.profiles (id, name, adult_confirmed_at) values (:a, 'Ana', now());
+select public.api_sign_up('Ana', date '1990-01-01') \g /dev/null
 select public.expect_error($$insert into public.profiles (id, name, adult_confirmed_at) values ('00000000-0000-0000-0000-00000000000b', 'Fake', now())$$, 'cannot create a profile for someone else');
 select public.expect_error($$insert into public.profiles (id, name) values ('00000000-0000-0000-0000-00000000000a', 'NoAge')$$, 'cannot sign up without confirming 18+');
 select set_config('request.jwt.claim.sub', :b, false) \g /dev/null
-insert into public.profiles (id, name, adult_confirmed_at) values (:b, 'Ben', now());
+select public.api_sign_up('Ben', date '1990-01-01') \g /dev/null
 select set_config('request.jwt.claim.sub', :c, false) \g /dev/null
-insert into public.profiles (id, name, adult_confirmed_at) values (:c, 'Cal', now());
+select public.api_sign_up('Cal', date '1990-01-01') \g /dev/null
 select set_config('request.jwt.claim.sub', :s, false) \g /dev/null
-insert into public.profiles (id, name, adult_confirmed_at) values (:s, 'Staff', now());
+select public.api_sign_up('Staff', date '1990-01-01') \g /dev/null
 reset role;
 insert into public.venue_staff (venue_id, user_id) values (:venue, :s);
 

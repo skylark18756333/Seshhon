@@ -220,6 +220,29 @@ try {
   await tab(dan, 'Venues'); await dan.page.getByRole('button', { name: 'Open' }).first().click();
   ok(await has(dan, 'Rate this venue') && !(await text(dan)).includes('Deals here'), 'a venue page shows ratings but no deals');
 
+  console.log('Third-party age check');
+  const ageSet = (b) => fetch(API + '/__fake/age-check', { method: 'POST', headers: { apikey: 'test-anon-key', 'Content-Type': 'application/json' }, body: JSON.stringify(b) });
+  await ageSet({ required: true, outcome: 'failed' });
+  const eve = await phone('Eve');
+  await eve.page.goto(`http://127.0.0.1:${WEB_PORT}/`);
+  await eve.page.fill('#name', 'Eve'); await eve.page.fill('#dob', '1999-02-03'); await tap(eve, 'Get started');
+  ok(await has(eve, 'Quick age check') && await has(eve, 'Yoti checks your age with a quick selfie'), 'with the check switched on, sign-up asks for the age check');
+  await tap(eve, 'Start age check');
+  ok(await has(eve, "couldn't confirm you're 18"), 'a failed check is explained and Eve is not let in');
+  ok(!eve.page.url().includes('age_check'), 'the return address is tidied away');
+  await ageSet({ outcome: 'pending' });
+  await tap(eve, 'Start age check');
+  ok(await has(eve, 'still being looked at'), 'a check still under review says so');
+  await ageSet({ outcome: 'passed' });
+  await tap(eve, "I've finished, check again");
+  ok(await has(eve, "You're red."), 'once the check passes, Eve is signed up');
+  ok(await eve.page.evaluate(() => sessionStorage.getItem('seshhon-signup-waiting')) === null, 'the date of birth held during the check is cleared');
+  await dan.page.reload();
+  ok(await has(dan, 'Quick age check'), 'someone who joined before the check was switched on is asked to do it');
+  await tap(dan, 'Start age check');
+  ok(await has(dan, 'Your status'), 'and gets back in once they pass');
+  await ageSet({ required: false });
+
   ok(consoleErrors.length === 0, 'no script errors on any phone' + (consoleErrors.length ? ': ' + consoleErrors.join('; ') : ''));
   await ana.page.screenshot({ path: path.join(copy, 'ana.png') });
 } catch (e) {

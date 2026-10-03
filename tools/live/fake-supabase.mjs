@@ -8,6 +8,7 @@ import crypto from 'node:crypto';
 const [, , sock, dbPort, listen = '54330'] = process.argv;
 const KEY = 'test-anon-key';
 const tokens = new Map(); // access token -> user id
+let ageOutcome = 'passed'; // what the pretend age check provider answers
 
 function lit(v) {
   if (v === null || v === undefined) return 'NULL';
@@ -47,6 +48,39 @@ http.createServer(async (req, res) => {
   if (url.pathname === '/auth/v1/token') {
     const uid = tokens.get(body.refresh_token);
     return uid ? send(res, 200, session(uid)) : send(res, 400, { message: 'Invalid Refresh Token' });
+  }
+  // Test-only switches for the age check: turn it on or off, and pick what the pretend provider answers.
+  if (url.pathname === '/__fake/age-check') {
+    if ('required' in body) await psql(`update public.app_settings set age_check_required = ${body.required ? 'true' : 'false'}`);
+    if (body.outcome) ageOutcome = body.outcome;
+    return send(res, 200, {});
+  }
+  // A stand-in for the age-check Edge Function: same database calls, with a pretend provider whose
+  // check page just sends the person straight back.
+  if (url.pathname === '/functions/v1/age-check') {
+    const uid = tokens.get((req.headers.authorization || '').replace('Bearer ', ''));
+    if (!uid) return send(res, 401, { message: 'Sign in first.' });
+    const svc = async (fn, args) => {
+      const r = await psql(`begin; set local role service_role; select to_jsonb(public.${fn}(${Object.entries(args).map(([k, v]) => `${k} := ${lit(v)}`).join(', ')})); commit;`);
+      if (r.code !== 0) throw new Error((r.err.match(/ERROR:\s+(.*)/) || [, r.err])[1]);
+      const lines = r.out.split('\n').filter((l) => l && l !== 'BEGIN' && l !== 'COMMIT' && l !== 'SET');
+      return JSON.parse(lines[lines.length - 1] || 'null');
+    };
+    try {
+      if (body.action === 'start') {
+        await svc('age_check_can_start', { p_user: uid });
+        await svc('age_check_begin', { p_user: uid, p_provider: 'yoti', p_session: 'fake-' + crypto.randomUUID() });
+        return send(res, 200, { url: String(body.return_to).split('?')[0] + '?age_check=done' });
+      }
+      if (body.action === 'finish') {
+        const latest = await svc('age_check_latest', { p_user: uid });
+        if (!latest) return send(res, 200, { result: 'none' });
+        if (latest.result !== 'pending' || ageOutcome === 'pending') return send(res, 200, { result: latest.result });
+        await svc('age_check_decide', { p_check: latest.id, p_result: ageOutcome, p_method: ageOutcome === 'passed' ? 'face_estimate' : null });
+        return send(res, 200, { result: ageOutcome });
+      }
+    } catch (e) { return send(res, 400, { message: e.message }); }
+    return send(res, 400, { message: 'Unknown action.' });
   }
   const m = url.pathname.match(/^\/rest\/v1\/rpc\/([a-z_]+)$/);
   if (m) {
