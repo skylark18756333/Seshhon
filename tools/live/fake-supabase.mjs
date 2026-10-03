@@ -1,5 +1,5 @@
-// A stand-in for the Supabase web address, for testing only. It speaks the same three calls the app makes
-// (anonymous sign-up, token refresh, and "run a database function") but runs them on a local test Postgres
+// A stand-in for the Supabase web address, for testing only. It speaks the same calls the app makes
+// (anonymous sign-up, password log-in, token refresh, and "run a database function") but runs them on a local test Postgres
 // through psql as the `authenticated` role, so the real database rules (RLS, grants) decide every answer.
 import http from 'node:http';
 import { spawn } from 'node:child_process';
@@ -42,8 +42,14 @@ http.createServer(async (req, res) => {
   if (req.headers.apikey !== KEY) return send(res, 401, { message: 'No API key' });
   if (url.pathname === '/auth/v1/signup') {
     const uid = crypto.randomUUID();
-    await psql(`insert into auth.users (id) values ('${uid}')`);
+    await psql(`insert into auth.users (id, is_anonymous) values ('${uid}', true)`);
     return send(res, 200, session(uid));
+  }
+  // Username and password log-in: the same check Supabase Auth does on the stored bcrypt hash.
+  if (url.pathname === '/auth/v1/token' && url.searchParams.get('grant_type') === 'password') {
+    const r = await psql(`select id from auth.users where lower(email) = lower(${lit(body.email)}) and email_confirmed_at is not null
+      and encrypted_password = extensions.crypt(${lit(body.password)}, encrypted_password)`);
+    return r.out ? send(res, 200, session(r.out)) : send(res, 400, { error: 'invalid_grant', error_description: 'Invalid login credentials' });
   }
   if (url.pathname === '/auth/v1/token') {
     const uid = tokens.get(body.refresh_token);

@@ -249,6 +249,44 @@ try {
   ok(await has(dan, 'Your status'), 'and gets back in once they pass');
   await ageSet({ required: false });
 
+  console.log('Username and password');
+  const fay = await phone('Fay');
+  await signUp(fay, 'Fay');
+  await tab(fay, 'You');
+  ok(await has(fay, 'Keep your account'), 'a new account is offered a username and password');
+  await fay.page.fill('#save-user', 'x'); await fay.page.fill('#save-pass', 'longenough1'); await tap(fay, 'Save my account');
+  ok(await has(fay, '3 to 20 letters'), 'a bad username is explained');
+  await fay.page.fill('#save-user', 'Fay_99'); await tap(fay, 'Save my account');
+  ok(await has(fay, 'Save your recovery code'), 'saving shows a recovery code');
+  const code1 = (await fay.page.locator('#recovery-code').innerText()).trim();
+  ok(/^[A-Z2-9]{4}(-[A-Z2-9]{4}){3}$/.test(code1), 'the recovery code looks like XXXX-XXXX-XXXX-XXXX');
+  await tap(fay, "I've saved it");
+  ok(await has(fay, 'logged in as fay_99'), 'Fay sees her username');
+  const fay2 = await phone('Fay on a new phone');
+  await fay2.page.goto(`http://127.0.0.1:${WEB_PORT}/`);
+  await tap(fay2, 'I already have an account');
+  await fay2.page.fill('#login-user', 'fay_99'); await fay2.page.fill('#login-pass', 'wrongpassword');
+  await tap(fay2, 'Log in');
+  ok(await has(fay2, "don't match"), 'a wrong password is turned away');
+  await fay2.page.fill('#login-pass', 'longenough1'); await tap(fay2, 'Log in');
+  ok(await has(fay2, 'Your status'), 'Fay logs in on a new phone with her username and password');
+  await tab(fay2, 'You');
+  ok(await has(fay2, 'logged in as fay_99'), 'and it is the same account');
+  await tap(fay2, 'Log out');
+  ok(await has(fay2, 'I already have an account'), 'logging out goes back to the start');
+  await tap(fay2, 'I already have an account'); await tap(fay2, 'Forgot your password?');
+  await fay2.page.fill('#rec-user', 'fay_99'); await fay2.page.fill('#rec-code', 'AAAA-AAAA-AAAA-AAAA'); await fay2.page.fill('#rec-pass', 'brandnewpass');
+  await tap(fay2, 'Set new password');
+  ok(await has(fay2, "recovery code don't match"), 'a wrong recovery code is turned away');
+  await fay2.page.fill('#rec-code', code1.toLowerCase()); await tap(fay2, 'Set new password');
+  ok(await has(fay2, 'Save your recovery code'), 'the right recovery code sets a new password and gives a new code');
+  const code2 = (await fay2.page.locator('#recovery-code').innerText()).trim();
+  ok(code2 !== code1, 'the used code is replaced');
+  await tap(fay2, "I've saved it");
+  ok(await fay2.page.locator('#login-user').inputValue() === 'fay_99', 'then the log-in form has the username filled in');
+  await fay2.page.fill('#login-pass', 'brandnewpass'); await tap(fay2, 'Log in');
+  ok(await has(fay2, 'Your status'), 'and the new password works');
+
   ok(consoleErrors.length === 0, 'no script errors on any phone' + (consoleErrors.length ? ': ' + consoleErrors.join('; ') : ''));
   await ana.page.screenshot({ path: path.join(copy, 'ana.png') });
 } catch (e) {

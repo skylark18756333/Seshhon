@@ -78,6 +78,18 @@
   function signInAnonymously(captchaToken) {
     return authCall('signup', { data: {}, gotrue_meta_security: captchaToken ? { captcha_token: captchaToken } : {} }).then(saveSession);
   }
+  // Username and password logins. Supabase Auth logs in with an email, so the username becomes an address at
+  // a domain that can never receive mail (see supabase/migrations/0008_username_login.sql). No real email is used.
+  function loginEmail(username) { return String(username || '').trim().toLowerCase() + '@users.seshon.invalid'; }
+  function signInWithPassword(username, password, captchaToken) {
+    return authCall('token?grant_type=password', {
+      email: loginEmail(username), password: password,
+      gotrue_meta_security: captchaToken ? { captcha_token: captchaToken } : {}
+    }).then(saveSession, function (e) {
+      if (e.status === 400) throw new Error('That username and password don\'t match.');
+      throw e;
+    });
+  }
 
   // The human check on sign-up (Cloudflare Turnstile), so bots can't make accounts in bulk.
   // Only used when config.js has a captchaSiteKey, and Supabase Auth has CAPTCHA protection switched on.
@@ -181,7 +193,7 @@
   var D = null;            // the latest answer from api_state()
   var lastKey = '';        // used to skip redraws when nothing changed
   var clockOffset = 0;     // server time minus this phone's time
-  var ui = { messages: [], tab: 'home', screen: null, filter: 'All', confirm: null, staffError: '', offline: false, booted: false, linkShown: false, age: null, ageNote: '', ageBusy: false };
+  var ui = { messages: [], tab: 'home', screen: null, filter: 'All', confirm: null, staffError: '', offline: false, booted: false, linkShown: false, age: null, ageNote: '', ageBusy: false, auth: null, account: undefined, newCode: null, editAccount: false };
   var seen = null;         // friend id -> colour at the last look, for "just went on" notices
   var acting = false;
 
@@ -216,8 +228,15 @@
     return rpc('age_check_state').then(function (a) { ui.age = a || { required: false }; }, function () { ui.age = ui.age || { required: false }; });
   }
   function needsAgeCheck() { return !!(session && ui.age && ui.age.required && !ui.age.passed); }
+  // The username, if this account has one. An older database without it means the feature is hidden.
+  function loadAccount() {
+    return rpc('my_account').then(function (a) { ui.account = a || null; }, function () { ui.account = 'off'; });
+  }
   function load(quiet) {
     return (session && !ui.age ? loadAge() : Promise.resolve()).then(function () { return rpc('api_state'); }).then(function (data) {
+      if (data && data.me && ui.account === undefined) return loadAccount().then(function () { return data; });
+      return data;
+    }).then(function (data) {
       ui.offline = false;
       clockOffset = new Date(data.now).getTime() - Date.now();
       noticeFriends(data);
@@ -307,8 +326,46 @@
       (CAPTCHA_KEY ? '<div id="captcha"></div>' : '') +
       '<p id="join-error" class="error" hidden></p>' +
       '<button class="btn" type="submit" id="join-btn">Get started</button>' +
-      '<p class="muted small">By continuing you agree to the <a href="terms.html">Terms</a> and <a href="privacy.html">Privacy Policy</a>. Your account lives in this browser. Clearing your browsing data signs you out for good.</p>' +
-      '</form></div>';
+      '<p class="muted small">By continuing you agree to the <a href="terms.html">Terms</a> and <a href="privacy.html">Privacy Policy</a>. Your account lives in this browser until you add a username and password.</p>' +
+      '</form><button class="btn ghost" data-act="auth" data-v="login">I already have an account</button></div>';
+  }
+  function loginScreen() {
+    return '<div class="stack" style="gap:24px;margin-block:auto"><div class="wordmark">SeshOn</div><h1>Log in</h1>' +
+      '<form id="login" class="stack" style="gap:16px" novalidate>' +
+      '<div class="field"><label for="login-user">Username</label><input id="login-user" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="20" value="' + esc(ui.loginName || '') + '"></div>' +
+      '<div class="field"><label for="login-pass">Password</label><input id="login-pass" type="password" autocomplete="current-password" maxlength="72"></div>' +
+      (CAPTCHA_KEY ? '<div id="captcha"></div>' : '') +
+      '<p id="login-error" class="error" hidden></p>' +
+      '<button class="btn" type="submit" id="login-btn">Log in</button></form>' +
+      '<button class="btn ghost" data-act="auth" data-v="recover">Forgot your password?</button>' +
+      '<button class="btn ghost" data-act="auth" data-v="">Back</button></div>';
+  }
+  function recoverScreen() {
+    return '<div class="stack" style="gap:24px;margin-block:auto"><div class="wordmark">SeshOn</div><h1>Use your recovery code</h1>' +
+      '<p class="muted">Enter the recovery code you saved when you made your password, and choose a new password.</p>' +
+      '<form id="recover" class="stack" style="gap:16px" novalidate>' +
+      '<div class="field"><label for="rec-user">Username</label><input id="rec-user" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="20" value="' + esc(ui.loginName || '') + '"></div>' +
+      '<div class="field"><label for="rec-code">Recovery code</label><input id="rec-code" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="24" placeholder="XXXX-XXXX-XXXX-XXXX"></div>' +
+      '<div class="field"><label for="rec-pass">New password</label><input id="rec-pass" type="password" autocomplete="new-password" maxlength="72"><span class="muted small">At least 10 characters.</span></div>' +
+      (CAPTCHA_KEY && !session ? '<div id="captcha"></div>' : '') +
+      '<p id="rec-error" class="error" hidden></p>' +
+      '<button class="btn" type="submit" id="rec-btn">Set new password</button></form>' +
+      '<button class="btn ghost" data-act="auth" data-v="login">Back</button></div>';
+  }
+  // Shown once, right after a recovery code is made.
+  function codeCard() {
+    return '<div class="stack" style="gap:12px" id="newcode"><h2>Save your recovery code</h2>' +
+      '<p class="muted small">If you forget your password, this code is the only way back into your account. Screenshot it or write it down. It won\'t be shown again.</p>' +
+      '<div class="linkbox" style="font-size:20px;font-weight:700;letter-spacing:1px;text-align:center" id="recovery-code">' + esc(ui.newCode.code) + '</div>' +
+      '<p class="muted small">Your username is <strong>' + esc(ui.newCode.username) + '</strong>.</p>' +
+      '<button class="btn" data-act="code-saved">I\'ve saved it</button></div>';
+  }
+  function saveForm(username) {
+    return '<form id="save-account" class="stack" style="gap:12px" novalidate>' +
+      '<div class="field"><label for="save-user">Username</label><input id="save-user" data-keep type="text" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="20" value="' + esc(username || '') + '"><span class="muted small">3 to 20 letters, numbers or _. Friends never see it.</span></div>' +
+      '<div class="field"><label for="save-pass">' + (username ? 'New password' : 'Password') + '</label><input id="save-pass" data-keep type="password" autocomplete="new-password" maxlength="72"><span class="muted small">At least 10 characters.</span></div>' +
+      '<p id="save-error" class="error" hidden></p>' +
+      '<button class="btn" type="submit" id="save-btn">' + (username ? 'Save and get a new recovery code' : 'Save my account') + '</button></form>';
   }
 
   function home() {
@@ -598,7 +655,20 @@
 
     h += '<div class="card"><h2>About</h2><p class="small"><a href="privacy.html">Privacy Policy</a></p><p class="small"><a href="terms.html">Terms of use</a></p></div>';
 
-    h += '<div class="card"><h2>Your account</h2><p class="muted small">Your account lives in this browser on this phone. If you work at a venue, give the organiser this ID so they can set you up as staff:</p>' +
+    if (ui.account !== 'off' && ui.account !== undefined) {
+      var a = ui.account;
+      if (ui.newCode) h += '<div class="card" style="border-color:var(--on)">' + codeCard() + '</div>';
+      else if (a && !ui.editAccount) {
+        h += '<div class="card"><h2>Username and password</h2><p class="muted small">You\'re logged in as <strong>' + esc(a.username) + '</strong>. Use it to log in on another phone.</p>' +
+          '<div class="row"><button class="btn small-btn ghost" data-act="edit-account">Change password</button><button class="btn small-btn ghost" data-act="logout">Log out</button></div></div>';
+      } else {
+        h += '<div class="card"><h2>' + (a ? 'Change password' : 'Keep your account') + '</h2>' +
+          (a ? '' : '<p class="muted small">Right now your account only lives in this browser. Add a username and password so you can log in on a new phone. No email needed.</p>') +
+          saveForm(a ? a.username : '') + (a ? '<button class="btn ghost" data-act="edit-account">Cancel</button>' : '') + '</div>';
+      }
+    }
+
+    h += '<div class="card"><h2>Your account</h2><p class="muted small">' + (ui.account && ui.account !== 'off' ? 'You can log in on any phone with your username and password.' : 'Your account lives in this browser on this phone.') + ' If you work at a venue, give the organiser this ID so they can set you up as staff:</p>' +
       '<div class="linkbox" id="my-id">' + esc(me.id) + '</div>' +
       (ui.confirm === 'delete'
         ? '<p class="error">This removes your name, friends, votes and ratings for good.</p><div class="row"><button class="btn small-btn" style="--c:var(--off)" data-act="delete-account">Delete for good</button><button class="btn small-btn ghost" data-act="cancel-confirm">Keep my account</button></div>'
@@ -613,6 +683,8 @@
     var chatIn = document.getElementById('chat-input'), chatValue = chatIn ? chatIn.value : null, chatFocus = chatIn && document.activeElement === chatIn;
     var chatScroll = document.getElementById('chat-list'), chatTop = chatScroll ? chatScroll.scrollTop : null;
     var typing = document.activeElement && document.activeElement.id === 'name';
+    var kept = {}, keptFocus = document.activeElement && document.activeElement.hasAttribute && document.activeElement.hasAttribute('data-keep') ? document.activeElement.id : null;
+    Array.prototype.forEach.call(view.querySelectorAll('[data-keep]'), function (el) { kept[el.id] = el.value; });
     if (typing && !D) return; // do not wipe the sign-up form while someone is typing in it
 
     if (!API_URL || !API_KEY) { tabs.hidden = true; view.innerHTML = notConnected(); return; }
@@ -624,7 +696,12 @@
     }
     if (!session || !D || !D.me) {
       tabs.hidden = true;
-      if (!document.getElementById('join')) { view.innerHTML = welcome(); mountCaptcha(); }
+      var want = ui.newCode ? 'newcode' : ui.auth || 'join';
+      if (!document.getElementById(want)) {
+        view.innerHTML = want === 'newcode' ? '<div class="stack" style="margin-block:auto"><div class="wordmark">SeshOn</div>' + codeCard() + '</div>'
+          : want === 'login' ? loginScreen() : want === 'recover' ? recoverScreen() : welcome();
+        mountCaptcha();
+      }
       return;
     }
     var html;
@@ -641,6 +718,8 @@
         (t[0] === 'home' && requests ? '<span class="badge" aria-label="' + requests + ' friend requests">' + requests + '</span>' : '') + '</button>';
     }).join('');
 
+    Object.keys(kept).forEach(function (id) { var el = document.getElementById(id); if (el) el.value = kept[id]; });
+    if (keptFocus && document.getElementById(keptFocus)) document.getElementById(keptFocus).focus();
     var again = document.getElementById('staff-code');
     if (again && keepValue !== null) { again.value = keepValue; if (keepFocus) again.focus(); }
     var chatAgain = document.getElementById('chat-input');
@@ -732,9 +811,21 @@
     unfriend: function (v) { ui.confirm = null; act('answer_friend', { p_friendship: v, p_accept: false }); },
     ask: function (v) { ui.confirm = v; go(false); },
     'cancel-confirm': function () { ui.confirm = null; go(false); },
+    auth: function (v) { ui.auth = v || null; view.innerHTML = ''; render(); },
+    'edit-account': function () { ui.editAccount = !ui.editAccount; go(false); },
+    'code-saved': function () {
+      var after = ui.newCode && ui.newCode.after;
+      if (after === 'login') { ui.loginName = ui.newCode.username; ui.auth = 'login'; }
+      ui.newCode = null; view.innerHTML = ''; render();
+    },
+    logout: function () {
+      session = null; store(SESSION_KEY, null); D = null; seen = null; lastKey = '';
+      ui.account = undefined; ui.age = null; ui.auth = null; ui.editAccount = false; ui.tab = 'home'; ui.screen = null; ui.confirm = null;
+      view.innerHTML = ''; render(); toast('Logged out. Log in again with your username and password.');
+    },
     'delete-account': function () {
       act('delete_account', {}).then(function () {
-        session = null; store(SESSION_KEY, null); D = null; seen = null; ui.confirm = null; ui.tab = 'home'; ui.screen = null;
+        session = null; store(SESSION_KEY, null); D = null; seen = null; ui.confirm = null; ui.tab = 'home'; ui.screen = null; ui.account = undefined; ui.age = null;
         view.innerHTML = ''; render(); toast('Your account has been deleted.');
       });
     }
@@ -849,6 +940,54 @@
           return finishSignUp(name, dob);
         })
         .catch(function (x) { fail(x.message); });
+    }
+    if (e.target.id === 'login') {
+      var lu = document.getElementById('login-user').value.trim(), lp = document.getElementById('login-pass').value;
+      var lerr = document.getElementById('login-error'), lbtn = document.getElementById('login-btn');
+      var lfail = function (msg) { lerr.textContent = msg; lerr.hidden = false; lbtn.disabled = false; };
+      if (!lu || !lp) return lfail('Enter your username and password.');
+      if (CAPTCHA_KEY && !captchaToken) return lfail('Wait a moment for the check above to finish, then try again.');
+      lbtn.disabled = true; lerr.hidden = true;
+      signInWithPassword(lu, lp, useCaptcha()).then(function () {
+        D = null; lastKey = ''; ui.auth = null; ui.loginName = ''; ui.account = undefined; ui.age = null;
+        document.activeElement && document.activeElement.blur(); view.innerHTML = '';
+        return load().then(function () { if (D && D.me) return sendPendingInvite(); });
+      }).catch(function (x) { lfail(x.message); });
+      return;
+    }
+    if (e.target.id === 'recover') {
+      var ru = document.getElementById('rec-user').value.trim(), rc = document.getElementById('rec-code').value, rp = document.getElementById('rec-pass').value;
+      var rerr = document.getElementById('rec-error'), rbtn = document.getElementById('rec-btn');
+      var rfail = function (msg) { rerr.textContent = msg; rerr.hidden = false; rbtn.disabled = false; };
+      if (!ru || !rc.trim()) return rfail('Enter your username and recovery code.');
+      if (rp.length < 10) return rfail('Use a password of at least 10 characters.');
+      if (CAPTCHA_KEY && !session && !captchaToken) return rfail('Wait a moment for the check above to finish, then try again.');
+      rbtn.disabled = true; rerr.hidden = true;
+      (session ? Promise.resolve() : signInAnonymously(useCaptcha()))
+        .then(function () { return rpc('recover_account', { p_username: ru, p_code: rc, p_password: rp }); })
+        .then(function (r) {
+          if (!r || !r.ok) return rfail((r && r.message) || 'That didn\'t work. Try again.');
+          // This phone's temporary sign-in was only for the recovery; log in with the new password next.
+          session = null; store(SESSION_KEY, null);
+          ui.newCode = { code: r.recovery_code, username: r.username, after: 'login' };
+          document.activeElement && document.activeElement.blur(); view.innerHTML = ''; render();
+        })
+        .catch(function (x) { rfail(x.message); });
+      return;
+    }
+    if (e.target.id === 'save-account') {
+      var su = document.getElementById('save-user').value.trim().toLowerCase(), sp = document.getElementById('save-pass').value;
+      var serr = document.getElementById('save-error'), sbtn = document.getElementById('save-btn');
+      var sfail = function (msg) { serr.textContent = msg; serr.hidden = false; sbtn.disabled = false; };
+      if (!/^[a-z0-9_]{3,20}$/.test(su)) return sfail('Pick a username of 3 to 20 letters, numbers or _.');
+      if (sp.length < 10) return sfail('Use a password of at least 10 characters.');
+      sbtn.disabled = true; serr.hidden = true;
+      rpc('save_account', { p_username: su, p_password: sp }).then(function (r) {
+        ui.account = { username: r.username }; ui.editAccount = false;
+        ui.newCode = { code: r.recovery_code, username: r.username, after: 'you' };
+        document.activeElement && document.activeElement.blur(); render();
+      }).catch(function (x) { sfail(x.message); });
+      return;
     }
     if (e.target.id === 'chat-form') {
       var ci = document.getElementById('chat-input'), text = ci.value.trim(), sNow = mySesh();
