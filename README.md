@@ -94,6 +94,9 @@ functions in `supabase/migrations/0002_live_web_app.sql`.
   protection in Supabase (Authentication, Attack Protection). The other order breaks sign-up.
 - Old data is deleted on a schedule (`purge_old_data()` via pg_cron): seshes as soon as they end (8 hours at most), deal codes after the night,
   unfinished sign-ins after 2 days, chat when the sesh ends, reports after 90 days.
+- Optional username and password (`0008_username_login.sql`), with no email: the username is stored as
+  `<username>@users.seshon.invalid` in Supabase Auth, and a one-time recovery code (hashed, 5 wrong tries a day) replaces
+  "forgot password" emails. Needs the Email provider ON in Supabase with "Confirm email" left ON.
 - `node tools/live/check.mjs`: three simulated phones use the app against a local test database (needs PostgreSQL 15+ and Chromium).
 - `bash supabase/tests/run.sh`: database rule tests.
 
