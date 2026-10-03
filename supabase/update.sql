@@ -1024,5 +1024,11 @@ update public.venues set lat = -31.9478, lng = 115.8571 where id = 'a0000000-000
 update public.venues set lat = -31.9465, lng = 115.8605 where id = 'a0000000-0000-4000-8000-000000000002' and lat is null;
 update public.venues set lat = -31.9512, lng = 115.8540 where id = 'a0000000-0000-4000-8000-000000000003' and lat is null;
 
+-- ======================= 0010_osm_venues.sql
+-- Real venues imported from OpenStreetMap. osm_id (for example "node/123") ties a venue to its
+-- OpenStreetMap entry, so running a newer import updates venues instead of adding them twice.
+alter table public.venues add column if not exists osm_id text;
+create unique index if not exists venues_osm_id_key on public.venues (osm_id);
+
 -- Tell the API about the new functions straight away.
 notify pgrst, 'reload schema';
