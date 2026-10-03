@@ -3,8 +3,9 @@
 <head>
 <meta charset="utf-8">
 <!-- Security policy: scripts only from this site (and the Cloudflare Turnstile sign-up check), and the app can only talk to
-     the SeshOn Supabase project. If the Supabase project ever changes, change connect-src here as well as config.js. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src https://xfwrhetohauzhqqhkibm.supabase.co; frame-src https://challenges.cloudflare.com; manifest-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
+     the SeshOn Supabase project.
+     Map tiles are images from OpenStreetMap (img-src); the map code itself (Leaflet) is a copy kept in vendor/. If the Supabase project ever changes, change connect-src here as well as config.js. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://tile.openstreetmap.org; connect-src https://xfwrhetohauzhqqhkibm.supabase.co; frame-src https://challenges.cloudflare.com; manifest-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#121110">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -14,6 +15,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="icon" href="icon-192.png">
+<link rel="stylesheet" href="vendor/leaflet/leaflet.css">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;700;800&family=DM+Sans:wght@400;500;700&display=swap">
 <style>
 /* Layout: one phone-width column, scrolling content above a four-tab bar; the status colour is the only loud thing on screen. */
@@ -112,6 +114,13 @@ a { color: var(--fg); }
 .chat-form { display: flex; gap: 8px; }
 .chat-form input { flex: 1; min-width: 0; height: 48px; border-radius: 24px; border: 1px solid var(--line); background: var(--surface); padding: 0 16px; }
 .error { color: var(--off); font-size: 14px; font-weight: 500; }
+.map { height: 260px; border-radius: 16px; overflow: hidden; border: 1px solid var(--line); background: var(--surface); z-index: 0; }
+/* OpenStreetMap tiles are light; flip them to suit the dark app. Pins and the radius circle are not affected. */
+.map .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(0.95) contrast(0.9); }
+.map .leaflet-control-attribution { background: rgba(18, 17, 16, 0.75); color: var(--muted); font-size: 11px; }
+.map .leaflet-control-attribution a { color: var(--fg); }
+.map .leaflet-bar a { background: var(--surface); color: var(--fg); border-color: var(--line); }
+input[type="range"] { width: 100%; height: 44px; accent-color: var(--on); }
 .banner { background: var(--surface-2); border: 1px solid var(--off); border-radius: 12px; padding: 10px 14px; font-size: 14px; }
 </style>
 <script src="load-config.js"></script>
@@ -123,6 +132,7 @@ a { color: var(--fg); }
 </div>
 <div id="toast" role="status" aria-live="polite" hidden></div>
 
+<script src="vendor/leaflet/leaflet.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
