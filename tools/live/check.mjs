@@ -62,7 +62,7 @@ async function signUp(p, name, link) {
   await tap(p, 'Get started');
   await has(p, 'Your status');
 }
-async function tab(p, t) { await p.page.locator(`nav button:has-text("${t}")`).click(); }
+async function tab(p, t) { await (t === 'You' ? p.page.locator('button.profile-btn') : p.page.locator(`nav button:has-text("${t}")`)).click(); }   // You is the profile button at the top right
 async function inviteOf(p) { await tab(p, 'You'); await tap(p, 'Send your invite link'); const l = await p.page.locator('#invite-link').innerText(); return l.slice(l.indexOf('?')); }
 
 try {
@@ -158,6 +158,9 @@ try {
   ok(await has(ben, 'Bodega Nine') && await has(ben, 'Example venue'), 'the Venues tab lists the example venues');
 
   console.log('Venue map');
+  ok(await ben.page.locator('.leaflet-container').count() === 0, 'the Venues tab is a plain list with no map');
+  ok(await ben.page.locator('nav button:has-text("You")').count() === 0 && await ben.page.locator('button.profile-btn').count() === 1, 'You is a profile button at the top right, not a tab');
+  await tab(ben, 'Map');
   const sent = [];
   ben.page.on('request', (r) => { if (r.url().startsWith(API)) sent.push(r.url() + ' ' + (r.postData() || '')); });
   ok(await has(ben, '3 venues within 5 km'), 'the map shows how many venues are inside the radius');
