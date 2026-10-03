@@ -19,6 +19,8 @@
   var STOPS = ['on', 'thinking', 'off'];   // left to right on the status switch: G, A, R
   var TAGS = ['Good vibe', 'Good value', 'Fast service'];
   var DEAL_TYPES = ['All', 'Food', 'Drinks', 'Entry', 'Events'];
+  var RADIUS_KEY = 'seshon-radius-km';
+  var MAP_CENTRE = Array.isArray(CFG.mapCentre) ? CFG.mapCentre : [-31.9523, 115.8613];   // where the venue map starts: Perth CBD unless config.js says otherwise
 
   /* ---------- small helpers ---------- */
   function store(key, value) {
@@ -194,6 +196,7 @@
   var lastKey = '';        // used to skip redraws when nothing changed
   var clockOffset = 0;     // server time minus this phone's time
   var ui = { messages: [], tab: 'home', screen: null, filter: 'All', confirm: null, staffError: '', offline: false, booted: false, linkShown: false, age: null, ageNote: '', ageBusy: false, auth: null, account: undefined, newCode: null, editAccount: false };
+  ui.radiusKm = Math.min(25, Math.max(1, Number(store(RADIUS_KEY)) || 5));
   var seen = null;         // friend id -> colour at the last look, for "just went on" notices
   var acting = false;
 
@@ -473,16 +476,110 @@
     }).catch(function () {});
   }
 
-  function venues() {
-    var h = '<div class="stack" style="gap:6px"><h1>Venues</h1><p class="muted small">Places to pick from when you start a sesh.</p></div><div class="stack" style="gap:12px">';
+  /* ---------- venue map ----------
+     Venue pins come from the database. The search centre is either a spot tapped on the map or, if the person
+     asks, their location from the phone. That location is kept in memory on this phone only: it is never sent,
+     saved or shown to anyone else, and it is gone when the page closes. */
+  var pins = null;          // venue id -> [lat, lng], or null until loaded
+  var geo = { centre: MAP_CENTRE.slice(), mine: false, busy: false };
+  var M = { el: null, map: null, circle: null, centre: null, dots: {} };
+
+  function loadPins() {
+    return rpc('venue_pins').then(function (list) {
+      pins = {};
+      (list || []).forEach(function (p) { pins[p.id] = [Number(p.lat), Number(p.lng)]; });
+    }, function () { pins = pins || {}; });
+  }
+  function km(a, b) {   // distance between two [lat, lng] points along the earth's surface
+    var r = Math.PI / 180, dLat = (b[0] - a[0]) * r, dLng = (b[1] - a[1]) * r;
+    var h = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(a[0] * r) * Math.cos(b[0] * r) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+    return 12742 * Math.asin(Math.min(1, Math.sqrt(h)));
+  }
+  function fmtKm(d) { return d < 1 ? Math.max(100, Math.round(d * 10) * 100) + ' m' : (d < 10 ? d.toFixed(1) : Math.round(d)) + ' km'; }
+  function venueCard(ven, dist) {
+    return '<div class="card"><div class="row between"><div class="grow">' + (ven.is_example ? '<div class="eyebrow">Example venue</div>' : '') +
+      '<div style="font-weight:700;font-size:17px">' + esc(ven.name) + '</div>' +
+      '<div class="muted small">' + esc([ven.kind, ven.closes].filter(Boolean).join(', ')) + '</div>' +
+      '<div class="small">' + (dist != null ? '<strong>' + fmtKm(dist) + '</strong> away, ' : '') +
+      (ven.ratings ? '<strong>' + Number(ven.average).toFixed(1) + '</strong> from ' + ven.ratings + ' rating' + (ven.ratings === 1 ? '' : 's') : 'no ratings yet') + '</div></div>' +
+      '<button class="btn small-btn ghost" data-act="venue" data-v="' + esc(ven.id) + '">Open</button></div></div>';
+  }
+  function venueList() {
+    if (!pins) return D.venues.map(function (v) { return venueCard(v, null); }).join('');
+    var near = [], far = 0, unpinned = [];
     D.venues.forEach(function (ven) {
-      h += '<div class="card"><div class="row between"><div class="grow">' + (ven.is_example ? '<div class="eyebrow">Example venue</div>' : '') +
-        '<div style="font-weight:700;font-size:17px">' + esc(ven.name) + '</div>' +
-        '<div class="muted small">' + esc([ven.kind, ven.closes].filter(Boolean).join(', ')) + '</div>' +
-        '<div class="small">' + (ven.ratings ? '<strong>' + Number(ven.average).toFixed(1) + '</strong> from ' + ven.ratings + ' rating' + (ven.ratings === 1 ? '' : 's') : 'No ratings yet') + '</div></div>' +
-        '<button class="btn small-btn ghost" data-act="venue" data-v="' + esc(ven.id) + '">Open</button></div></div>';
+      if (!pins[ven.id]) { unpinned.push(ven); return; }
+      var d = km(geo.centre, pins[ven.id]);
+      if (d <= ui.radiusKm) near.push({ ven: ven, d: d }); else far += 1;
     });
-    return h + '</div>';
+    near.sort(function (a, b) { return a.d - b.d; });
+    var h = '<p class="small" id="venue-count"><strong>' + near.length + ' venue' + (near.length === 1 ? '' : 's') + '</strong> within ' + ui.radiusKm + ' km' +
+      (geo.mine ? ' of you' : ' of the pin') + (far ? '<span class="muted">. ' + far + ' more further away.</span>' : '') + '</p>';
+    h += near.map(function (n) { return venueCard(n.ven, n.d); }).join('');
+    if (unpinned.length) h += '<div class="eyebrow" style="padding-top:8px">Not on the map yet</div>' + unpinned.map(function (v) { return venueCard(v, null); }).join('');
+    return h;
+  }
+  function venues() {
+    var h = '<div class="stack" style="gap:6px"><h1>Venues</h1><p class="muted small">Places to pick from when you start a sesh.</p></div>';
+    if (window.L) {
+      h += '<div class="stack" style="gap:12px"><div id="map-slot" class="map"></div>' +
+        '<div class="field"><div class="row between"><label for="radius" style="font-weight:700">How far</label><span id="radius-label" class="pill">' + ui.radiusKm + ' km</span></div>' +
+        '<input type="range" id="radius" min="1" max="25" step="1" value="' + ui.radiusKm + '" aria-describedby="radius-label"></div>' +
+        '<div class="row between"><p class="muted small grow">' + (geo.mine ? 'Searching around you. Your location stays on this phone and is never saved or shown to friends.' : 'Tap the map to search somewhere else.') + '</p>' +
+        '<button class="btn small-btn ghost" data-act="locate"' + (geo.busy ? ' disabled' : '') + '>' + (geo.busy ? 'Finding you...' : (geo.mine ? 'Update' : 'Near me')) + '</button></div></div>';
+    }
+    return h + '<div class="stack" style="gap:12px" id="venue-list">' + venueList() + '</div>';
+  }
+  function mountMap() {
+    var slot = document.getElementById('map-slot');
+    if (!slot || !window.L) return;
+    if (!M.map) {
+      M.el = document.createElement('div');
+      M.el.className = 'map';
+      M.el.setAttribute('aria-label', 'Map of venues');
+      M.map = L.map(M.el, { center: geo.centre, zoom: 13, attributionControl: true });
+      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>'
+      }).addTo(M.map);
+      M.map.attributionControl.setPrefix(false);
+      M.circle = L.circle(geo.centre, { radius: ui.radiusKm * 1000, color: '#3DDC84', weight: 2, fillOpacity: 0.08, interactive: false }).addTo(M.map);
+      M.centre = L.circleMarker(geo.centre, { radius: 7, color: '#121110', weight: 2, fillColor: '#F4F1EA', fillOpacity: 1, interactive: false }).addTo(M.map);
+      M.map.on('click', function (e) { geo.centre = [e.latlng.lat, e.latlng.lng]; geo.mine = false; render(); });
+      M.fit = true;
+    }
+    slot.parentNode.replaceChild(M.el, slot);
+    M.map.invalidateSize();
+    drawMap();
+  }
+  function drawMap() {
+    if (!M.map) return;
+    M.circle.setLatLng(geo.centre).setRadius(ui.radiusKm * 1000);
+    M.centre.setLatLng(geo.centre);
+    var keep = {};
+    D.venues.forEach(function (ven) {
+      var at = pins && pins[ven.id];
+      if (!at) return;
+      keep[ven.id] = true;
+      var inside = km(geo.centre, at) <= ui.radiusKm;
+      var dot = M.dots[ven.id];
+      if (!dot) {
+        dot = M.dots[ven.id] = L.circleMarker(at, { radius: 9, weight: 2 }).addTo(M.map);
+        dot.on('click', function () { ACT.venue(ven.id); });
+      }
+      dot.setLatLng(at).setStyle({ color: '#121110', fillColor: inside ? '#3DDC84' : '#ABA59B', fillOpacity: inside ? 1 : 0.6 });
+      dot.unbindTooltip().bindTooltip(ven.name, { direction: 'top', offset: [0, -8] });
+    });
+    Object.keys(M.dots).forEach(function (id) { if (!keep[id]) { M.map.removeLayer(M.dots[id]); delete M.dots[id]; } });
+    if (M.fit) { M.fit = false; M.map.fitBounds(M.circle.getBounds(), { animate: false, padding: [12, 12] }); }
+  }
+  function setRadius(v) {   // the slider moves without redrawing the page, so dragging it stays smooth
+    ui.radiusKm = Math.min(25, Math.max(1, Math.round(Number(v)) || 5));
+    store(RADIUS_KEY, ui.radiusKm);
+    var label = document.getElementById('radius-label'), list = document.getElementById('venue-list');
+    if (label) label.textContent = ui.radiusKm + ' km';
+    if (list) list.innerHTML = venueList();
+    drawMap();
   }
 
   function sesh() {
@@ -709,6 +806,7 @@
     else if (ui.screen && ui.screen.type === 'redeem') html = redeem(ui.screen.id);
     else html = { home: home, sesh: sesh, venues: venues, deals: deals, you: you }[ui.tab]();
     view.innerHTML = html;
+    mountMap();
     tabs.hidden = false;
     var requests = D.requests_in.length;
     var tabList = [['home', 'Home'], ['sesh', 'Sesh'], ['venues', 'Venues']].concat(DEALS_ON ? [['deals', 'Deals']] : [], [['you', 'You']]);
@@ -745,7 +843,22 @@
   }
 
   var ACT = {
-    tab: function (v) { ui.tab = v; ui.screen = null; ui.confirm = null; ui.staffError = ''; go(true); },
+    tab: function (v) {
+      ui.tab = v; ui.screen = null; ui.confirm = null; ui.staffError = ''; go(true);
+      if (v === 'venues') loadPins().then(function () { if (ui.tab === 'venues' && !ui.screen) { if (M.map) M.fit = true; render(); } });
+    },
+    locate: function () {
+      if (!navigator.geolocation) { toast('This phone cannot share its location. Tap the map instead.'); return; }
+      geo.busy = true; render();
+      navigator.geolocation.getCurrentPosition(function (pos) {
+        geo.busy = false; geo.mine = true;
+        geo.centre = [pos.coords.latitude, pos.coords.longitude];   // kept in memory only, never sent anywhere
+        M.fit = true; render();
+      }, function () {
+        geo.busy = false; render();
+        toast('Could not get your location. Tap the map to pick a spot instead.');
+      }, { enableHighAccuracy: false, maximumAge: 300000, timeout: 10000 });
+    },
     status: function (v) {
       moveKnob(v);
       act('set_status', { new_colour: v }, v === 'on' ? 'You\'re green. Friends who are around can see it.' : null).then(function () {
@@ -878,6 +991,8 @@
   document.addEventListener('pointerup', function (e) { endDrag(e, false); });
   document.addEventListener('pointercancel', function (e) { endDrag(e, true); });
 
+  document.addEventListener('input', function (e) { if (e.target.id === 'radius') setRadius(e.target.value); });
+  document.addEventListener('change', function (e) { if (e.target.id === 'radius' && M.map) { M.fit = true; drawMap(); } });   // zoom to the circle once the slider is let go
   document.addEventListener('click', function (e) {
     if (swallowClick) return;
     var b = e.target.closest('[data-act]');

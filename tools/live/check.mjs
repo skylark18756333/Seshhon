@@ -34,16 +34,18 @@ const web = http.createServer((req, res) => {
     res.setHeader('Content-Type', 'text/html'); return res.end(html.replace('connect-src ' + live + ';', 'connect-src ' + API + ';'));
   }
   if (!f.startsWith(path.join(root, 'docs')) || !fs.existsSync(f)) { res.statusCode = 404; return res.end(); }
-  const types = { '.html': 'text/html', '.js': 'text/javascript', '.png': 'image/png', '.webmanifest': 'application/manifest+json' };
+  const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.webmanifest': 'application/manifest+json' };
   res.setHeader('Content-Type', types[path.extname(f)] || 'application/octet-stream'); res.end(fs.readFileSync(f));
 }).listen(WEB_PORT);
 await new Promise((r) => setTimeout(r, 800));
 
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM || '/opt/pw-browsers/chromium' });
 const consoleErrors = [];
+const tile = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');   // stand-in map tile
 async function phone(name) {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 780 }, timezoneId: 'Australia/Perth' });
   await ctx.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
+  await ctx.route(/tile\.openstreetmap\.org/, (r) => r.fulfill({ contentType: 'image/png', body: tile }));
   const page = await ctx.newPage();
   page.on('pageerror', (e) => consoleErrors.push(name + ': ' + e.message));
   page.on('console', (m) => { if (/Content Security Policy/.test(m.text())) consoleErrors.push(name + ': ' + m.text()); });
@@ -154,6 +156,31 @@ try {
   await cam.page.screenshot({ path: path.join(copy, 'chat.png') });
   await tab(ben, 'Venues');
   ok(await has(ben, 'Bodega Nine') && await has(ben, 'Example venue'), 'the Venues tab lists the example venues');
+
+  console.log('Venue map');
+  const sent = [];
+  ben.page.on('request', (r) => { if (r.url().startsWith(API)) sent.push(r.url() + ' ' + (r.postData() || '')); });
+  ok(await has(ben, '3 venues within 5 km'), 'the map shows how many venues are inside the radius');
+  ok(await ben.page.locator('.leaflet-container path.leaflet-interactive').count() === 3, 'each example venue has a pin on the map');
+  ok(await has(ben, 'away,'), 'venue cards say how far away they are');
+  await ben.ctx.grantPermissions(['geolocation']);
+  await ben.ctx.setGeolocation({ latitude: -32.0569, longitude: 115.7439 });   // Fremantle, about 16 km from the example venues
+  await tap(ben, 'Near me');
+  ok(await has(ben, '0 venues within 5 km of you') && await has(ben, '3 more further away'), 'Near me searches around the phone\'s location');
+  await ben.page.locator('#radius').fill('25');
+  ok(await has(ben, '3 venues within 25 km of you'), 'widening the radius brings the venues back');
+  await ben.page.locator('#radius').fill('15');
+  ok(await has(ben, '0 venues within 15 km'), 'narrowing the radius filters them out again');
+  await ben.page.waitForTimeout(1500);   // let a few background refreshes run
+  ok(await ben.page.locator('#radius').inputValue() === '15' && await has(ben, 'within 15 km of you'), 'the radius and location survive background refreshes');
+  ok(!sent.some((x) => /-32\.05|115\.74/.test(x)), 'the phone\'s location is never sent to the server');
+  await ben.page.locator('#radius').fill('25');
+  await ben.page.evaluate(() => { document.getElementById('view').scrollTop = 0; });
+  await ben.page.screenshot({ path: path.join(copy, 'venue-map.png') });
+  await ben.page.evaluate(() => { document.getElementById('view').scrollTop = 0; });
+  await ben.page.locator('.leaflet-container path.leaflet-interactive').first().dispatchEvent('click');
+  ok(await has(ben, 'Rate this venue'), 'tapping a pin opens that venue');
+  await tab(ben, 'Venues');
 
   console.log('Deals');
   await tab(ben, 'Deals');
