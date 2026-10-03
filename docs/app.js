@@ -245,6 +245,7 @@
       noticeFriends(data);
       var key = JSON.stringify([data.me, data.friends, data.requests_in, data.requests_out, data.seshes, data.venues, data.deals, data.staff_venues, data.blocked]);
       D = data; ui.booted = true;
+      if (data.me && !pins && !pinsAsked) { pinsAsked = true; loadPins().then(function () { render(); }); }   // venue distances for the sesh vote list
       if (!quiet || key !== lastKey) { lastKey = key; render(); }
     }).catch(function (e) {
       if (e.signedOut || !session) { D = null; ui.booted = true; render(); return; }
@@ -481,6 +482,7 @@
      asks, their location from the phone. That location is kept in memory on this phone only: it is never sent,
      saved or shown to anyone else, and it is gone when the page closes. */
   var pins = null;          // venue id -> [lat, lng], or null until loaded
+  var pinsAsked = false;
   var geo = { centre: MAP_CENTRE.slice(), mine: false, busy: false };
   var M = { el: null, map: null, circle: null, centre: null, dots: {} };
 
@@ -523,6 +525,19 @@
     var h = '<div class="stack" style="gap:6px"><h1>Venues</h1><p class="muted small">Places to pick from when you start a sesh. Use the Map tab to find ones near you.</p></div><div class="stack" style="gap:12px">';
     D.venues.forEach(function (ven) { h += venueCard(ven, null); });
     return h + '</div>';
+  }
+  // The venues offered for a vote: anything already voted for, then the nearest few inside the map's radius,
+  // so a sesh never shows hundreds of venues at once. Any other venue can be voted for from the map.
+  var VOTE_PICKS = 8;
+  function votePicks(tallyInfo) {
+    var voted = D.venues.filter(function (v) { return tallyInfo.by[v.id]; });
+    if (!pins) return voted.length ? voted : D.venues.slice(0, VOTE_PICKS);
+    var near = D.venues.filter(function (v) { return pins[v.id] && !tallyInfo.by[v.id]; })
+      .map(function (v) { return { v: v, d: km(geo.centre, pins[v.id]) }; })
+      .filter(function (x) { return x.d <= ui.radiusKm; })
+      .sort(function (a, b) { return a.d - b.d; })
+      .slice(0, VOTE_PICKS).map(function (x) { return x.v; });
+    return voted.concat(near);
   }
   function mapTab() {
     var h = '<div class="stack" style="gap:6px"><h1>Map</h1><p class="muted small">Pick how far you want to go.</p></div>';
@@ -622,16 +637,18 @@
       var tallyInfo = leaderOf(mine), total = mine.votes.length;
       var myVote = (mine.votes.filter(function (v) { return v.user_id === me.id; })[0] || {}).venue_id;
       h += '<div class="row between"><h2>Where to?</h2><span class="muted small">' + total + ' vote' + (total === 1 ? '' : 's') + ' in</span></div><div class="stack">';
-      D.venues.forEach(function (ven) {
+      var picks = votePicks(tallyInfo);
+      if (!picks.length) h += '<p class="muted small">No venues within ' + ui.radiusKm + ' km yet. Find one on the map and vote for it there.</p>';
+      picks.forEach(function (ven) {
         var n = tallyInfo.by[ven.id] ? tallyInfo.by[ven.id].n : 0, isMine = myVote === ven.id, isLead = tallyInfo.best === ven.id;
         var deal = DEALS_ON ? D.deals.filter(function (d) { return d.venue_id === ven.id && d.running; })[0] : null;
         h += '<div class="card' + (isLead ? ' lead' : '') + '"><div class="row between"><div class="grow"><div style="font-weight:700;font-size:17px">' + esc(ven.name) + '</div>' +
-          '<div class="muted small">' + esc([ven.kind, ven.closes].filter(Boolean).join(', ')) + '</div></div>' +
+          '<div class="muted small">' + esc([ven.kind, ven.closes, pins && pins[ven.id] ? fmtKm(km(geo.centre, pins[ven.id])) + ' away' : ''].filter(Boolean).join(', ')) + '</div></div>' +
           '<button class="btn small-btn' + (isMine ? '' : ' ghost') + '" data-act="vote" data-v="' + esc(ven.id) + '" aria-pressed="' + isMine + '">' + (isMine ? 'Your vote' : 'Vote') + '</button></div>' +
           (deal ? '<div class="deal-title small">' + esc(deal.title) + '</div>' : '') +
           '<div class="row"><div class="bar"><i style="width:' + (total ? Math.round(n / total * 100) : 0) + '%"></i></div><div class="small" style="font-weight:700">' + n + ' vote' + (n === 1 ? '' : 's') + '</div></div></div>';
       });
-      h += '</div>';
+      h += '</div><button class="btn ghost" data-act="tab" data-v="map">Find more on the map</button>';
       if (mine.mine) {
         h += tallyInfo.best && venueById(tallyInfo.best)
           ? '<button class="btn" data-act="lock" id="lock">Lock in ' + esc(venueById(tallyInfo.best).name) + '</button>'
@@ -857,7 +874,7 @@
   var ACT = {
     tab: function (v) {
       ui.tab = v; ui.screen = null; ui.confirm = null; ui.staffError = ''; go(true);
-      if (v === 'map') loadPins().then(function () { if (ui.tab === 'map' && !ui.screen) { if (M.map) M.fit = true; render(); } });
+      if (v === 'map' || v === 'sesh') loadPins().then(function () { if (ui.tab === v && !ui.screen) { if (M.map) M.fit = true; render(); } });
     },
     locate: function () {
       if (!navigator.geolocation) { toast('This phone cannot share its location. Tap the map instead.'); return; }

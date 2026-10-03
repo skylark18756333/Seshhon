@@ -19,6 +19,8 @@ const copy = fs.mkdtempSync('/tmp/sb-live-');
 execSync(`cp -r ${root}/supabase ${copy}/ && chmod -R a+rX ${copy} && chmod a+rx ${copy}`);
 const setup = execSync(`ONLY_SETUP=1 bash ${copy}/supabase/tests/run.sh`, { encoding: 'utf8' });
 const [, sock, dbPort] = setup.match(/socket dir (\S+) port (\d+)/);
+// 20 extra venues about 3 km out, so the sesh vote list has to pick the nearest few.
+execSync(`psql -X -q -h ${sock} -p ${dbPort} -U postgres -c "insert into public.venues (name, kind, lat, lng) select 'Filler ' || g, 'Bar', -31.9523 + 0.027, 115.8613 + g * 0.0005 from generate_series(1, 20) g"`);
 console.log('database ready');
 
 // 2. the stand-in for Supabase's web address, and a static server for docs/
@@ -112,6 +114,7 @@ try {
   console.log('Sesh');
   await tap(ana, 'Start a sesh');
   ok(await has(ana, "Tonight's sesh") && await has(ana, 'Where to?'), 'Ana starts a sesh and sees venues');
+  ok(await has(ana, 'Find more on the map') && await ana.page.locator('[data-act="vote"]').count() === 8 && await has(ana, 'Bodega Nine'), 'the vote list shows only the 8 nearest venues');
   await tab(ben, 'Sesh');
   ok(await has(ben, "Ana's sesh"), 'Ben sees Ana\'s sesh');
   await tap(ben, 'Join');
@@ -163,15 +166,15 @@ try {
   await tab(ben, 'Map');
   const sent = [];
   ben.page.on('request', (r) => { if (r.url().startsWith(API)) sent.push(r.url() + ' ' + (r.postData() || '')); });
-  ok(await has(ben, '3 venues within 5 km'), 'the map shows how many venues are inside the radius');
-  ok(await ben.page.locator('.leaflet-container path.leaflet-interactive').count() === 3, 'each example venue has a pin on the map');
+  ok(await has(ben, '23 venues within 5 km'), 'the map shows how many venues are inside the radius');
+  ok(await ben.page.locator('.leaflet-container path.leaflet-interactive').count() === 23, 'every venue with a position has a pin on the map');
   ok(await has(ben, 'away,'), 'venue cards say how far away they are');
   await ben.ctx.grantPermissions(['geolocation']);
   await ben.ctx.setGeolocation({ latitude: -32.0569, longitude: 115.7439 });   // Fremantle, about 16 km from the example venues
   await tap(ben, 'Near me');
-  ok(await has(ben, '0 venues within 5 km of you') && await has(ben, '3 more further away'), 'Near me searches around the phone\'s location');
+  ok(await has(ben, '0 venues within 5 km of you') && await has(ben, '23 more further away'), 'Near me searches around the phone\'s location');
   await ben.page.locator('#radius').fill('25');
-  ok(await has(ben, '3 venues within 25 km of you'), 'widening the radius brings the venues back');
+  ok(await has(ben, '23 venues within 25 km of you'), 'widening the radius brings the venues back');
   await ben.page.locator('#radius').fill('15');
   ok(await has(ben, '0 venues within 15 km'), 'narrowing the radius filters them out again');
   await ben.page.waitForTimeout(1500);   // let a few background refreshes run
