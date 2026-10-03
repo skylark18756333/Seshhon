@@ -70,7 +70,7 @@ try {
   ok(await has(ana, 'aged 18 and over') && (await ana.page.locator('#name').count()) === 0, 'and stays turned away after a reload');
   await ana.page.evaluate(() => localStorage.clear()); await ana.page.reload();
   await ana.page.fill('#name', 'Ana'); await ana.page.fill('#dob', '1995-04-12'); await tap(ana, 'Get started');
-  ok(await has(ana, "You're off."), 'Ana signs up and starts Off');
+  ok(await has(ana, "You're red."), 'Ana signs up and starts Red');
   ok(await has(ana, 'Add your friends'), 'a new person is told to add friends');
 
   console.log('Invite links and friends');
@@ -80,26 +80,26 @@ try {
   await tab(ana, 'Home');
   ok(await has(ana, 'Ben wants to add you'), 'Ana sees Ben\'s friend request without refreshing');
   await tap(ana, 'Accept');
-  ok(await has(ana, 'Friends are hidden while you\'re off'), 'accepted; Ana is Off so friends stay hidden');
-  ok(await has(ben, 'Friends are hidden'), 'Ben sees he is friends with Ana (Off hides her)');
+  ok(await has(ana, 'Friends are hidden while you\'re red'), 'accepted; Ana is Red so friends stay hidden');
+  ok(await has(ben, 'Friends are hidden'), 'Ben sees he is friends with Ana (Red hides her)');
 
   await signUp(cam, 'Cam', anaLink);
   await tap(ana, 'Accept');
 
   console.log('Status and privacy');
-  await tap(ben, 'On');
-  ok(await has(ben, "You're on."), 'Ben goes On');
-  ok(!(await text(ana)).includes('Ben') || (await text(ana)).includes('hidden'), 'Ana is Off so she cannot see Ben');
-  await tap(ana, 'On');
-    ok(await has(ana, 'Up for it now'), 'Ana goes On and sees the friends list');
+  await tap(ben, 'Green');
+  ok(await has(ben, "You're green."), 'Ben goes Green');
+  ok(!(await text(ana)).includes('Ben') || (await text(ana)).includes('hidden'), 'Ana is Red so she cannot see Ben');
+  await tap(ana, 'Green');
+    ok(await has(ana, 'Up for it now'), 'Ana goes Green and sees the friends list');
   const anaHome = await text(ana);
-  ok(/Ben\s+On/.test(anaHome), 'Ana sees Ben is On');
-  ok(/Cam\s+Off/.test(anaHome), 'Ana sees Cam as Off');
-  ok((await cam.page.locator('.friend').count()) === 0 && !(await text(cam)).includes('Up for it now'), 'Cam (Off) cannot see Ana');
-  await tap(cam, 'Thinking');
-  ok(await has(cam, 'Up for it now'), 'Cam goes Thinking and sees friends');
-  ok(/Ana\s+On/.test(await text(cam)), 'Cam (Thinking) sees Ana is On');
-  ok(await ana.page.waitForFunction(() => /Cam\s+Thinking/.test(document.body.innerText), null, { timeout: 4000 }).then(() => true, () => false), 'Ana sees Cam Thinking within a poll');
+  ok(/Ben\s+Green/.test(anaHome), 'Ana sees Ben is Green');
+  ok(/Cam\s+Red/.test(anaHome), 'Ana sees Cam as Red');
+  ok((await cam.page.locator('.friend').count()) === 0 && !(await text(cam)).includes('Up for it now'), 'Cam (Red) cannot see Ana');
+  await tap(cam, 'Amber');
+  ok(await has(cam, 'Up for it now'), 'Cam goes Amber and sees friends');
+  ok(/Ana\s+Green/.test(await text(cam)), 'Cam (Amber) sees Ana is Green');
+  ok(await ana.page.waitForFunction(() => /Cam\s+Amber/.test(document.body.innerText), null, { timeout: 4000 }).then(() => true, () => false), 'Ana sees Cam Amber within a poll');
 
   console.log('Sesh');
   await tap(ana, 'Start a sesh');
@@ -109,7 +109,7 @@ try {
   await tap(ben, 'Join');
   ok(await has(ben, '2 in'), 'Ben joins: 2 in');
   await tab(cam, 'Sesh');
-  ok(await has(cam, "Ana's sesh"), 'Cam (Thinking) sees the sesh');
+  ok(await has(cam, "Ana's sesh"), 'Cam (Amber) sees the sesh');
   await tap(cam, 'Join');
   ok(await has(cam, '3 in'), 'Cam joins: 3 in');
 
@@ -194,10 +194,17 @@ try {
   await tab(cam, 'Sesh');
   ok(await gone(cam, 'Yes please'), 'Cam no longer sees the chat');
 
-  console.log('Going Off hides you');
-  await tab(cam, 'Home'); await tap(cam, 'Off');
+  console.log('Going Red hides you');
+  await tab(cam, 'Home');
+  { // drag the knob across the switch from Amber to Red, like a finger would
+    const box = await cam.page.locator('#status-slide').boundingBox(), y = box.y + box.height / 2;
+    await cam.page.mouse.move(box.x + box.width / 2, y); await cam.page.mouse.down();
+    for (let i = 1; i <= 8; i++) await cam.page.mouse.move(box.x + box.width / 2 + (box.width / 3) * i / 8, y);
+    await cam.page.mouse.up();
+  }
+  ok(await has(cam, "You're red."), 'Cam slides the switch to Red');
   await tab(ana, 'Home');
-  ok(await ana.page.waitForFunction(() => /Cam\s+Off/.test(document.body.innerText), null, { timeout: 4000 }).then(() => true, () => false), 'Ana sees Cam as Off after Cam goes Off');
+  ok(await ana.page.waitForFunction(() => /Cam\s+Red/.test(document.body.innerText), null, { timeout: 4000 }).then(() => true, () => false), 'Ana sees Cam as Red after Cam slides to Red');
 
   console.log('Delete account');
   await tab(cam, 'You'); await tap(cam, 'Delete my account'); await tap(cam, 'Delete for good');

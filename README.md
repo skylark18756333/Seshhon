@@ -2,11 +2,13 @@
 
 Tell your friends you're up for a sesh, pick a place together, and use a deal when you get there.
 
-Your status is a traffic light:
+Your status is a traffic light, set with a G / A / R switch you slide or flick across:
 
-- **On (green):** ready to go out. Lasts 4 hours, then switches itself off.
-- **Thinking (yellow):** browsing, undecided. Lasts 2 hours. Nobody gets pinged.
-- **Off (red):** hidden. This is where everyone starts.
+- **Green:** ready to go out. Lasts 4 hours, then switches itself to red.
+- **Amber:** browsing, undecided. Lasts 2 hours. Nobody gets pinged.
+- **Red:** off and hidden. This is where everyone starts.
+
+(Inside the code and database these are still called `on`, `thinking` and `off`.)
 
 ## What is in this repository
 
@@ -35,7 +37,7 @@ should confirm them before the pilot. Food, entry and event deals have no such l
 
 **Deal codes** last 15 minutes and each person can use a deal once per night.
 
-**Privacy:** only accepted friends can see your status, and only while it is On or Thinking.
+**Privacy:** only accepted friends can see your status, and only while it is Green or Amber.
 Sign-up requires confirming you are 18 or over.
 
 ## Running the phone app (for a developer)

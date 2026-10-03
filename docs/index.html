@@ -52,11 +52,13 @@ h2 { font-family: var(--display); font-weight: 700; font-size: 20px; }
 .wordmark { font-family: var(--display); font-weight: 800; font-size: 24px; letter-spacing: -0.5px; }
 .pill { font-size: 12px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; padding: 5px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
 .status-word { font-family: var(--display); font-weight: 800; font-size: 52px; line-height: 1; letter-spacing: -1.5px; }
-.switch { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
-.seg { height: 52px; border-radius: 26px; border: 1px solid var(--line); background: var(--surface); font-weight: 700; font-size: 15px; display: flex; align-items: center; justify-content: center; gap: 8px; }
-.seg .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--c); }
-.seg[aria-pressed="true"] { background: var(--c); border-color: var(--c); color: var(--ink); }
-.seg[aria-pressed="true"] .dot { background: var(--ink); }
+/* Status switch: one track, a coloured knob you drag or flick across G, A, R; tapping a letter also works. */
+.slide { position: relative; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); height: 68px; padding: 5px; border-radius: 34px; background: var(--surface); border: 1px solid var(--line); touch-action: pan-y; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; }
+.slide .knob { position: absolute; top: 5px; bottom: 5px; left: 5px; width: calc((100% - 10px) / 3); border-radius: 29px; background: var(--c); box-shadow: 0 3px 12px rgba(0, 0, 0, 0.45); transform: translateX(calc(var(--i, 0) * 100%)); transition: transform 0.25s cubic-bezier(0.3, 1.35, 0.5, 1), background-color 0.2s; pointer-events: none; }
+.slide.dragging .knob { transition: background-color 0.2s; }
+.slide .stop { position: relative; z-index: 1; border: 0; background: none; border-radius: 29px; font-family: var(--display); font-weight: 800; font-size: 24px; letter-spacing: 1px; color: var(--muted); transition: color 0.2s; }
+.slide .stop[aria-pressed="true"] { color: var(--ink); }
+@media (prefers-reduced-motion: reduce) { .slide .knob { transition: none; } }
 .btn { min-height: 54px; padding: 0 20px; border-radius: 27px; border: 0; background: var(--c, var(--on)); color: var(--ink); font-weight: 700; font-size: 16px; width: 100%; }
 .btn.ghost { background: transparent; color: var(--fg); border: 1px solid var(--fg); }
 .btn.small-btn { min-height: 44px; width: auto; padding: 0 18px; font-size: 14px; border-radius: 22px; white-space: nowrap; }
@@ -132,7 +134,8 @@ a { color: var(--fg); }
   var UNDERAGE_KEY = 'seshhon-under-18';
 
   var COLORS = { on: 'var(--on)', thinking: 'var(--thinking)', off: 'var(--off)' };
-  var LABELS = { on: 'On', thinking: 'Thinking', off: 'Off' };
+  var LABELS = { on: 'Green', thinking: 'Amber', off: 'Red' };
+  var STOPS = ['on', 'thinking', 'off'];   // left to right on the status switch: G, A, R
   var TAGS = ['Good vibe', 'Good value', 'Fast service'];
   var DEAL_TYPES = ['All', 'Food', 'Drinks', 'Entry', 'Events'];
 
@@ -348,17 +351,17 @@ a { color: var(--fg); }
   function home() {
     var me = D.me, s = me.colour;
     var copy = {
-      on: ["You're on.", "Friends who are On or Thinking can see you're up for a sesh."],
-      thinking: ['Thinking.', "You're browsing. Friends see you might be keen."],
-      off: ["You're off.", "You're hidden, and you can't see who else is on until you switch back."]
+      on: ["You're green.", "Ready to go out. Friends on green or amber can see you're up for a sesh."],
+      thinking: ["You're amber.", "Thinking about it. Friends see you might be keen."],
+      off: ["You're red.", "You're off and hidden, and you can't see who else is out until you slide back."]
     }[s];
     var h = '<div class="top"><div class="wordmark">seshhon</div>' + (ui.offline ? '<span class="pill" style="border-color:var(--off);color:var(--off)">Offline</span>' : '') + '</div>';
     h += '<section class="stack"><div class="eyebrow">Your status</div>' +
       '<div class="status-word" id="status-word" style="color:' + COLORS[s] + '">' + copy[0] + '</div>' +
-      '<p class="muted">' + copy[1] + (s !== 'off' && me.expires_at ? ' Back to off in <span data-until="' + new Date(me.expires_at).getTime() + '" data-kind="status">' + fmtLeft(new Date(me.expires_at).getTime() - now()) + '</span>.' : '') + '</p>' +
-      '<div class="switch" role="group" aria-label="Set your status">' +
-      ['on', 'thinking', 'off'].map(function (k) {
-        return '<button class="seg" style="--c:' + COLORS[k] + '" data-act="status" data-v="' + k + '" aria-pressed="' + (s === k) + '"><span class="dot"></span>' + LABELS[k] + '</button>';
+      '<p class="muted">' + copy[1] + (s !== 'off' && me.expires_at ? ' Back to red in <span data-until="' + new Date(me.expires_at).getTime() + '" data-kind="status">' + fmtLeft(new Date(me.expires_at).getTime() - now()) + '</span>.' : '') + '</p>' +
+      '<div class="slide" id="status-slide" role="group" aria-label="Set your status" style="--c:' + COLORS[s] + ';--i:' + STOPS.indexOf(s) + '"><span class="knob"></span>' +
+      STOPS.map(function (k) {
+        return '<button class="stop" data-act="status" data-v="' + k + '" aria-label="' + LABELS[k] + '" aria-pressed="' + (s === k) + '">' + LABELS[k].charAt(0) + '</button>';
       }).join('') + '</div></section>';
 
     if (D.requests_in.length) {
@@ -374,11 +377,11 @@ a { color: var(--fg); }
       h += '<div class="card"><h2>Add your friends</h2><p class="muted small">Seshhon only works with friends on it. Send them your invite link, then accept their request when it arrives.</p>' +
         '<button class="btn" data-act="share">Send your invite link</button>' + linkBox() + '</div>';
     } else if (s === 'off') {
-      h += '<div class="card"><h2>Friends are hidden while you\'re off</h2><p class="muted small">Switch to On or Thinking to see who\'s up for it tonight.</p></div>';
+      h += '<div class="card"><h2>Friends are hidden while you\'re red</h2><p class="muted small">Slide to green or amber to see who\'s up for it tonight.</p></div>';
     } else {
       var on = friends.filter(function (f) { return f.colour === 'on'; }).length;
       var th = friends.filter(function (f) { return f.colour === 'thinking'; }).length;
-      h += '<section class="stack" style="gap:4px"><div class="row between"><h2>Up for it now</h2><span class="muted small">' + on + ' on, ' + th + ' thinking</span></div>' +
+      h += '<section class="stack" style="gap:4px"><div class="row between"><h2>Up for it now</h2><span class="muted small">' + on + ' green, ' + th + ' amber</span></div>' +
         friends.map(function (f) {
           return '<div class="friend">' + avatar(f.name, f.colour === 'off' ? 'var(--line)' : COLORS[f.colour], f.colour === 'thinking') +
             '<div class="grow"><div style="font-weight:500' + (f.colour === 'off' ? ';color:var(--muted)' : '') + '">' + esc(f.name) + '</div></div>' +
@@ -475,12 +478,12 @@ a { color: var(--fg); }
         }).join('') + '</div>';
       }
       if (me.colour === 'on') {
-        h += '<p class="muted">' + (others.length ? 'Or start your own.' : 'Nobody has started one yet. Start a sesh and your friends who are On or Thinking can join and vote on where to go.') + '</p>' +
+        h += '<p class="muted">' + (others.length ? 'Or start your own.' : 'Nobody has started one yet. Start a sesh and your friends on green or amber can join and vote on where to go.') + '</p>' +
           '<button class="btn' + (others.length ? ' ghost' : '') + '" data-act="start-sesh">Start a sesh</button>';
       } else if (me.colour === 'thinking') {
-        h += '<p class="muted">' + (others.length ? 'Go On to start your own.' : 'No sesh yet. Go On to start one.') + '</p><button class="btn" data-act="status" data-v="on">Go on</button>';
+        h += '<p class="muted">' + (others.length ? 'Go green to start your own.' : 'No sesh yet. Go green to start one.') + '</p><button class="btn" data-act="status" data-v="on">Go green</button>';
       } else {
-        h += '<p class="muted">You\'re off, so seshes are hidden. Go On to start one or see your friends\' plans.</p><button class="btn" data-act="status" data-v="on">Go on</button>';
+        h += '<p class="muted">You\'re red, so seshes are hidden. Go green to start one or see your friends\' plans.</p><button class="btn" data-act="status" data-v="on">Go green</button>';
       }
       return h;
     }
@@ -642,6 +645,7 @@ a { color: var(--fg); }
 
   /* ---------- render ---------- */
   function render() {
+    if (drag) return; // never rebuild the screen under a finger that is sliding the status switch
     var keep = document.getElementById('staff-code'), keepValue = keep ? keep.value : null, keepFocus = keep && document.activeElement === keep;
     var chatIn = document.getElementById('chat-input'), chatValue = chatIn ? chatIn.value : null, chatFocus = chatIn && document.activeElement === chatIn;
     var chatScroll = document.getElementById('chat-list'), chatTop = chatScroll ? chatScroll.scrollTop : null;
@@ -696,7 +700,8 @@ a { color: var(--fg); }
   var ACT = {
     tab: function (v) { ui.tab = v; ui.screen = null; ui.confirm = null; ui.staffError = ''; go(true); },
     status: function (v) {
-      act('set_status', { new_colour: v }, v === 'on' ? 'You are on. Friends who are around can see it.' : null).then(function () {
+      moveKnob(v);
+      act('set_status', { new_colour: v }, v === 'on' ? 'You\'re green. Friends who are around can see it.' : null).then(function () {
         ui.tab = 'home'; ui.screen = null; go(false);
       });
     },
@@ -759,7 +764,55 @@ a { color: var(--fg); }
     }
   };
 
+  /* ---------- status switch: drag or flick the knob ---------- */
+  var drag = null, swallowClick = false;
+  function moveKnob(v) {
+    var el = document.getElementById('status-slide');
+    if (!el || STOPS.indexOf(v) < 0) return;
+    el.style.setProperty('--i', STOPS.indexOf(v));
+    el.style.setProperty('--c', COLORS[v]);
+    [].forEach.call(el.querySelectorAll('.stop'), function (b) { b.setAttribute('aria-pressed', String(b.getAttribute('data-v') === v)); });
+  }
+  document.addEventListener('pointerdown', function (e) {
+    var el = e.target.closest('#status-slide');
+    if (!el || (e.pointerType === 'mouse' && e.button !== 0)) return;
+    var start = STOPS.indexOf(D && D.me ? D.me.colour : 'off');
+    drag = { el: el, knob: el.querySelector('.knob'), id: e.pointerId, x0: e.clientX, t0: Date.now(), start: start, at: start,
+      step: (el.getBoundingClientRect().width - 10) / 3, moved: false };
+  });
+  document.addEventListener('pointermove', function (e) {
+    if (!drag || e.pointerId !== drag.id) return;
+    var dx = e.clientX - drag.x0;
+    if (!drag.moved) {
+      if (Math.abs(dx) < 6) return;
+      drag.moved = true;
+      drag.el.classList.add('dragging');
+      try { drag.el.setPointerCapture(e.pointerId); } catch (err) {}
+    }
+    var pos = Math.max(0, Math.min(2 * drag.step, drag.start * drag.step + dx));
+    drag.knob.style.transform = 'translateX(' + pos + 'px)';
+    var at = Math.round(pos / drag.step);
+    if (at !== drag.at) { drag.at = at; drag.el.style.setProperty('--c', COLORS[STOPS[at]]); if (navigator.vibrate) navigator.vibrate(8); }
+  });
+  function endDrag(e, cancelled) {
+    if (!drag || e.pointerId !== drag.id) return;
+    var d = drag; drag = null;
+    if (!d.moved) return;
+    swallowClick = true; setTimeout(function () { swallowClick = false; }, 0);
+    d.el.classList.remove('dragging');
+    d.knob.style.transform = '';
+    var at = d.at, dx = e.clientX - d.x0;
+    // A quick flick moves at least one stop in the direction of the flick.
+    if (!cancelled && at === d.start && Math.abs(dx) > 20 && Date.now() - d.t0 < 300) at = Math.max(0, Math.min(2, d.start + (dx > 0 ? 1 : -1)));
+    var v = STOPS[cancelled ? d.start : at];
+    if (D && D.me && v !== D.me.colour) ACT.status(v);
+    else { moveKnob(STOPS[d.start]); render(); }
+  }
+  document.addEventListener('pointerup', function (e) { endDrag(e, false); });
+  document.addEventListener('pointercancel', function (e) { endDrag(e, true); });
+
   document.addEventListener('click', function (e) {
+    if (swallowClick) return;
     var b = e.target.closest('[data-act]');
     if (!b || b.disabled) return;
     var fn = ACT[b.getAttribute('data-act')];
