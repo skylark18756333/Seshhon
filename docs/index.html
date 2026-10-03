@@ -98,6 +98,14 @@ nav button[aria-current="page"] { color: var(--fg); font-weight: 700; }
 .badge { position: absolute; top: 4px; left: calc(50% + 6px); min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--on); color: var(--ink); font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
 #toast { position: fixed; left: 50%; bottom: calc(96px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); width: max-content; max-width: min(360px, calc(100% - 32px)); background: var(--fg); color: var(--ink); font-weight: 700; font-size: 14px; padding: 12px 18px; border-radius: 24px; text-align: center; }
 a { color: var(--fg); }
+.chat { max-height: 300px; min-height: 80px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding: 4px 0; }
+.msg { align-self: flex-start; max-width: 85%; padding: 8px 12px; border-radius: 14px; background: var(--surface); border: 1px solid var(--line); overflow-wrap: anywhere; }
+.msg.me { align-self: flex-end; background: var(--surface-2); }
+.msg .who { font-size: 12px; color: var(--muted); }
+.msg .acts { display: flex; align-items: center; gap: 14px; }
+.linkbtn { background: none; border: 0; padding: 6px 0; min-height: 36px; font-size: 12px; color: var(--muted); text-decoration: underline; }
+.chat-form { display: flex; gap: 8px; }
+.chat-form input { flex: 1; min-width: 0; height: 48px; border-radius: 24px; border: 1px solid var(--line); background: var(--surface); padding: 0 16px; }
 .error { color: var(--off); font-size: 14px; font-weight: 500; }
 .banner { background: var(--surface-2); border: 1px solid var(--off); border-radius: 12px; padding: 10px 14px; font-size: 14px; }
 </style>
@@ -117,6 +125,8 @@ a { color: var(--fg); }
   var API_URL = String(CFG.url || '').replace(/\/+$/, '');
   var API_KEY = String(CFG.key || '');
   var POLL_MS = Number(CFG.pollMs) || 5000;
+  var CHAT_POLL_MS = Number(CFG.chatPollMs) || 2500;
+  var DEALS_ON = CFG.deals === true;   // deals are switched off for now; set deals: true in config.js to bring them back
   var SESSION_KEY = 'seshhon-session-v1';
   var INVITE_KEY = 'seshhon-pending-invite';
   var UNDERAGE_KEY = 'seshhon-under-18';
@@ -221,7 +231,7 @@ a { color: var(--fg); }
   var D = null;            // the latest answer from api_state()
   var lastKey = '';        // used to skip redraws when nothing changed
   var clockOffset = 0;     // server time minus this phone's time
-  var ui = { tab: 'home', screen: null, filter: 'All', confirm: null, staffError: '', offline: false, booted: false, linkShown: false };
+  var ui = { messages: [], tab: 'home', screen: null, filter: 'All', confirm: null, staffError: '', offline: false, booted: false, linkShown: false };
   var seen = null;         // friend id -> colour at the last look, for "just went on" notices
   var acting = false;
 
@@ -256,7 +266,7 @@ a { color: var(--fg); }
       ui.offline = false;
       clockOffset = new Date(data.now).getTime() - Date.now();
       noticeFriends(data);
-      var key = JSON.stringify([data.me, data.friends, data.requests_in, data.requests_out, data.seshes, data.venues, data.deals, data.staff_venues]);
+      var key = JSON.stringify([data.me, data.friends, data.requests_in, data.requests_out, data.seshes, data.venues, data.deals, data.staff_venues, data.blocked]);
       D = data; ui.booted = true;
       if (!quiet || key !== lastKey) { lastKey = key; render(); }
     }).catch(function (e) {
@@ -276,20 +286,26 @@ a { color: var(--fg); }
     }
     seen = next;
   }
+  // Taps are never dropped: if one action is still running, the next waits its turn.
+  var actQueue = Promise.resolve(), actWaiting = 0;
   function act(fn, args, okMsg) {
-    if (acting) return Promise.resolve(null);
-    acting = true;
-    return rpc(fn, args).then(function (result) {
-      if (okMsg) toast(okMsg);
-      return load().then(function () { return result; });
-    }).catch(function (e) { toast(e.message); return null; })
-      .then(function (result) { acting = false; return result; });
+    actWaiting += 1; acting = true;
+    var run = function () {
+      return rpc(fn, args).then(function (result) {
+        if (okMsg) toast(okMsg);
+        return load().then(function () { return result; });
+      }).catch(function (e) { toast(e.message); return null; });
+    };
+    var p = actQueue.then(run);
+    actQueue = p.then(function () {}, function () {});
+    return p.then(function (result) { actWaiting -= 1; acting = actWaiting > 0; return result; });
   }
 
   var ICON = {
     home: '<path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/>',
     sesh: '<circle cx="9" cy="8" r="4"/><path d="M2 21c0-4 3-6 7-6s7 2 7 6"/><path d="M17 4a4 4 0 0 1 0 8"/><path d="M22 21c0-3-1-5-4-6"/>',
     deals: '<path d="M3 12V3h9l9 9-9 9z"/><circle cx="8" cy="8" r="1.5"/>',
+    venues: '<path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/>',
     you: '<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/>',
     back: '<path d="M15 5l-7 7 7 7"/>',
     star: '<path d="M12 3l2.7 5.6 6.1.8-4.5 4.3 1.1 6.1L12 16.9 6.6 19.8l1.1-6.1L3.2 9.4l6.1-.8z"/>'
@@ -370,7 +386,7 @@ a { color: var(--fg); }
         }).join('') + '</section>';
       var sesh = mySesh();
       if (s === 'on') h += '<button class="btn" data-act="go-sesh">' + (sesh ? 'Open tonight\'s sesh' : 'Start a sesh') + '</button>';
-      else h += '<button class="btn" style="--c:var(--thinking)" data-act="tab" data-v="deals">See tonight\'s deals</button>';
+      else h += '<button class="btn" style="--c:var(--thinking)" data-act="tab" data-v="' + (DEALS_ON ? 'deals' : 'venues') + '">' + (DEALS_ON ? 'See tonight\'s deals' : 'See venues') + '</button>';
     }
     return h;
   }
@@ -393,6 +409,57 @@ a { color: var(--fg); }
       if (!best || by[id].n > by[best].n || (by[id].n === by[best].n && by[id].firstAt < by[best].firstAt)) best = id;
     });
     return { best: best, by: by };
+  }
+
+  function chatItems() {
+    if (!ui.messages.length) return '<p class="muted small">No messages yet. Say where you\'re heading.</p>';
+    return ui.messages.map(function (m) {
+      var mineMsg = m.sender === D.me.id;
+      var h = '<div class="msg' + (mineMsg ? ' me' : '') + '">' + (mineMsg ? '' : '<div class="who">' + esc(first(m.name)) + '</div>') + '<div>' + esc(m.body) + '</div>';
+      if (!mineMsg) {
+        if (ui.confirm === 'report:' + m.id) h += '<div class="acts"><span class="small">Report this message?</span><button class="linkbtn" data-act="report-msg" data-v="' + esc(m.id) + '">Report</button><button class="linkbtn" data-act="cancel-confirm">Cancel</button></div>';
+        else if (ui.confirm === 'block:' + m.sender) h += '<div class="acts"><span class="small">Block ' + esc(first(m.name)) + '?</span><button class="linkbtn" data-act="block-user" data-v="' + esc(m.sender) + '">Block</button><button class="linkbtn" data-act="cancel-confirm">Cancel</button></div>';
+        else h += '<div class="acts"><button class="linkbtn" data-act="ask" data-v="report:' + esc(m.id) + '">Report</button><button class="linkbtn" data-act="ask" data-v="block:' + esc(m.sender) + '">Block</button></div>';
+      }
+      return h + '</div>';
+    }).join('');
+  }
+  function chatHtml() {
+    return '<section class="stack"><h2>Chat</h2>' +
+      '<p class="muted small">Messages disappear when the sesh ends. Friends can still screenshot, so only send what you\'re happy for them to keep.</p>' +
+      '<div id="chat-list" class="chat" aria-live="polite">' + chatItems() + '</div>' +
+      '<form id="chat-form" class="chat-form" novalidate><input id="chat-input" type="text" maxlength="500" autocomplete="off" aria-label="Message your mates" placeholder="Message your mates"><button class="btn small-btn" type="submit" id="chat-send">Send</button></form></section>';
+  }
+  function paintChat(stick) {
+    var el = document.getElementById('chat-list');
+    if (!el) return;
+    var nearEnd = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+    el.innerHTML = chatItems();
+    if (stick || nearEnd) el.scrollTop = el.scrollHeight;
+  }
+  var chatKey = '';
+  function refreshChat(force) {
+    var s = D && D.me ? mySesh() : null;
+    if (!s || ui.tab !== 'sesh' || ui.screen) { return Promise.resolve(); }
+    return rpc('get_messages', { p_sesh: s.id }).then(function (list) {
+      var key = JSON.stringify((list || []).map(function (m) { return m.id; }));
+      if (!force && key === chatKey) return;
+      var firstLoad = chatKey === '';
+      chatKey = key; ui.messages = list || [];
+      paintChat(firstLoad || force);
+    }).catch(function () {});
+  }
+
+  function venues() {
+    var h = '<div class="stack" style="gap:6px"><h1>Venues</h1><p class="muted small">Places to pick from when you start a sesh.</p></div><div class="stack" style="gap:12px">';
+    D.venues.forEach(function (ven) {
+      h += '<div class="card"><div class="row between"><div class="grow">' + (ven.is_example ? '<div class="eyebrow">Example venue</div>' : '') +
+        '<div style="font-weight:700;font-size:17px">' + esc(ven.name) + '</div>' +
+        '<div class="muted small">' + esc([ven.kind, ven.closes].filter(Boolean).join(', ')) + '</div>' +
+        '<div class="small">' + (ven.ratings ? '<strong>' + Number(ven.average).toFixed(1) + '</strong> from ' + ven.ratings + ' rating' + (ven.ratings === 1 ? '' : 's') : 'No ratings yet') + '</div></div>' +
+        '<button class="btn small-btn ghost" data-act="venue" data-v="' + esc(ven.id) + '">Open</button></div></div>';
+    });
+    return h + '</div>';
   }
 
   function sesh() {
@@ -425,14 +492,14 @@ a { color: var(--fg); }
     if (mine.locked_venue) {
       var lv = venueById(mine.locked_venue);
       h += '<div class="card lead"><div class="eyebrow" style="color:var(--on)">Locked in</div><h2>' + esc(lv ? lv.name : 'A venue') + '</h2>' +
-        (lv ? '<p class="muted small">' + esc([lv.kind, lv.closes].filter(Boolean).join(', ')) + '</p><button class="btn" data-act="venue" data-v="' + esc(lv.id) + '">See venue and deals</button>' : '') + '</div>';
+        (lv ? '<p class="muted small">' + esc([lv.kind, lv.closes].filter(Boolean).join(', ')) + '</p><button class="btn" data-act="venue" data-v="' + esc(lv.id) + '">' + (DEALS_ON ? 'See venue and deals' : 'See venue') + '</button>' : '') + '</div>';
     } else {
       var tallyInfo = leaderOf(mine), total = mine.votes.length;
       var myVote = (mine.votes.filter(function (v) { return v.user_id === me.id; })[0] || {}).venue_id;
       h += '<div class="row between"><h2>Where to?</h2><span class="muted small">' + total + ' vote' + (total === 1 ? '' : 's') + ' in</span></div><div class="stack">';
       D.venues.forEach(function (ven) {
         var n = tallyInfo.by[ven.id] ? tallyInfo.by[ven.id].n : 0, isMine = myVote === ven.id, isLead = tallyInfo.best === ven.id;
-        var deal = D.deals.filter(function (d) { return d.venue_id === ven.id && d.running; })[0];
+        var deal = DEALS_ON ? D.deals.filter(function (d) { return d.venue_id === ven.id && d.running; })[0] : null;
         h += '<div class="card' + (isLead ? ' lead' : '') + '"><div class="row between"><div class="grow"><div style="font-weight:700;font-size:17px">' + esc(ven.name) + '</div>' +
           '<div class="muted small">' + esc([ven.kind, ven.closes].filter(Boolean).join(', ')) + '</div></div>' +
           '<button class="btn small-btn' + (isMine ? '' : ' ghost') + '" data-act="vote" data-v="' + esc(ven.id) + '" aria-pressed="' + isMine + '">' + (isMine ? 'Your vote' : 'Vote') + '</button></div>' +
@@ -448,6 +515,7 @@ a { color: var(--fg); }
         h += '<p class="muted small">' + esc(first(mine.creator_name)) + ' started this sesh and locks in the venue.</p>';
       }
     }
+    h += chatHtml(mine);
     h += mine.mine
       ? '<button class="btn ghost" data-act="end-sesh">End the sesh</button>'
       : '<button class="btn ghost" data-act="leave-sesh">Leave the sesh</button>';
@@ -487,8 +555,8 @@ a { color: var(--fg); }
       (ven.ratings ? '<strong style="color:var(--fg)">' + Number(ven.average).toFixed(1) + '</strong> from ' + ven.ratings + ' rating' + (ven.ratings === 1 ? '' : 's') + '. ' : 'No ratings yet. ') +
       esc([ven.kind, ven.closes].filter(Boolean).join(', ')) + '</p></div>';
     var here = D.deals.filter(function (d) { return d.venue_id === id; });
-    h += '<div class="stack" style="gap:12px"><h2>Deals here</h2>' + (here.length ? here.map(function (d) { return dealCard(d, false); }).join('') : '<p class="muted small">No deals here right now.</p>') + '</div>' +
-      '<div class="stack" style="gap:12px;padding-top:18px;border-top:1px solid var(--line)"><h2>Rate this venue</h2>' +
+    if (DEALS_ON) h += '<div class="stack" style="gap:12px"><h2>Deals here</h2>' + (here.length ? here.map(function (d) { return dealCard(d, false); }).join('') : '<p class="muted small">No deals here right now.</p>') + '</div>';
+    h += '<div class="stack" style="gap:12px;padding-top:18px;border-top:1px solid var(--line)"><h2>Rate this venue</h2>' +
       '<div class="stars" role="group" aria-label="Star rating">' + [1, 2, 3, 4, 5].map(function (n) {
         return '<button class="star" data-act="star" data-v="' + n + '" aria-label="' + n + ' star' + (n > 1 ? 's' : '') + '" aria-pressed="' + (ven.my_stars >= n) + '"><svg width="30" height="30" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true">' + ICON.star + '</svg></button>';
       }).join('') + '</div>' +
@@ -532,7 +600,7 @@ a { color: var(--fg); }
     h += '<div class="card"><h2>Invite a friend</h2><p class="muted small">Send this link. When they sign up you get a friend request to accept.</p>' +
       '<button class="btn" data-act="share">Send your invite link</button>' + linkBox() + '</div>';
 
-    if (D.staff_venues.length) {
+    if (DEALS_ON && D.staff_venues.length) {
       h += '<div class="card" style="border-color:var(--thinking)"><h2>Staff: confirm a deal code</h2><p class="muted small">Type the code from the customer\'s phone. Each code works once.</p>' +
         '<form id="staff" class="stack" novalidate><div class="field"><label for="staff-code">Deal code</label><input id="staff-code" type="text" autocomplete="off" autocapitalize="characters" placeholder="SESH-0000" maxlength="12"></div>' +
         (ui.staffError ? '<p class="error" id="staff-error">' + esc(ui.staffError) + '</p>' : '') +
@@ -554,6 +622,12 @@ a { color: var(--fg); }
         }).join('') + '</div>';
     }
 
+    if (D.blocked && D.blocked.length) {
+      h += '<div class="card"><h2>Blocked people</h2>' + D.blocked.map(function (b) {
+        return '<div class="row between"><div class="grow">' + esc(b.name) + '</div><button class="btn small-btn ghost" data-act="unblock" data-v="' + esc(b.id) + '">Unblock</button></div>';
+      }).join('') + '</div>';
+    }
+
     h += '<div class="card"><h2>Put Seshhon on your home screen</h2><p class="muted small">On iPhone, tap the Share button in Safari, then Add to Home Screen. On Android, open the browser menu and tap Add to Home screen.</p></div>';
 
     h += '<div class="card"><h2>About</h2><p class="small"><a href="privacy.html">Privacy Policy</a></p><p class="small"><a href="terms.html">Terms of use</a></p></div>';
@@ -569,6 +643,8 @@ a { color: var(--fg); }
   /* ---------- render ---------- */
   function render() {
     var keep = document.getElementById('staff-code'), keepValue = keep ? keep.value : null, keepFocus = keep && document.activeElement === keep;
+    var chatIn = document.getElementById('chat-input'), chatValue = chatIn ? chatIn.value : null, chatFocus = chatIn && document.activeElement === chatIn;
+    var chatScroll = document.getElementById('chat-list'), chatTop = chatScroll ? chatScroll.scrollTop : null;
     var typing = document.activeElement && document.activeElement.id === 'name';
     if (typing && !D) return; // do not wipe the sign-up form while someone is typing in it
 
@@ -582,17 +658,24 @@ a { color: var(--fg); }
     var html;
     if (ui.screen && ui.screen.type === 'venue') html = venue(ui.screen.id);
     else if (ui.screen && ui.screen.type === 'redeem') html = redeem(ui.screen.id);
-    else html = { home: home, sesh: sesh, deals: deals, you: you }[ui.tab]();
+    else html = { home: home, sesh: sesh, venues: venues, deals: deals, you: you }[ui.tab]();
     view.innerHTML = html;
     tabs.hidden = false;
     var requests = D.requests_in.length;
-    tabs.innerHTML = [['home', 'Home'], ['sesh', 'Sesh'], ['deals', 'Deals'], ['you', 'You']].map(function (t) {
+    var tabList = [['home', 'Home'], ['sesh', 'Sesh'], ['venues', 'Venues']].concat(DEALS_ON ? [['deals', 'Deals']] : [], [['you', 'You']]);
+    tabs.style.gridTemplateColumns = 'repeat(' + tabList.length + ', minmax(0, 1fr))';
+    tabs.innerHTML = tabList.map(function (t) {
       return '<button data-act="tab" data-v="' + t[0] + '"' + (ui.tab === t[0] && !ui.screen ? ' aria-current="page"' : '') + '>' + svg(t[0], 22) + '<span>' + t[1] + '</span>' +
         (t[0] === 'home' && requests ? '<span class="badge" aria-label="' + requests + ' friend requests">' + requests + '</span>' : '') + '</button>';
     }).join('');
 
     var again = document.getElementById('staff-code');
     if (again && keepValue !== null) { again.value = keepValue; if (keepFocus) again.focus(); }
+    var chatAgain = document.getElementById('chat-input');
+    if (chatAgain && chatValue !== null) { chatAgain.value = chatValue; if (chatFocus) chatAgain.focus(); }
+    var listAgain = document.getElementById('chat-list');
+    if (listAgain) { listAgain.scrollTop = chatTop !== null ? chatTop : listAgain.scrollHeight; refreshChat(false); }
+    else { ui.messages = []; chatKey = ''; }
   }
   function go(top) { render(); if (top) view.scrollTop = 0; }
 
@@ -658,6 +741,12 @@ a { color: var(--fg); }
       act('rate_venue', { p_venue: ven.id, p_stars: ven.my_stars, p_tags: tags });
     },
     share: shareInvite,
+    'report-msg': function (v) {
+      ui.confirm = null;
+      rpc('report_message', { p_message: v, p_reason: '' }).then(function () { toast('Reported. Thanks for telling us.'); paintChat(false); }).catch(function (e) { toast(e.message); });
+    },
+    'block-user': function (v) { ui.confirm = null; act('block_user', { p_user: v }, 'Blocked.'); },
+    unblock: function (v) { act('unblock_user', { p_user: v }, 'Unblocked. You can add each other again with an invite link.'); },
     accept: function (v) { act('answer_friend', { p_friendship: v, p_accept: true }, 'You\'re now friends.'); },
     unfriend: function (v) { ui.confirm = null; act('answer_friend', { p_friendship: v, p_accept: false }); },
     ask: function (v) { ui.confirm = v; go(false); },
@@ -703,6 +792,15 @@ a { color: var(--fg); }
         .then(function () { document.activeElement && document.activeElement.blur(); view.innerHTML = ''; return load(); })
         .catch(function (x) { fail(x.message); });
     }
+    if (e.target.id === 'chat-form') {
+      var ci = document.getElementById('chat-input'), text = ci.value.trim(), sNow = mySesh();
+      if (!text || !sNow) return;
+      var sendBtn = document.getElementById('chat-send'); sendBtn.disabled = true;
+      rpc('send_message', { p_sesh: sNow.id, p_body: text }).then(function () {
+        ci.value = ''; return refreshChat(true);
+      }).catch(function (x) { toast(x.message); }).then(function () { var b = document.getElementById('chat-send'); if (b) b.disabled = false; });
+      return;
+    }
     if (e.target.id === 'staff') {
       var input = document.getElementById('staff-code'), code = input.value.trim().toUpperCase();
       if (!code) { ui.staffError = 'Type the code from the customer\'s phone.'; render(); return; }
@@ -727,6 +825,7 @@ a { color: var(--fg); }
     if (document.hidden || !session || !D || !D.me || acting) return;
     load(true);
   }, POLL_MS);
+  setInterval(function () { if (!document.hidden && D && D.me && !acting) refreshChat(false); }, CHAT_POLL_MS);
   document.addEventListener('visibilitychange', function () {
     if (!document.hidden && session && D && D.me) load(true);
   });

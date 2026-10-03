@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(here, '../..');
 const API = 'http://127.0.0.1:54330', WEB_PORT = 54331;
+let dealsOn = true;
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log('  ok   ' + m); } else { fail++; console.log('  FAIL ' + m); } };
 
@@ -25,7 +26,7 @@ const api = spawn('node', [path.join(here, 'fake-supabase.mjs'), sock, dbPort, '
 const web = http.createServer((req, res) => {
   const p = new URL(req.url, 'http://x').pathname;
   if (p === '/config.js') { res.setHeader('Content-Type', 'text/javascript'); // Serve the real docs/config.js, only swapping the address and key, so a misnamed setting is caught here.
-    return res.end(fs.readFileSync(path.join(root, 'docs/config.js'), 'utf8').replace(/url: '[^']*'/, `url: '${API}'`).replace(/key: '[^']*'/, "key: 'test-anon-key'").replace(/pollMs: \d+/, 'pollMs: 600')); }
+    return res.end(fs.readFileSync(path.join(root, 'docs/config.js'), 'utf8').replace(/url: '[^']*'/, `url: '${API}'`).replace(/key: '[^']*'/, "key: 'test-anon-key'").replace(/pollMs: \d+/, 'pollMs: 600, chatPollMs: 500').replace(/deals: (true|false)/, 'deals: ' + dealsOn)); }
   const f = path.join(root, 'docs', p === '/' ? 'index.html' : p);
   if (!f.startsWith(path.join(root, 'docs')) || !fs.existsSync(f)) { res.statusCode = 404; return res.end(); }
   const types = { '.html': 'text/html', '.js': 'text/javascript', '.png': 'image/png', '.webmanifest': 'application/manifest+json' };
@@ -121,6 +122,33 @@ try {
   await tap(ana, 'Lock in Bodega Nine');
   ok(await has(ben, 'Locked in', 10000) && (await text(ben)).includes('Bodega Nine'), 'Ben sees it locked in');
 
+  console.log('Chat');
+  const say = async (p, text) => { await p.page.fill('#chat-input', text); await tap(p, 'Send'); };
+  await say(ben, 'Lowtide at 8?');
+  ok(await has(ana, 'Lowtide at 8?') && await has(cam, 'Lowtide at 8?'), 'Ana and Cam see Ben\'s message');
+  await cam.page.fill('#chat-input', 'half typed');
+  await say(ana, 'Yes please');
+  ok(await has(cam, 'Yes please'), 'Cam sees Ana\'s reply');
+  ok((await cam.page.inputValue('#chat-input')) === 'half typed', 'Cam\'s half-typed message survives new messages arriving');
+  await cam.page.fill('#chat-input', '');
+  await cam.page.locator('.msg', { hasText: 'Lowtide at 8?' }).getByRole('button', { name: 'Report', exact: true }).click();
+  await cam.page.locator('.msg', { hasText: 'Lowtide at 8?' }).getByRole('button', { name: 'Report', exact: true }).click();
+  ok(await has(cam, 'Reported'), 'Cam reports a message');
+  ok(execSync(`psql -X -tA -h ${sock} -p ${dbPort} -U postgres -d postgres -c "select count(*) from public.reports where message_body = 'Lowtide at 8?'"`, { encoding: 'utf8' }).trim() === '1', 'the report keeps a copy of the message');
+  await cam.page.locator('.msg', { hasText: 'Lowtide at 8?' }).getByRole('button', { name: 'Block', exact: true }).click();
+  await cam.page.locator('.msg', { hasText: 'Lowtide at 8?' }).getByRole('button', { name: 'Block', exact: true }).click();
+  ok(await gone(cam, 'Lowtide at 8?'), 'Cam blocks Ben and his messages vanish for Cam');
+  ok(await has(ana, 'Lowtide at 8?', 1500), 'Ana still sees Ben\'s message');
+  await tab(cam, 'You');
+  ok(await has(cam, 'Blocked people') && await has(cam, 'Unblock'), 'the blocked person appears under You');
+  await tap(cam, 'Unblock');
+  ok(await gone(cam, 'Blocked people'), 'Cam unblocks Ben');
+  await tab(cam, 'Sesh');
+  ok(await has(cam, 'Lowtide at 8?'), 'Ben\'s messages are back for Cam');
+  await cam.page.screenshot({ path: path.join(copy, 'chat.png') });
+  await tab(ben, 'Venues');
+  ok(await has(ben, 'Bodega Nine') && await has(ben, 'Example venue'), 'the Venues tab lists the example venues');
+
   console.log('Deals');
   await tab(ben, 'Deals');
   ok(await has(ben, '2-for-1 pizzas'), 'deals list shows food deals');
@@ -158,6 +186,14 @@ try {
   await tab(ben, 'Deals'); await ben.page.locator('.card', { hasText: 'Bodega Nine' }).getByRole('button', { name: 'Venue' }).first().click();
   ok(await ben.page.locator('button[aria-label="4 stars"][aria-pressed="true"]').count() === 1, 'rating and sign-in survive a page reload');
 
+  console.log('Chat is erased');
+  await tab(ana, 'Sesh');
+  await tap(ana, 'End the sesh');
+  ok(await has(ana, 'Nobody has started one yet') || await has(ana, 'Start a sesh'), 'Ana ends the sesh');
+  ok(execSync(`psql -X -tA -h ${sock} -p ${dbPort} -U postgres -d postgres -c "select count(*) from public.messages"`, { encoding: 'utf8' }).trim() === '0', 'every message is erased from the database');
+  await tab(cam, 'Sesh');
+  ok(await gone(cam, 'Yes please'), 'Cam no longer sees the chat');
+
   console.log('Going Off hides you');
   await tab(cam, 'Home'); await tap(cam, 'Off');
   await tab(ana, 'Home');
@@ -168,6 +204,14 @@ try {
   ok(await has(cam, 'Get started'), 'Cam is deleted and back at the welcome screen');
   await tab(ana, 'Home');
   ok(await gone(ana, 'Cam', 5000), 'Cam disappears from Ana\'s friends');
+
+  console.log('Deals switched off');
+  dealsOn = false;
+  const dan = await phone('Dan');
+  await signUp(dan, 'Dan');
+  ok((await dan.page.locator('nav button:has-text("Deals")').count()) === 0 && (await dan.page.locator('nav button:has-text("Venues")').count()) === 1, 'with deals off there is a Venues tab and no Deals tab');
+  await tab(dan, 'Venues'); await dan.page.getByRole('button', { name: 'Open' }).first().click();
+  ok(await has(dan, 'Rate this venue') && !(await text(dan)).includes('Deals here'), 'a venue page shows ratings but no deals');
 
   ok(consoleErrors.length === 0, 'no script errors on any phone' + (consoleErrors.length ? ': ' + consoleErrors.join('; ') : ''));
   await ana.page.screenshot({ path: path.join(copy, 'ana.png') });

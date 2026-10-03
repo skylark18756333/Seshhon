@@ -83,3 +83,5 @@ functions in `supabase/migrations/0002_live_web_app.sql`.
 - `docs/config.js`: the project URL and public (anon/publishable) key. Never put a service_role key or the database password here.
 - `node tools/live/check.mjs`: three simulated phones use the app against a local test database (needs PostgreSQL 15+ and Chromium).
 - `bash supabase/tests/run.sh`: database rule tests.
+
+`supabase/migrations/0004_sesh_chat.sql` adds the self-erasing sesh chat with block and report. Run new migrations in the Supabase SQL editor in order.
