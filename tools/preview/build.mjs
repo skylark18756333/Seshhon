@@ -21,7 +21,7 @@ const result = await build({
   nodePaths: (process.env.NODE_PATH || '').split(':').filter(Boolean),
 });
 const js = result.outputFiles[0].text.replace(/<\/script/g, '<\\/script');
-const html = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Seshhon preview</title>' +
+const html = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>SeshOn preview</title>' +
   '<style>html,body,#root{height:100%;margin:0}body{background:#121110}#root{display:flex;flex-direction:column;max-width:440px;margin:0 auto}button{border:0;padding:0}</style></head>' +
   '<body><div id="root"></div><script>' + js + '</script></body></html>';
 mkdirSync(resolve(here, 'dist'), { recursive: true });
