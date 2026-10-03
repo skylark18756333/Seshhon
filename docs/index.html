@@ -112,7 +112,7 @@ nav button[aria-current="page"] { color: var(--fg); font-weight: 700; }
 <script>
 (function () {
   'use strict';
-  var CFG = window.SESHHON_CONFIG || {};
+  var CFG = window.SESHHON_CONFIG || window.SESSHON_CONFIG || {};
   var API_URL = String(CFG.url || '').replace(/\/+$/, '');
   var API_KEY = String(CFG.key || '');
   var POLL_MS = Number(CFG.pollMs) || 5000;
