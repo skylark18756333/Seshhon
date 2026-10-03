@@ -22,4 +22,4 @@ if [ "${ONLY_SETUP:-}" = "1" ]; then
   trap - EXIT
   exit 0
 fi
-for t in "$here"/0[1-9]_*.sql; do psql -f "$t"; done
+for t in "$here"/0[1-9]_*.sql "$here"/[1-9][0-9]_*.sql; do psql -f "$t"; done

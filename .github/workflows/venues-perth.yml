@@ -1,0 +1,29 @@
+# Downloads greater Perth venues from OpenStreetMap and saves them as supabase/venues/perth-osm.sql.
+# Runs by itself when tools/venues/ changes in a pull request, and by hand from the Actions tab
+# ("Refresh Perth venues", then "Run workflow") whenever you want a newer copy.
+name: Refresh Perth venues
+on:
+  workflow_dispatch:
+  pull_request:
+    paths: ['tools/venues/**', '.github/workflows/venues-perth.yml']
+permissions:
+  contents: write
+jobs:
+  refresh:
+    # Only for branches in this repository; a fork's pull request cannot push here.
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node tools/venues/import-osm.mjs
+      - name: Save the file if it changed
+        run: |
+          git add supabase/venues/perth-osm.sql
+          if git diff --cached --quiet; then echo "No change."; exit 0; fi
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -m "Refresh greater Perth venues from OpenStreetMap"
+          git push
