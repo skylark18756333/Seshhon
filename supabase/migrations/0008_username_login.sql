@@ -152,6 +152,32 @@ begin
 end;
 $$;
 
+-- ---------------------------------------------------------------- clean-up
+-- Same as 0006, except unfinished sign-ins now also include anyone who tried to sign up straight to
+-- Supabase Auth with an email address (switched on for password logins) and never confirmed it.
+create or replace function public.purge_old_data() returns integer
+language plpgsql security definer set search_path = public as $$
+declare n integer := 0; k integer;
+begin
+  delete from public.seshes where ended_at is not null or created_at < now() - interval '8 hours';
+  get diagnostics k = row_count; n := n + k;
+  delete from public.redemptions where night < public.night_of() - 1;
+  get diagnostics k = row_count; n := n + k;
+  begin
+    execute $q$
+      delete from auth.users u
+      where (u.is_anonymous or u.email_confirmed_at is null) and u.created_at < now() - interval '2 days'
+        and not exists (select 1 from public.profiles p where p.id = u.id)
+    $q$;
+    get diagnostics k = row_count; n := n + k;
+  exception when undefined_column or insufficient_privilege then
+    null;
+  end;
+  return n;
+end;
+$$;
+revoke all on function public.purge_old_data() from public, anon, authenticated;
+
 -- ---------------------------------------------------------------- permissions
 revoke all on function public.login_email(text), public.new_recovery_code(), public.recovery_code_key(text),
   public.check_new_password(text), public.save_account(text, text), public.my_account(),
