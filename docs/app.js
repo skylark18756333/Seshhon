@@ -282,7 +282,8 @@
     home: '<path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/>',
     sesh: '<circle cx="9" cy="8" r="4"/><path d="M2 21c0-4 3-6 7-6s7 2 7 6"/><path d="M17 4a4 4 0 0 1 0 8"/><path d="M22 21c0-3-1-5-4-6"/>',
     deals: '<path d="M3 12V3h9l9 9-9 9z"/><circle cx="8" cy="8" r="1.5"/>',
-    venues: '<path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/>',
+    map: '<path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/>',
+    venues: '<path d="M5 3h14l-7 9z"/><path d="M12 12v8"/><path d="M8 21h8"/>',
     you: '<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/>',
     back: '<path d="M15 5l-7 7 7 7"/>',
     star: '<path d="M12 3l2.7 5.6 6.1.8-4.5 4.3 1.1 6.1L12 16.9 6.6 19.8l1.1-6.1L3.2 9.4l6.1-.8z"/>'
@@ -378,8 +379,7 @@
       thinking: ["You're amber.", "Thinking about it. Friends see you might be keen."],
       off: ["You're red.", "You're off and hidden, and you can't see who else is out until you slide back."]
     }[s];
-    var h = '<div class="top"><div class="wordmark">SeshOn</div>' + (ui.offline ? '<span class="pill" style="border-color:var(--off);color:var(--off)">Offline</span>' : '') + '</div>';
-    h += '<section class="stack"><div class="eyebrow">Your status</div>' +
+    var h = '<section class="stack"><div class="eyebrow">Your status</div>' +
       '<div class="status-word" id="status-word" style="color:' + COLORS[s] + '">' + copy[0] + '</div>' +
       '<p class="muted">' + copy[1] + (s !== 'off' && me.expires_at ? ' Back to red in <span data-until="' + new Date(me.expires_at).getTime() + '" data-kind="status">' + fmtLeft(new Date(me.expires_at).getTime() - now()) + '</span>.' : '') + '</p>' +
       '<div class="slide" id="status-slide" role="group" aria-label="Set your status" style="--c:' + COLORS[s] + ';--i:' + STOPS.indexOf(s) + '"><span class="knob"></span>' +
@@ -520,9 +520,14 @@
     return h;
   }
   function venues() {
-    var h = '<div class="stack" style="gap:6px"><h1>Venues</h1><p class="muted small">Places to pick from when you start a sesh.</p></div>';
+    var h = '<div class="stack" style="gap:6px"><h1>Venues</h1><p class="muted small">Places to pick from when you start a sesh. Use the Map tab to find ones near you.</p></div><div class="stack" style="gap:12px">';
+    D.venues.forEach(function (ven) { h += venueCard(ven, null); });
+    return h + '</div>';
+  }
+  function mapTab() {
+    var h = '<div class="stack" style="gap:6px"><h1>Map</h1><p class="muted small">Pick how far you want to go.</p></div>';
     if (window.L) {
-      h += '<div class="stack" style="gap:12px"><div id="map-slot" class="map"></div>' +
+      h += '<div class="stack" style="gap:12px"><div id="map-slot" class="map big"></div>' +
         '<div class="field"><div class="row between"><label for="radius" style="font-weight:700">How far</label><span id="radius-label" class="pill">' + ui.radiusKm + ' km</span></div>' +
         '<input type="range" id="radius" min="1" max="25" step="1" value="' + ui.radiusKm + '" aria-describedby="radius-label"></div>' +
         '<div class="row between"><p class="muted small grow">' + (geo.mine ? 'Searching around you. Your location stays on this phone and is never saved or shown to friends.' : 'Tap the map to search somewhere else.') + '</p>' +
@@ -687,6 +692,13 @@
     if (mine && !mine.locked_venue) h += '<button class="btn" data-act="suggest" data-v="' + esc(id) + '">Vote for this in tonight\'s sesh</button>';
     return h;
   }
+  // Shown above every tab: the name on the left, and your profile (the You page) at the top right.
+  function topBar() {
+    var me = D.me;
+    return '<div class="top"><div class="wordmark">SeshOn</div><div class="row" style="gap:10px">' +
+      (ui.offline ? '<span class="pill" style="border-color:var(--off);color:var(--off)">Offline</span>' : '') +
+      '<button class="avatar profile-btn" style="--c:' + COLORS[me.colour] + '" data-act="tab" data-v="you" aria-label="You"' + (ui.tab === 'you' ? ' aria-current="page"' : '') + '>' + initials(me.name) + '</button></div></div>';
+  }
   function backBtn() { return '<button class="back" data-act="close" aria-label="Back">' + svg('back', 20) + '</button>'; }
 
   function redeem(id) {
@@ -804,12 +816,12 @@
     var html;
     if (ui.screen && ui.screen.type === 'venue') html = venue(ui.screen.id);
     else if (ui.screen && ui.screen.type === 'redeem') html = redeem(ui.screen.id);
-    else html = { home: home, sesh: sesh, venues: venues, deals: deals, you: you }[ui.tab]();
+    else html = topBar() + { home: home, sesh: sesh, map: mapTab, venues: venues, deals: deals, you: you }[ui.tab]();
     view.innerHTML = html;
     mountMap();
     tabs.hidden = false;
     var requests = D.requests_in.length;
-    var tabList = [['home', 'Home'], ['sesh', 'Sesh'], ['venues', 'Venues']].concat(DEALS_ON ? [['deals', 'Deals']] : [], [['you', 'You']]);
+    var tabList = [['home', 'Home'], ['sesh', 'Sesh'], ['map', 'Map'], ['venues', 'Venues']].concat(DEALS_ON ? [['deals', 'Deals']] : []);
     tabs.style.gridTemplateColumns = 'repeat(' + tabList.length + ', minmax(0, 1fr))';
     tabs.innerHTML = tabList.map(function (t) {
       return '<button data-act="tab" data-v="' + t[0] + '"' + (ui.tab === t[0] && !ui.screen ? ' aria-current="page"' : '') + '>' + svg(t[0], 22) + '<span>' + t[1] + '</span>' +
@@ -845,7 +857,7 @@
   var ACT = {
     tab: function (v) {
       ui.tab = v; ui.screen = null; ui.confirm = null; ui.staffError = ''; go(true);
-      if (v === 'venues') loadPins().then(function () { if (ui.tab === 'venues' && !ui.screen) { if (M.map) M.fit = true; render(); } });
+      if (v === 'map') loadPins().then(function () { if (ui.tab === 'map' && !ui.screen) { if (M.map) M.fit = true; render(); } });
     },
     locate: function () {
       if (!navigator.geolocation) { toast('This phone cannot share its location. Tap the map instead.'); return; }

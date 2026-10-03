@@ -18,7 +18,7 @@
 <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;700;800&family=DM+Sans:wght@400;500;700&display=swap">
 <style>
-/* Layout: one phone-width column, scrolling content above a four-tab bar; the status colour is the only loud thing on screen. */
+/* Layout: one phone-width column, scrolling content above a tab bar; the status colour is the only loud thing on screen. */
 :root {
   color-scheme: dark;
   --bg: #121110;
@@ -72,6 +72,8 @@ h2 { font-family: var(--display); font-weight: 700; font-size: 20px; }
 .card.lead { border: 2px solid var(--on); }
 .card.deal-active { border-color: var(--thinking); }
 .avatar { width: 40px; height: 40px; flex: none; border-radius: 50%; border: 2px solid var(--c, var(--line)); background: var(--surface); display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; }
+.profile-btn { width: 44px; height: 44px; padding: 0; color: var(--fg); }
+.profile-btn[aria-current="page"] { background: var(--c); color: var(--ink); }
 .avatar.dashed { border-style: dashed; }
 .avatars { display: flex; flex-wrap: wrap; gap: 4px; }
 .friend { display: flex; align-items: center; gap: 12px; min-height: 54px; }
@@ -115,6 +117,7 @@ a { color: var(--fg); }
 .chat-form input { flex: 1; min-width: 0; height: 48px; border-radius: 24px; border: 1px solid var(--line); background: var(--surface); padding: 0 16px; }
 .error { color: var(--off); font-size: 14px; font-weight: 500; }
 .map { height: 260px; border-radius: 16px; overflow: hidden; border: 1px solid var(--line); background: var(--surface); z-index: 0; }
+.map.big { height: min(52vh, 420px); min-height: 260px; }
 /* OpenStreetMap tiles are light; flip them to suit the dark app. Pins and the radius circle are not affected. */
 .map .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(0.95) contrast(0.9); }
 .map .leaflet-control-attribution { background: rgba(18, 17, 16, 0.75); color: var(--muted); font-size: 11px; }
