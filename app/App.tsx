@@ -1,4 +1,4 @@
-// Seshhon phone app: the shell that holds the state, the tabs and the current screen.
+// SeshOn phone app: the shell that holds the state, the tabs and the current screen.
 import React, { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { canRedeem, codeIsLive, effectiveStatus, leader, newCode, statusExpiry, tally, type Status } from './src/core/rules';
