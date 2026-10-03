@@ -3,7 +3,7 @@
 // the database rules decide what each person can see. NEVER put a secret / service_role
 // key or the database password in this file.
 window.SESSHON_CONFIG = {
-  url: '',   // e.g. 'https://abcdefgh.supabase.co'
-  key: '',   // the public anon / publishable key
+  url: 'https://xfwrhetohauzhqqhkibm.supabase.co',
+  key: 'sb_publishable_hv2mIG5TfKBI-iXURTd9WQ_FFHRnj-Y',   // public key, safe to publish
   pollMs: 5000
 };
