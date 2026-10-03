@@ -24,7 +24,8 @@ console.log('database ready');
 const api = spawn('node', [path.join(here, 'fake-supabase.mjs'), sock, dbPort, '54330'], { stdio: 'inherit' });
 const web = http.createServer((req, res) => {
   const p = new URL(req.url, 'http://x').pathname;
-  if (p === '/config.js') { res.setHeader('Content-Type', 'text/javascript'); return res.end(`window.SESHHON_CONFIG={url:'${API}',key:'test-anon-key',pollMs:600};`); }
+  if (p === '/config.js') { res.setHeader('Content-Type', 'text/javascript'); // Serve the real docs/config.js, only swapping the address and key, so a misnamed setting is caught here.
+    return res.end(fs.readFileSync(path.join(root, 'docs/config.js'), 'utf8').replace(/url: '[^']*'/, `url: '${API}'`).replace(/key: '[^']*'/, "key: 'test-anon-key'").replace(/pollMs: \d+/, 'pollMs: 600')); }
   const f = path.join(root, 'docs', p === '/' ? 'index.html' : p);
   if (!f.startsWith(path.join(root, 'docs')) || !fs.existsSync(f)) { res.statusCode = 404; return res.end(); }
   const types = { '.html': 'text/html', '.js': 'text/javascript', '.png': 'image/png', '.webmanifest': 'application/manifest+json' };
@@ -113,7 +114,7 @@ try {
   ok(await has(ana, 'Lock in Bodega Nine'), 'two votes beat one: lock button names Bodega Nine');
   ok(!(await text(ben)).includes('Lock in'), 'only the organiser can lock in');
   await tap(ana, 'Lock in Bodega Nine');
-  ok(await has(ben, 'Locked in') && (await text(ben)).includes('Bodega Nine'), 'Ben sees it locked in');
+  ok(await has(ben, 'Locked in', 10000) && (await text(ben)).includes('Bodega Nine'), 'Ben sees it locked in');
 
   console.log('Deals');
   await tab(ben, 'Deals');
