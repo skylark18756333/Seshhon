@@ -20,7 +20,8 @@
         "usesNonExemptEncryption": false
       },
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "Frenzy uses your location to show venues near you and how far away they are."
+        "NSLocationWhenInUseUsageDescription": "Frenzy uses your location to show venues near you and how far away they are.",
+        "NSCameraUsageDescription": "Frenzy uses your camera for the 18+ age check selfie. The photo goes to our age check provider and is not kept by Frenzy."
       }
     },
     "android": {
@@ -48,7 +49,8 @@
       ],
       "permissions": [
         "ACCESS_COARSE_LOCATION",
-        "ACCESS_FINE_LOCATION"
+        "ACCESS_FINE_LOCATION",
+        "CAMERA"
       ]
     },
     "web": {

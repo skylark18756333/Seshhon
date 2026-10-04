@@ -80,7 +80,7 @@ http.createServer(async (req, res) => {
     try {
       if (body.action === 'start') {
         await svc('age_check_can_start', { p_user: uid });
-        await svc('age_check_begin', { p_user: uid, p_provider: 'yoti', p_session: 'fake-' + crypto.randomUUID() });
+        await svc('age_check_begin', { p_user: uid, p_provider: 'didit', p_session: 'fake-' + crypto.randomUUID() });
         return send(res, 200, { url: String(body.return_to).split('?')[0] + '?age_check=done' });
       }
       if (body.action === 'finish') {

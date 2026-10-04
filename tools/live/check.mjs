@@ -343,7 +343,7 @@ try {
   const eve = await phone('Eve');
   await eve.page.goto(`http://127.0.0.1:${WEB_PORT}/`);
   await eve.page.fill('#name', 'Eve'); await eve.page.fill('#dob', '1999-02-03'); await tap(eve, 'Get started');
-  ok(await has(eve, 'Quick age check') && await has(eve, 'Yoti checks your age with a quick selfie'), 'with the check switched on, sign-up asks for the age check');
+  ok(await has(eve, 'Quick age check') && await has(eve, 'Didit checks your age with a quick selfie'), 'with the check switched on, sign-up asks for the age check');
   await tap(eve, 'Start age check');
   ok(await has(eve, "couldn't confirm you're 18"), 'a failed check is explained and Eve is not let in');
   ok(!eve.page.url().includes('age_check'), 'the return address is tidied away');
