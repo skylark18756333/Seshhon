@@ -423,10 +423,12 @@
       '<form id="join" class="stack" style="gap:16px" novalidate>' +
       '<div class="field"><label for="name">Your first name</label><input id="name" type="text" autocomplete="given-name" maxlength="24"></div>' +
       '<div class="field"><label for="dob">Date of birth</label><input id="dob" type="date" autocomplete="bday" min="1900-01-01"><span class="muted small">Frenzy is for people aged 18 and over. We only use this to check your age and do not keep it.</span></div>' +
+      '<div class="field"><label for="join-user">Pick a username</label><input id="join-user" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="20"><span class="muted small">3 to 20 letters, numbers or _. Friends add you with it.</span></div>' +
+      '<div class="field"><label for="join-pass">Make a password</label><input id="join-pass" type="password" autocomplete="new-password" maxlength="72"><span class="muted small">At least 10 characters. You use it to log in on another phone.</span></div>' +
       (CAPTCHA_KEY ? '<div id="captcha"></div>' : '') +
       '<p id="join-error" class="error" hidden></p>' +
       '<button class="btn" type="submit" id="join-btn">Get started</button>' +
-      '<p class="muted small">By continuing you agree to the <a href="terms.html">Terms</a> and <a href="privacy.html">Privacy Policy</a>. Your account lives in this browser until you add a username and password.</p>' +
+      '<p class="muted small">By continuing you agree to the <a href="terms.html">Terms</a> and <a href="privacy.html">Privacy Policy</a>.</p>' +
       '</form><button class="btn ghost" data-act="auth" data-v="login">I already have an account</button></div>';
   }
   function loginScreen() {
@@ -462,7 +464,7 @@
   }
   function saveForm(username) {
     return '<form id="save-account" class="stack" style="gap:12px" novalidate>' +
-      '<div class="field"><label for="save-user">Username</label><input id="save-user" data-keep type="text" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="20" value="' + esc(username || '') + '"><span class="muted small">3 to 20 letters, numbers or _. Friends never see it.</span></div>' +
+      '<div class="field"><label for="save-user">Username</label><input id="save-user" data-keep type="text" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="20" value="' + esc(username || '') + '"><span class="muted small">3 to 20 letters, numbers or _. Friends who know it can add you.</span></div>' +
       '<div class="field"><label for="save-pass">' + (username ? 'New password' : 'Password') + '</label><input id="save-pass" data-keep type="password" autocomplete="new-password" maxlength="72"><span class="muted small">At least 10 characters.</span></div>' +
       '<p id="save-error" class="error" hidden></p>' +
       '<button class="btn" type="submit" id="save-btn">' + (username ? 'Save and get a new recovery code' : 'Save my account') + '</button></form>';
@@ -496,8 +498,8 @@
 
     var friends = D.friends;
     if (!friends.length) {
-      h += '<div class="card"><h2>Add your friends</h2><p class="muted small">Frenzy only works with friends on it. Send them your invite link, then accept their request when it arrives.</p>' +
-        '<button class="btn" data-act="share">Send your invite link</button>' + linkBox() + '</div>';
+      h += '<div class="card"><h2>Add your friends</h2><p class="muted small">Frenzy only works with friends on it. Add them by username or send them your invite link, then accept their request when it arrives.</p>' +
+        addFriendForm() + '<button class="btn ghost" data-act="share">Send your invite link</button>' + linkBox() + '</div>';
     } else if (s === 'off') {
       h += '<div class="card"><h2>Friends are hidden while you\'re red</h2><p class="muted small">Slide to green or amber to see who\'s up for it tonight.</p></div>';
     } else {
@@ -516,6 +518,16 @@
     return h;
   }
 
+  // Add a friend by their exact username. Hidden if the database is older than usernames.
+  function addFriendForm() {
+    if (ui.account === 'off') return '';
+    var mine = ui.account && ui.account.username;
+    return '<form id="add-friend" class="stack" style="gap:8px" novalidate>' +
+      '<div class="field"><label for="friend-user">Add by username</label><div class="row"><input id="friend-user" data-keep class="grow" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="21" placeholder="their username">' +
+      '<button class="btn small-btn" type="submit" id="friend-btn">Add</button></div></div>' +
+      (ui.addFriendError ? '<p class="error" id="friend-error">' + esc(ui.addFriendError) + '</p>' : '') +
+      '<p class="muted small">' + (mine ? 'Your username is <strong>' + esc(mine) + '</strong>. Tell your friends so they can add you.' : 'Pick a username on the You page so friends can add you too.') + '</p></form>';
+  }
   function linkBox() {
     return ui.linkShown ? '<p class="muted small">Copy this link and send it to a friend:</p><div class="linkbox" id="invite-link">' + esc(inviteLink()) + '</div>' : '';
   }
@@ -1054,8 +1066,9 @@
       '<div class="row"><button class="btn small-btn" data-act="pick-photo"' + (ui.photoBusy ? ' disabled' : '') + '>' + (ui.photoBusy ? 'Saving...' : photos[me.id] ? 'Change photo' : 'Add a photo') + '</button>' +
       (photos[me.id] && !ui.photoBusy ? '<button class="btn small-btn ghost" data-act="remove-photo">Remove</button>' : '') + '</div></div>';
 
-    h += '<div class="card"><h2>Invite a friend</h2><p class="muted small">Send this link. When they sign up you get a friend request to accept.</p>' +
-      '<button class="btn" data-act="share">Send your invite link</button>' + linkBox() + '</div>';
+    h += '<div class="card"><h2>Add a friend</h2>' + addFriendForm() +
+      '<p class="muted small">Not on Frendzy yet? Send them your invite link. When they sign up you get a friend request to accept.</p>' +
+      '<button class="btn ghost" data-act="share">Send your invite link</button>' + linkBox() + '</div>';
 
     if (DEALS_ON && D.staff_venues.length) {
       h += '<div class="card" style="border-color:var(--thinking)"><h2>Staff: confirm a deal code</h2><p class="muted small">Type the code from the customer\'s phone. Each code works once.</p>' +
@@ -1159,6 +1172,11 @@
           : want === 'login' ? loginScreen() : want === 'recover' ? recoverScreen() : welcome();
         mountCaptcha();
       }
+      return;
+    }
+    if (ui.newCode && ui.newCode.after === 'home') {   // straight after sign-up
+      tabs.hidden = true;
+      if (!document.getElementById('newcode')) view.innerHTML = '<div class="stack" style="margin-block:auto">' + logo() + codeCard() + '</div>';
       return;
     }
     var html;
@@ -1307,7 +1325,7 @@
     'women-only': function (v) {
       act('set_safety', { p_gender: ui.safety.gender, p_women_only: v === 'on' }, v === 'on' ? 'Women and non-binary only is on.' : 'Women and non-binary only is off.').then(function (r) { if (r) { ui.safety = r; render(); } });
     },
-    unblock: function (v) { act('unblock_user', { p_user: v }, 'Unblocked. You can add each other again with an invite link.'); },
+    unblock: function (v) { act('unblock_user', { p_user: v }, 'Unblocked. You can add each other again.'); },
     accept: function (v) { act('answer_friend', { p_friendship: v, p_accept: true }, 'You\'re now friends.'); },
     unfriend: function (v) { ui.confirm = null; act('answer_friend', { p_friendship: v, p_accept: false }); },
     ask: function (v) { ui.confirm = v; go(false); },
@@ -1317,6 +1335,7 @@
     'code-saved': function () {
       var after = ui.newCode && ui.newCode.after;
       if (after === 'login') { ui.loginName = ui.newCode.username; ui.auth = 'login'; }
+      if (after === 'home') ui.tab = 'home';
       ui.newCode = null; view.innerHTML = ''; render();
     },
     logout: function () {
@@ -1437,9 +1456,21 @@
     }).catch(function (e) { toast(e.message); });
   }
 
+  // The username and password picked on the sign-up screen. Kept in memory only, never in storage,
+  // so they are lost if the age check leaves the page; then the You page asks for them again.
+  var newLogin = null;
+  function saveNewLogin() {
+    var l = newLogin;
+    newLogin = null;
+    if (!l) return Promise.resolve();
+    return rpc('save_account', { p_username: l.username, p_password: l.password }).then(function (r) {
+      ui.newCode = { code: r.recovery_code, username: r.username, after: 'home' };   // load() then reads the account
+    }, function (e) { ui.tab = 'you'; toast(e.message + ' Pick another username below.'); });
+  }
   function finishSignUp(name, dob) {
     return rpc('api_sign_up', { p_name: name, p_birth_date: dob })
       .then(function () { waiting(null); })
+      .then(saveNewLogin)
       .then(sendPendingInvite)
       .then(function () { document.activeElement && document.activeElement.blur(); view.innerHTML = ''; return load(); });
   }
@@ -1475,14 +1506,23 @@
     }
     if (e.target.id === 'join') {
       var name = document.getElementById('name').value.trim(), dob = document.getElementById('dob').value;
+      var ju = document.getElementById('join-user').value.trim().toLowerCase(), jp = document.getElementById('join-pass').value;
       var err = document.getElementById('join-error'), btn = document.getElementById('join-btn');
       var fail = function (msg) { err.textContent = msg; err.hidden = false; btn.disabled = false; };
       if (!name) return fail('Enter your first name to continue.');
       if (!/^\d{4}-\d{2}-\d{2}$/.test(dob) || dob < '1900-01-01' || dob > todayPerth()) return fail('Enter your date of birth.');
       if (dob > eighteenYearsAgo()) { store(UNDERAGE_KEY, true); view.innerHTML = tooYoung(); return; }
+      if (!/^[a-z0-9_]{3,20}$/.test(ju)) return fail('Pick a username of 3 to 20 letters, numbers or _.');
+      if (jp.length < 10) return fail('Use a password of at least 10 characters.');
       if (CAPTCHA_KEY && !session && !captchaToken) return fail('Wait a moment for the check above to finish, then try again.');
       btn.disabled = true; err.hidden = true;
       (session ? Promise.resolve() : signInAnonymously(useCaptcha()))
+        // An older database without username_free() just skips this early check; save_account still refuses a taken name.
+        .then(function () { return rpc('username_free', { p_username: ju }).catch(function (x) { if (/schema cache|could not find/i.test(x.message)) return true; throw x; }); })
+        .then(function (free) {
+          if (free === false) throw new Error('That username is taken. Try another.');
+          newLogin = { username: ju, password: jp };
+        })
         .then(loadAge)
         .then(function () {
           if (needsAgeCheck()) { waiting({ name: name, dob: dob }); ui.ageNote = ''; document.activeElement && document.activeElement.blur(); render(); return; }
@@ -1536,6 +1576,21 @@
         ui.newCode = { code: r.recovery_code, username: r.username, after: 'you' };
         document.activeElement && document.activeElement.blur(); render();
       }).catch(function (x) { sfail(x.message); });
+      return;
+    }
+    if (e.target.id === 'add-friend') {
+      var fu = document.getElementById('friend-user'), fname = fu.value.trim(), fbtn = document.getElementById('friend-btn');
+      if (!fname) { ui.addFriendError = 'Type your friend\'s username.'; go(false); return; }
+      fbtn.disabled = true;
+      rpc('request_friend_by_username', { p_username: fname }).then(function (r) {
+        if (!r || !r.ok) { ui.addFriendError = (r && r.message) || 'That didn\'t work. Try again.'; return; }
+        ui.addFriendError = ''; fu.value = '';
+        toast(r.state === 'accepted' ? 'You and ' + first(r.name) + ' are now friends.'
+          : r.state === 'requested' ? 'Friend request sent to ' + first(r.name) + '.' : 'You and ' + first(r.name) + ' are already friends.');
+        return load();
+      }).catch(function (x) {
+        ui.addFriendError = /request_friend_by_username/.test(x.message) ? 'Adding by username needs a database update. Send your invite link for now.' : x.message;
+      }).then(function () { var b = document.getElementById('friend-btn'); if (b) b.disabled = false; go(false); });
       return;
     }
     if (e.target.id === 'chat-form') {
