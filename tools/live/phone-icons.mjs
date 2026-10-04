@@ -1,5 +1,5 @@
 // Draws the phone app's icon and splash images: node tools/live/phone-icons.mjs
-// Same Frenzy mark as the web app icon (tools/live/icon.html), at the sizes the App Store and Play Store want.
+// Same Frendzy mark as the web app icon (tools/live/icon.html), at the sizes the App Store and Play Store want.
 import { chromium } from 'playwright';
 import fs from 'node:fs';
 import path from 'node:path';

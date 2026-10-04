@@ -218,9 +218,9 @@ try {
   await ben.page.evaluate(() => { document.getElementById('view').scrollTop = 0; });
   const pin = (p, name) => p.page.locator(`.leaflet-container .leaflet-marker-icon[title="${name}"]`).dispatchEvent('click');
   await pin(ben, 'Lowtide Bar');
-  ok(await has(ben, 'No Frenzy ratings yet') && await has(ben, '4.4 ★ on Google Maps (120)'), 'the card under a pin shows Frenzy and Google ratings');
+  ok(await has(ben, 'No Frendzy ratings yet') && await has(ben, '4.4 ★ on Google Maps (120)'), 'the card under a pin shows Frendzy and Google ratings');
   await ben.page.getByRole('button', { name: 'Rate 5 stars' }).click();
-  ok(await has(ben, '5.0 ★ on Frenzy (1)'), 'tapping a star on the card rates the venue');
+  ok(await has(ben, '5.0 ★ on Frendzy (1)'), 'tapping a star on the card rates the venue');
   await pin(ben, 'Bodega Nine');
   ok(await has(ben, 'Open venue') && await ben.page.locator('#map-pick', { hasText: 'Bodega Nine' }).count() === 1, 'tapping a pin shows that venue under the map');
   ok(/(Open till|Closes soon|Opens) /.test(await ben.page.locator('#map-pick').innerText()), 'the picked venue says when it opens or closes');
