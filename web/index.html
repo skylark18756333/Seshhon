@@ -6,7 +6,7 @@
 <style>body{margin:0}[hidden]{display:none!important}:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}</style>
 </head>
 <body>
-<title>Seshhon</title>
+<title>SeshOn</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;700;800&family=DM+Sans:wght@400;500;700&display=swap">
 <style>
 /* Layout: one phone-width column, scrolling content above a four-tab bar; the status colour is the only loud thing on screen. */
@@ -198,7 +198,7 @@ nav button[aria-current="page"] { color: var(--fg); font-weight: 700; }
   /* ---------- screens ---------- */
   function welcome() {
     return '<div class="stack" style="gap:24px;margin-block:auto">' +
-      '<div class="wordmark">seshhon</div>' +
+      '<div class="wordmark">SeshOn</div>' +
       '<h1>Tell your friends you\'re up for a sesh.</h1>' +
       '<p class="muted">This is a test version. Friends, venues and deals are examples, and everything you do stays on this phone.</p>' +
       '<form id="join" class="stack" style="gap:16px" novalidate>' +
@@ -216,7 +216,7 @@ nav button[aria-current="page"] { color: var(--fg); font-weight: 700; }
       thinking: ['Thinking.', "You're browsing. Friends see you might be keen, but nobody gets pinged."],
       off: ["You're off.", "You're hidden and won't get sesh alerts until you switch back."]
     }[s];
-    var h = '<div class="top"><div class="wordmark">seshhon</div><span class="pill">Test version</span></div>';
+    var h = '<div class="top"><div class="wordmark">SeshOn</div><span class="pill">Test version</span></div>';
     h += '<section class="stack"><div class="eyebrow">Your status</div>' +
       '<div class="status-word" style="color:' + COLORS[s] + '">' + copy[0] + '</div>' +
       '<p class="muted">' + copy[1] + (s !== 'off' ? ' Back to off in <span data-until="' + state.until + '" data-kind="status">' + fmtLeft(state.until - Date.now()) + '</span>.' : '') + '</p>' +
@@ -418,7 +418,7 @@ nav button[aria-current="page"] { color: var(--fg); font-weight: 700; }
     e.preventDefault();
     var name = document.getElementById('name').value.trim(), adult = document.getElementById('adult').checked, err = document.getElementById('join-error');
     if (!name) { err.textContent = 'Enter your first name to continue.'; err.hidden = false; return; }
-    if (!adult) { err.textContent = 'Seshhon is for people aged 18 and over. Tick the box to confirm.'; err.hidden = false; return; }
+    if (!adult) { err.textContent = 'SeshOn is for people aged 18 and over. Tick the box to confirm.'; err.hidden = false; return; }
     state.name = name; go(true);
   });
 

@@ -1,0 +1,7 @@
+{"elements":[
+ {"type":"node","id":1,"lat":-31.9478,"lon":115.8571,"tags":{"amenity":"bar","name":"Test's Bar","cocktails":"yes"}},
+ {"type":"way","id":2,"center":{"lat":-32.05,"lon":115.75},"tags":{"amenity":"pub","name":"  Freo   Pub "}},
+ {"type":"node","id":3,"lat":-31.95,"lon":115.86,"tags":{"amenity":"nightclub"}},
+ {"type":"node","id":4,"lat":-33.9,"lon":151.2,"tags":{"amenity":"pub","name":"Sydney Pub"}},
+ {"type":"node","id":5,"lat":-31.94,"lon":115.85,"tags":{"amenity":"cafe","name":"Cafe"}}
+]}

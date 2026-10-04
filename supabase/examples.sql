@@ -2,10 +2,10 @@
 -- None of these are real places. The app labels them "Example".
 -- Safe to run more than once. To remove them later: delete from public.venues where is_example;
 
-insert into public.venues (id, name, kind, closes, is_example) values
-  ('a0000000-0000-4000-8000-000000000001', 'Lowtide Bar', 'Cocktail bar', 'open till 1am', true),
-  ('a0000000-0000-4000-8000-000000000002', 'Bodega Nine', 'Pizza bar', 'open till 12am', true),
-  ('a0000000-0000-4000-8000-000000000003', 'The Paper Lantern', 'Live music venue', 'open till 12am', true)
+insert into public.venues (id, name, kind, closes, is_example, lat, lng) values
+  ('a0000000-0000-4000-8000-000000000001', 'Lowtide Bar', 'Cocktail bar', 'open till 1am', true, -31.9478, 115.8571),
+  ('a0000000-0000-4000-8000-000000000002', 'Bodega Nine', 'Pizza bar', 'open till 12am', true, -31.9465, 115.8605),
+  ('a0000000-0000-4000-8000-000000000003', 'The Paper Lantern', 'Live music venue', 'open till 12am', true, -31.9512, 115.8540)
 on conflict (id) do nothing;
 
 insert into public.deals (id, venue_id, type, title, start_time, end_time, is_alcohol, discount_pct) values
