@@ -7,6 +7,7 @@
   var POLL_MS = Number(CFG.pollMs) || 5000;
   var CHAT_POLL_MS = Number(CFG.chatPollMs) || 2500;
   var DEALS_ON = CFG.deals === true;
+  var GOOGLE_ON = CFG.googleRatings === true;   // set googleRatings: true in config.js once the google-rating Edge Function and key are set up
   var CAPTCHA_KEY = String(CFG.captchaSiteKey || '');   // Cloudflare Turnstile site key; when set, sign-up asks for a quick human check   // deals are switched off for now; set deals: true in config.js to bring them back
   var SESSION_KEY = 'seshhon-session-v1';
   var INVITE_KEY = 'seshhon-pending-invite';
@@ -188,6 +189,28 @@
         return json;
       });
     });
+  }
+  // Google ratings come from the google-rating Edge Function, which holds the Google key. Google's terms
+  // don't allow storing ratings, so they live in memory only and go when the page closes.
+  var gRatings = {};   // venue id -> 'loading' | null (none) | { rating, count, url }
+  function googleRating(id) {
+    if (!GOOGLE_ON || !session || id in gRatings) return;
+    gRatings[id] = 'loading';
+    fetch(API_URL + '/functions/v1/google-rating', {
+      method: 'POST',
+      headers: { apikey: API_KEY, Authorization: 'Bearer ' + session.access_token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ venue: id })
+    }).then(function (res) { return res.ok ? res.json() : null; }).then(function (r) {
+      gRatings[id] = r && r.found ? { rating: Number(r.rating), count: Number(r.count) || 0, url: r.url } : null;
+      if (r && r.enabled === false) GOOGLE_ON = false;
+      render();
+    }, function () { gRatings[id] = null; });
+  }
+  function googleLine(id) {   // "4.4 ★ on Google Maps (812)", linked to Google Maps as Google asks
+    var g = gRatings[id];
+    if (!g || g === 'loading') return '';
+    var label = '<strong>' + g.rating.toFixed(1) + '</strong> ★ on Google Maps (' + g.count + ')';
+    return /^https:\/\/(maps\.google\.com|www\.google\.com|maps\.app\.goo\.gl)\//.test(g.url || '') ? '<a href="' + esc(g.url) + '" target="_blank" rel="noopener">' + label + '</a>' : label;
   }
   function waiting(value) {   // the sign-up details waiting on the age check; sessionStorage, so they go when the tab closes
     try {
@@ -646,9 +669,19 @@
     return '<div class="card map-pick" id="map-pick"><div class="row between"><div class="grow">' + (ven.is_example ? '<div class="eyebrow">Example venue</div>' : '') +
       '<h2 style="font-size:22px">' + esc(ven.name) + '</h2><div class="muted small">' + esc([ven.kind, hoursLine(ven), away].filter(Boolean).join(', ')) + '</div></div>' +
       '<button class="back" data-act="map-pick" data-v="" aria-label="Close">' + svg('close', 18) + '</button></div>' +
+      ratingRow(ven) +
       here.map(dealBanner).join('') +
       '<div class="row"><button class="btn small-btn" data-act="venue" data-v="' + esc(ven.id) + '">Open venue</button>' +
       (mine && !mine.locked_venue ? '<button class="btn small-btn ghost" data-act="suggest" data-v="' + esc(ven.id) + '">Vote for it</button>' : '') + '</div></div>';
+  }
+  // Ratings on the card under a tapped pin: SeshOn's own average, Google's, and tap-a-star to rate.
+  function ratingRow(ven) {
+    googleRating(ven.id);
+    var g = googleLine(ven.id);
+    return '<div class="stack" style="gap:4px"><div class="small">' + (ven.ratings ? '<strong>' + Number(ven.average).toFixed(1) + '</strong> ★ on Frenzy (' + ven.ratings + ')' : 'No Frenzy ratings yet') + (g ? ' · ' + g : '') + '</div>' +
+      '<div class="stars small-stars" role="group" aria-label="Rate ' + esc(ven.name) + '">' + [1, 2, 3, 4, 5].map(function (n) {
+        return '<button class="star" data-act="quick-star" data-v="' + esc(ven.id) + ':' + n + '" aria-label="Rate ' + n + ' star' + (n > 1 ? 's' : '') + '" aria-pressed="' + (ven.my_stars >= n) + '"><svg width="24" height="24" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true">' + ICON.star + '</svg></button>';
+      }).join('') + '</div></div>';
   }
   var PIN_FILL = { near: '#1F7BFF', far: '#8A90A0', goal: '#FF4757' };
   function pinIcon(kind, open) {   // open: true, false, or null (hours unknown, no badge)
@@ -877,6 +910,7 @@
       fact('clock', esc(hoursLine(ven))) +
       (away ? fact('arrow', esc(away)) : '') +
       fact('star', ven.ratings ? '<strong>' + Number(ven.average).toFixed(1) + '</strong> from ' + ven.ratings + ' rating' + (ven.ratings === 1 ? '' : 's') : 'No ratings yet') +
+      (googleRating(ven.id), googleLine(ven.id) ? fact('star', googleLine(ven.id)) : '') +
       '</div></div>';
     h += hoursBlock(ven);
     var here = D.deals.filter(function (d) { return d.venue_id === id; });
@@ -1159,6 +1193,11 @@
       var d = dealById(v);
       if (d && d.code) { ui.screen = { type: 'redeem', id: v }; go(true); return; }
       act('request_deal_code', { p_deal: v }).then(function (r) { if (r) { ui.screen = { type: 'redeem', id: v }; go(true); } });
+    },
+    'quick-star': function (v) {
+      var parts = String(v).split(':'), ven = venueById(parts[0]);
+      if (!ven) return;
+      act('rate_venue', { p_venue: ven.id, p_stars: Number(parts[1]), p_tags: ven.my_tags }, 'Thanks, rating saved.').then(function () { return freshVenues(0); });
     },
     star: function (v) {
       var ven = venueById(ui.screen.id);

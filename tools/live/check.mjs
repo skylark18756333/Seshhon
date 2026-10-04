@@ -28,7 +28,7 @@ const api = spawn('node', [path.join(here, 'fake-supabase.mjs'), sock, dbPort, '
 const web = http.createServer((req, res) => {
   const p = new URL(req.url, 'http://x').pathname;
   if (p === '/config.js') { res.setHeader('Content-Type', 'text/javascript'); // Serve the real docs/config.js, only swapping the address and key, so a misnamed setting is caught here.
-    return res.end(fs.readFileSync(path.join(root, 'docs/config.js'), 'utf8').replace(/url: '[^']*'/, `url: '${API}'`).replace(/key: '[^']*'/, "key: 'test-anon-key'").replace(/pollMs: \d+/, 'pollMs: 600, chatPollMs: 500').replace(/deals: (true|false)/, 'deals: ' + dealsOn).replace(/captchaSiteKey: '[^']*'/, "captchaSiteKey: ''")); }
+    return res.end(fs.readFileSync(path.join(root, 'docs/config.js'), 'utf8').replace(/url: '[^']*'/, `url: '${API}'`).replace(/key: '[^']*'/, "key: 'test-anon-key'").replace(/pollMs: \d+/, 'pollMs: 600, chatPollMs: 500').replace(/deals: (true|false)/, 'deals: ' + dealsOn).replace(/captchaSiteKey: '[^']*'/, "captchaSiteKey: ''").replace(/googleRatings: (true|false)/, 'googleRatings: true')); }
   const f = path.join(root, 'docs', p === '/' ? 'index.html' : p);
   if (f === path.join(root, 'docs/index.html')) { // The security policy must allow the real Supabase address; here it is swapped for the stand-in.
     const html = fs.readFileSync(f, 'utf8'), live = fs.readFileSync(path.join(root, 'docs/config.js'), 'utf8').match(/url: '([^']*)'/)[1];
@@ -188,6 +188,10 @@ try {
   await ben.page.screenshot({ path: path.join(copy, 'venue-map.png') });
   await ben.page.evaluate(() => { document.getElementById('view').scrollTop = 0; });
   const pin = (p, name) => p.page.locator(`.leaflet-container .leaflet-marker-icon[title="${name}"]`).dispatchEvent('click');
+  await pin(ben, 'Lowtide Bar');
+  ok(await has(ben, 'No Frenzy ratings yet') && await has(ben, '4.4 ★ on Google Maps (120)'), 'the card under a pin shows Frenzy and Google ratings');
+  await ben.page.getByRole('button', { name: 'Rate 5 stars' }).click();
+  ok(await has(ben, '5.0 ★ on Frenzy (1)'), 'tapping a star on the card rates the venue');
   await pin(ben, 'Bodega Nine');
   ok(await has(ben, 'Open venue') && await ben.page.locator('#map-pick', { hasText: 'Bodega Nine' }).count() === 1, 'tapping a pin shows that venue under the map');
   ok(/(Open till|Closes soon|Opens) /.test(await ben.page.locator('#map-pick').innerText()), 'the picked venue says when it opens or closes');
