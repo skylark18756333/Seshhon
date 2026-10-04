@@ -73,6 +73,14 @@ http.createServer(async (req, res) => {
   if (url.pathname === '/functions/v1/email-code') {
     const token = (req.headers.authorization || '').replace('Bearer ', ''), uid = tokens.get(token);
     if (!uid) return send(res, 401, { message: 'Sign in first.' });
+    if (body.action === 'recovery') {
+      const r = await psql(`begin; set local role service_role; select to_jsonb(public.two_step_recovery_target(${lit(uid)}, ${lit(body.username)}, ${lit(body.code)})); commit;`);
+      if (r.code !== 0) return send(res, 400, { message: (r.err.match(/ERROR:\s+(.*)/) || [, r.err])[1] });
+      const lines = r.out.split('\n').filter((l) => l && l !== 'BEGIN' && l !== 'COMMIT' && l !== 'SET');
+      lastEmail = { email: JSON.parse(lines[lines.length - 1]).email, recovery: body.code };
+      const [name, domain] = lastEmail.email.split('@');
+      return send(res, 200, { sent: true, hint: name.slice(0, 1) + '•••@' + domain });
+    }
     const purpose = body.action === 'setup' ? 'setup' : 'login';
     const r = await psql(`begin; set local role service_role; select to_jsonb(public.two_step_make_code(${lit(uid)}, ${lit(sessions.get(token).sid)}, ${lit(purpose)}, ${lit(purpose === 'setup' ? body.email : null)})); commit;`);
     if (r.code !== 0) return send(res, 400, { message: (r.err.match(/ERROR:\s+(.*)/) || [, r.err])[1] });

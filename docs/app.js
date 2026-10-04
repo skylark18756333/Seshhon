@@ -533,6 +533,17 @@
   function emailField(label) {
     return '<div class="field"><label for="save-email">' + label + '</label><input id="save-email" data-keep type="email" autocomplete="email" autocapitalize="none" spellcheck="false" maxlength="254"><span class="muted small">For login codes only. Nobody else ever sees it.</span></div>';
   }
+  // A copy of a new recovery code goes to the account's confirmed email (migration 0022). It stays on
+  // screen too, in case the email doesn't arrive. Accounts without a confirmed email just skip this.
+  function emailRecovery() {
+    var c = ui.newCode;
+    if (!c || c.emailed || !session) return Promise.resolve();
+    return emailCode('recovery', { username: c.username, code: c.code }).then(function (r) {
+      c.emailed = r.hint;
+      var el = document.getElementById('rc-emailed');
+      if (el && ui.newCode === c) el.innerHTML = 'We also emailed it to <strong>' + esc(r.hint) + '</strong>. Keep that email.';
+    }, function () {});
+  }
   function emailsOn() { return !!(ui.twoStep && !ui.twoStep.off); }
   function recoverScreen() {
     return '<div class="stack" style="gap:24px;margin-block:auto">' + logo() + '<h1>Use your recovery code</h1>' +
@@ -552,6 +563,7 @@
       '<p class="muted small">If you forget your password, this code is the only way back into your account. Screenshot it or write it down. It won\'t be shown again.</p>' +
       '<div class="linkbox" style="font-size:20px;font-weight:700;letter-spacing:1px;text-align:center" id="recovery-code">' + esc(ui.newCode.code) + '</div>' +
       '<p class="muted small">Your username is <strong>' + esc(ui.newCode.username) + '</strong>.</p>' +
+      '<p class="small" id="rc-emailed">' + (ui.newCode.emailed ? 'We also emailed it to <strong>' + esc(ui.newCode.emailed) + '</strong>. Keep that email.' : '') + '</p>' +
       '<button class="btn" data-act="code-saved">I\'ve saved it</button></div>';
   }
   function saveForm(username, askEmail) {
@@ -1757,9 +1769,11 @@
         .then(function (r) {
           if (!r || !r.ok) return rfail((r && r.message) || 'That didn\'t work. Try again.');
           // This phone's temporary sign-in was only for the recovery; log in with the new password next.
-          session = null; store(SESSION_KEY, null); ui.twoStep = undefined; ui.ticket = r.ticket || null;
           ui.newCode = { code: r.recovery_code, username: r.username, after: 'login' };
-          document.activeElement && document.activeElement.blur(); view.innerHTML = ''; render();
+          return emailRecovery().then(function () {
+            session = null; store(SESSION_KEY, null); ui.twoStep = undefined; ui.ticket = r.ticket || null;
+            document.activeElement && document.activeElement.blur(); view.innerHTML = ''; render();
+          });
         })
         .catch(function (x) { rfail(x.message); });
       return;
@@ -1791,6 +1805,7 @@
         if (ui.account && ui.account !== 'off') ui.account.email = r.email;
         ui.emailStep = null; toast('Email confirmed. New logins will ask for a code from it.');
         document.activeElement && document.activeElement.blur(); render();
+        emailRecovery();
       }).catch(function (x) { efail(x.message); });
       return;
     }
@@ -1816,6 +1831,7 @@
         }, function (x) { if (adding) throw x; toast(x.message); });
       }).then(function () {
         document.activeElement && document.activeElement.blur(); render();
+        if (!ui.emailStep) emailRecovery();   // a password change on an account that already has its email
       }).catch(function (x) { sfail(x.message); });
       return;
     }
