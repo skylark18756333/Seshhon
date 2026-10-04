@@ -167,7 +167,7 @@ try {
   const sent = [];
   ben.page.on('request', (r) => { if (r.url().startsWith(API)) sent.push(r.url() + ' ' + (r.postData() || '')); });
   ok(await has(ben, '23 venues within 5 km'), 'the map shows how many venues are inside the radius');
-  ok(await ben.page.locator('.leaflet-container path.leaflet-interactive').count() === 23, 'every venue with a position has a pin on the map');
+  ok(await ben.page.locator('.leaflet-container .leaflet-marker-icon.leaflet-interactive').count() === 23, 'every venue with a position has a pin on the map');
   ok(await has(ben, 'away,'), 'venue cards say how far away they are');
   await ben.ctx.grantPermissions(['geolocation']);
   await ben.ctx.setGeolocation({ latitude: -32.0569, longitude: 115.7439 });   // Fremantle, about 16 km from the example venues
@@ -184,7 +184,7 @@ try {
   await ben.page.evaluate(() => { document.getElementById('view').scrollTop = 0; });
   await ben.page.screenshot({ path: path.join(copy, 'venue-map.png') });
   await ben.page.evaluate(() => { document.getElementById('view').scrollTop = 0; });
-  await ben.page.locator('.leaflet-container path.leaflet-interactive').first().dispatchEvent('click');
+  await ben.page.locator('.leaflet-container .leaflet-marker-icon.leaflet-interactive').first().dispatchEvent('click');
   ok(await has(ben, 'Rate this venue'), 'tapping a pin opens that venue');
   await tab(ben, 'Venues');
 
