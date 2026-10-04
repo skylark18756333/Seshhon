@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Frenzy",
+    "name": "Frendzy",
     "slug": "seshhon",
     "scheme": "seshhon",
     "version": "1.0.0",
@@ -20,8 +20,8 @@
         "usesNonExemptEncryption": false
       },
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "Frenzy uses your location to show venues near you and how far away they are.",
-        "NSCameraUsageDescription": "Frenzy uses your camera for the 18+ age check selfie. The photo goes to our age check provider and is not kept by Frenzy."
+        "NSLocationWhenInUseUsageDescription": "Frendzy uses your location to show venues near you and how far away they are.",
+        "NSCameraUsageDescription": "Frendzy uses your camera for the 18+ age check selfie. The photo goes to our age check provider and is not kept by Frendzy."
       }
     },
     "android": {
@@ -57,7 +57,7 @@
       "favicon": "./assets/favicon.png"
     },
     "extra": {
-      "webUrl": "https://skylark18756333.github.io/Seshhon/"
+      "webUrl": "https://frendzy.au/"
     }
   }
 }

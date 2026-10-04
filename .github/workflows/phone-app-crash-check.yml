@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
   push:
     branches: ['claude/**']
-    paths: [mobile/**, .github/workflows/phone-app-crash-check.yml]
+    paths: [mobile/**, '!mobile/store/**', '!mobile/**/*.md']
 
 jobs:
   check:
