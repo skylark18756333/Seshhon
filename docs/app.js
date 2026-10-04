@@ -356,6 +356,7 @@
       if (data.me && !data.legacyVenues && !venuesAsked) loadVenues().then(function () { render(); });
       if (data.me && !pins && !pinsAsked) { pinsAsked = true; loadPins().then(function () { render(); }); }   // venue distances for the sesh vote list
       if (!quiet || key !== lastKey) { lastKey = key; render(); }
+      if (data.me) loadCrawl().then(function (changed) { if (changed) render(); });
       // Photos change rarely: fetch them when the friend list changes, and otherwise once a minute.
       var pk = data.me ? JSON.stringify([data.me.id].concat((data.friends || []).map(function (f) { return f.id; }))) : '';
       if (pk && (pk !== photosKey || Date.now() - photosAt > 60000)) {
@@ -427,6 +428,8 @@
     tick: '<path d="M4.5 12.5l5 5L19.5 7"/>',
     query: '<path d="M8.5 8.5a3.5 3.5 0 1 1 5.2 3c-1.1.7-1.7 1.4-1.7 2.7v.6"/><circle cx="12" cy="19" r=".6"/>',
     cross: '<path d="M6 6l12 12"/><path d="M18 6L6 18"/>',
+    up: '<path d="M12 19V5"/><path d="M5 12l7-7 7 7"/>',
+    down: '<path d="M12 5v14"/><path d="M5 12l7 7 7-7"/>',
     star: '<path d="M12 3l2.7 5.6 6.1.8-4.5 4.3 1.1 6.1L12 16.9 6.6 19.8l1.1-6.1L3.2 9.4l6.1-.8z"/>'
   };
   function svg(name, size) {
@@ -883,7 +886,8 @@
       ratingRow(ven) +
       here.map(dealBanner).join('') +
       '<div class="row"><button class="btn small-btn" data-act="venue" data-v="' + esc(ven.id) + '">Open venue</button>' +
-      (mine && !mine.locked_venue ? '<button class="btn small-btn ghost" data-act="suggest" data-v="' + esc(ven.id) + '">Vote for it</button>' : '') + '</div></div>';
+      (mine && !mine.locked_venue ? '<button class="btn small-btn ghost" data-act="suggest" data-v="' + esc(ven.id) + '">Vote for it</button>' : '') + '</div>' +
+      (mine ? crawlButton(ven.id, true) : '') + '</div>';
   }
   // Ratings on the card under a tapped pin: SeshOn's own average, Google's, and tap-a-star to rate.
   function ratingRow(ven) {
@@ -1105,11 +1109,128 @@
         h += '<p class="muted small">' + esc(first(mine.creator_name)) + ' started this sesh and locks in the venue.</p>';
       }
     }
+    h += crawlHtml(mine);
     h += chatHtml(mine);
     h += mine.mine
       ? '<button class="btn ghost" data-act="end-sesh">End the sesh</button>'
       : '<button class="btn ghost" data-act="leave-sesh">Leave the sesh</button>';
     return h;
+  }
+
+  /* ---------- Sesh Map ----------
+     A crawl planned for tonight's sesh: venues as numbered stops, in order, on a small map. Only people in the
+     sesh see it, and it is deleted with the sesh. Stops are venues only: nobody's location is used or shown. */
+  var crawl = { sesh: null, stops: [], key: '', off: false };   // off: the database doesn't have the Sesh Map yet
+  var CRAWL_MAX = 12;
+  var CR = { el: null, map: null, layers: null, key: '' };
+  function loadCrawl() {
+    var s = mySesh();
+    if (!s || crawl.off) {
+      var had = crawl.key !== '';
+      crawl.sesh = null; crawl.stops = []; crawl.key = '';
+      return Promise.resolve(had);
+    }
+    return rpc('sesh_crawl', { p_sesh: s.id }).then(function (list) {
+      list = Array.isArray(list) ? list : [];
+      var key = s.id + JSON.stringify(list), changed = key !== crawl.key;
+      crawl.sesh = s.id; crawl.stops = list; crawl.key = key;
+      return changed;
+    }, function (e) {
+      if (e.missing) { crawl.off = true; return true; }
+      return false;
+    });
+  }
+  function crawlStops() { var s = mySesh(); return s && crawl.sesh === s.id ? crawl.stops : []; }
+  function crawlStopOf(venueId) { return crawlStops().filter(function (c) { return c.venue_id === venueId; })[0] || null; }
+  function crawlRun(fn, venueId, extra, okMsg) {
+    var s = mySesh(); if (!s) return;
+    var args = { p_sesh: s.id, p_venue: venueId };
+    Object.keys(extra).forEach(function (k) { args[k] = extra[k]; });
+    act(fn, args, okMsg).then(function (list) {
+      if (!Array.isArray(list) || !mySesh() || mySesh().id !== s.id) return;
+      crawl.sesh = s.id; crawl.stops = list; crawl.key = s.id + JSON.stringify(list);
+      render();
+    });
+  }
+  // "Add to the Sesh Map" on a venue, or which stop it already is.
+  function crawlButton(venueId, small) {
+    if (crawl.off) return '';
+    var c = crawlStopOf(venueId), cls = 'btn' + (small ? ' small-btn' : '') + ' ghost';
+    if (c) return '<button class="' + cls + '" data-act="tab" data-v="sesh">Stop ' + c.position + ' on the Sesh Map</button>';
+    if (crawlStops().length >= CRAWL_MAX) return '';
+    return '<button class="' + cls + '" data-act="crawl-add" data-v="' + esc(venueId) + '">Add to the Sesh Map</button>';
+  }
+  function stopIcon(n, done) {
+    return L.divIcon({ className: '', iconSize: [34, 34], iconAnchor: [17, 17],
+      html: '<span class="stop-num' + (done ? ' done' : '') + '">' + (done ? svg('tick', 16) : n) + '</span>' });
+  }
+  function crawlHtml(mine) {
+    if (crawl.off) return '';
+    var stops = crawlStops(), boss = mine.mine;
+    var h = '<div class="stack" style="gap:12px" id="crawl"><div class="row between"><h2>Sesh Map</h2><span class="muted small">' +
+      (stops.length ? stops.length + ' stop' + (stops.length === 1 ? '' : 's') : 'Plan a crawl') + '</span></div>';
+    if (!stops.length) {
+      return h + '<p class="muted small">Doing a pub crawl? Add the places you want to hit from the map. Everyone in the sesh sees the stops here, in order.</p>' +
+        '<button class="btn ghost" data-act="tab" data-v="map">Add stops from the map</button></div>';
+    }
+    if (window.L && pins) h += '<div class="bleed"><div id="crawl-slot" class="map crawl"></div></div>';
+    var started = stops.some(function (c) { return c.done; }), next = (stops.filter(function (c) { return !c.done; })[0] || {}).venue_id;
+    var prev = null, total = 0;
+    h += '<div class="stack">' + stops.map(function (c, i) {
+      var ven = venueById(c.venue_id), at = pins && pins[c.venue_id], step = '';
+      if (at && prev) { var d = km(prev.at, at); total += d; step = fmtKm(d) + ' from stop ' + prev.n; }
+      if (at) prev = { at: at, n: c.position };
+      var isNext = started && c.venue_id === next, id = esc(c.venue_id), name = ven ? ven.name : 'A venue';
+      var tools = '';
+      if (boss) {
+        tools += '<button class="back" data-act="crawl-up" data-v="' + id + '" aria-label="Move ' + esc(name) + ' earlier"' + (i === 0 ? ' disabled' : '') + '>' + svg('up', 18) + '</button>' +
+          '<button class="back" data-act="crawl-down" data-v="' + id + '" aria-label="Move ' + esc(name) + ' later"' + (i === stops.length - 1 ? ' disabled' : '') + '>' + svg('down', 18) + '</button>' +
+          '<button class="back" data-act="crawl-done" data-v="' + id + '" aria-label="' + (c.done ? 'Not done yet: ' : 'Done with ') + esc(name) + '" aria-pressed="' + !!c.done + '">' + svg('tick', 18) + '</button>';
+      }
+      if (boss || c.mine) tools += '<button class="back" data-act="crawl-remove" data-v="' + id + '" aria-label="Remove ' + esc(name) + '">' + svg('close', 16) + '</button>';
+      return '<div class="card crawl-stop' + (c.done ? ' done' : '') + (isNext ? ' lead' : '') + '"><div class="row">' +
+        '<span class="stop-num' + (c.done ? ' done' : '') + '" aria-hidden="true">' + (c.done ? svg('tick', 16) : c.position) + '</span>' +
+        '<button class="grow stop-name" data-act="venue" data-v="' + id + '">' + (isNext ? '<span class="eyebrow" style="color:var(--on)">Next stop</span>' : '') +
+        '<span class="stop-title">' + esc(name) + '</span><span class="muted small">' + esc([ven && ven.kind, ven ? hoursLine(ven) : '', step].filter(Boolean).join(', ')) + '</span></button></div>' +
+        (tools ? '<div class="row crawl-tools">' + tools + '</div>' : '') + '</div>';
+    }).join('') + '</div>';
+    if (total) h += '<p class="muted small">About ' + fmtKm(total) + ' from the first stop to the last, as the crow flies.</p>';
+    if (stops.length < CRAWL_MAX) h += '<button class="btn ghost" data-act="tab" data-v="map">Add more stops from the map</button>';
+    if (!boss) h += '<p class="muted small">' + esc(first(mine.creator_name)) + ' started this sesh, so they set the order and tick off stops.</p>';
+    return h + '</div>';
+  }
+  function mountCrawl() {
+    var slot = document.getElementById('crawl-slot');
+    if (!slot || !window.L) return;
+    var spots = crawlStops().map(function (c) { return { c: c, at: pins && pins[c.venue_id], ven: venueById(c.venue_id) }; }).filter(function (x) { return x.at; });
+    if (!spots.length) { slot.hidden = true; return; }
+    if (!CR.map) {
+      CR.el = document.createElement('div');
+      CR.map = L.map(CR.el, { center: spots[0].at, zoom: 15, scrollWheelZoom: false, dragging: !L.Browser.mobile, attributionControl: true });
+      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>'
+      }).addTo(CR.map);
+      CR.map.attributionControl.setPrefix(false);
+      CR.layers = L.layerGroup().addTo(CR.map);
+    }
+    CR.el.className = slot.className;
+    CR.el.setAttribute('aria-label', 'Sesh Map: ' + spots.map(function (x) { return x.c.position + '. ' + (x.ven ? x.ven.name : 'A venue'); }).join(', '));
+    slot.parentNode.replaceChild(CR.el, slot);
+    CR.map.invalidateSize();
+    var key = JSON.stringify(spots.map(function (x) { return [x.c.venue_id, x.c.position, x.c.done]; }));
+    if (CR.key === key) return;   // same stops: leave the map where the person moved it
+    CR.key = key;
+    CR.layers.clearLayers();
+    // Straight dotted lines between stops, in order: the order of the crawl, not a walking route.
+    L.polyline(spots.map(function (x) { return x.at; }), { className: 'crawl-line', weight: 5, opacity: 0.9, dashArray: '0.1 11', lineCap: 'round', interactive: false }).addTo(CR.layers);
+    spots.forEach(function (x) {
+      var mk = L.marker(x.at, { icon: stopIcon(x.c.position, x.c.done), title: x.ven ? x.ven.name : '', alt: x.ven ? x.ven.name : '', zIndexOffset: x.c.done ? 0 : 500 - x.c.position }).addTo(CR.layers);
+      if (spots.length <= 6 && x.ven) mk.bindTooltip(esc(x.ven.name), { permanent: true, direction: 'right', offset: [16, 0], className: 'tag' });
+      mk.on('click', function () { ACT.venue(x.c.venue_id); });
+    });
+    if (spots.length === 1) CR.map.setView(spots[0].at, 16, { animate: false });
+    else CR.map.fitBounds(L.latLngBounds(spots.map(function (x) { return x.at; })), { animate: false, paddingTopLeft: [40, 40], paddingBottomRight: [spots.length <= 6 ? 130 : 40, 40], maxZoom: 17 });
   }
 
   function dealLabel(d) {
@@ -1178,6 +1299,7 @@
       }).join('') + '</div></div>';
     var mine = mySesh();
     if (mine && !mine.locked_venue) h += '<button class="btn" data-act="suggest" data-v="' + esc(id) + '">Vote for this in tonight\'s sesh</button>';
+    if (mine) h += crawlButton(id, false);
     return h;
   }
   // The week's hours on a venue page, and for staff at that venue, a box to change them.
@@ -1371,6 +1493,7 @@
     view.innerHTML = html;
     mountMap();
     mountMini();
+    mountCrawl();
     tabs.hidden = false;
     var requests = D.requests_in.length;
     var tabList = [['home', 'Home'], ['sesh', 'Sesh'], ['map', 'Map'], ['venues', 'Venues'], ['events', 'Events']];
@@ -1454,6 +1577,11 @@
       var s = mySesh(); if (!s) return;
       act('cast_vote', { p_sesh: s.id, p_venue: v }).then(function () { ui.screen = null; ui.tab = 'sesh'; go(true); });
     },
+    'crawl-add': function (v) { crawlRun('crawl_add', v, {}, 'Added to the Sesh Map.'); },
+    'crawl-remove': function (v) { crawlRun('crawl_remove', v, {}, 'Stop removed.'); },
+    'crawl-up': function (v) { crawlRun('crawl_move', v, { p_step: -1 }); },
+    'crawl-down': function (v) { crawlRun('crawl_move', v, { p_step: 1 }); },
+    'crawl-done': function (v) { var c = crawlStopOf(v); if (c) crawlRun('crawl_done', v, { p_done: !c.done }); },
     'map-pick': function (v) {
       ui.mapPick = v || null; render();
       if (v && M.map && pins && pins[v] && !M.map.getBounds().pad(-0.1).contains(pins[v])) M.map.setView(pins[v], Math.max(M.map.getZoom(), 15), { animate: false });
