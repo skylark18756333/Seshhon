@@ -28,7 +28,7 @@ const api = spawn('node', [path.join(here, 'fake-supabase.mjs'), sock, dbPort, '
 const web = http.createServer((req, res) => {
   const p = new URL(req.url, 'http://x').pathname;
   if (p === '/config.js') { res.setHeader('Content-Type', 'text/javascript'); // Serve the real docs/config.js, only swapping the address and key, so a misnamed setting is caught here.
-    return res.end(fs.readFileSync(path.join(root, 'docs/config.js'), 'utf8').replace(/url: '[^']*'/, `url: '${API}'`).replace(/key: '[^']*'/, "key: 'test-anon-key'").replace(/pollMs: \d+/, 'pollMs: 600, chatPollMs: 500').replace(/deals: (true|false)/, 'deals: ' + dealsOn).replace(/captchaSiteKey: '[^']*'/, "captchaSiteKey: ''")); }
+    return res.end(fs.readFileSync(path.join(root, 'docs/config.js'), 'utf8').replace(/url: '[^']*'/, `url: '${API}'`).replace(/key: '[^']*'/, "key: 'test-anon-key'").replace(/pollMs: \d+/, 'pollMs: 600, chatPollMs: 500').replace(/deals: (true|false)/, 'deals: ' + dealsOn).replace(/captchaSiteKey: '[^']*'/, "captchaSiteKey: 'test-site-key'")); }
   const f = path.join(root, 'docs', p === '/' ? 'index.html' : p);
   if (f === path.join(root, 'docs/index.html')) { // The security policy must allow the real Supabase address; here it is swapped for the stand-in.
     const html = fs.readFileSync(f, 'utf8'), live = fs.readFileSync(path.join(root, 'docs/config.js'), 'utf8').match(/url: '([^']*)'/)[1];
@@ -47,6 +47,17 @@ const tile = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQV
 async function phone(name) {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 780 }, timezoneId: 'Australia/Perth' });
   await ctx.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
+  // A pretend Cloudflare Turnstile at the real address (so the security policy is tested too). Like the real one,
+  // it hands out a one-time token a moment after it appears, and a new one after a reset.
+  await ctx.route(/challenges\.cloudflare\.com\/turnstile/, (r) => r.fulfill({ contentType: 'text/javascript', body: `(() => {
+    const w = {}; let n = 0, k = 0;
+    const issue = (id) => setTimeout(() => { const x = w[id]; if (x && x.el.isConnected) x.opts.callback('fake-ts-' + Date.now() + '-' + (++k)); }, 150);
+    window.turnstile = {
+      render(el, opts) { if (!el.isConnected) throw new Error('turnstile: box not on the page'); const id = 'w' + (++n); w[id] = { el, opts }; el.innerHTML = '<div class="fake-turnstile">Human check</div>'; issue(id); return id; },
+      reset(id) { if (!w[id]) throw new Error('turnstile: unknown widget'); issue(id); },
+      remove(id) { delete w[id]; }
+    };
+  })();` }));
   await ctx.route(/tile\.openstreetmap\.org/, (r) => r.fulfill({ contentType: 'image/png', body: tile }));
   const page = await ctx.newPage();
   page.on('pageerror', (e) => consoleErrors.push(name + ': ' + e.message));
@@ -301,7 +312,12 @@ try {
   await fay2.page.fill('#login-user', 'fay_99'); await fay2.page.fill('#login-pass', 'wrongpassword');
   await tap(fay2, 'Log in');
   ok(await has(fay2, "don't match"), 'a wrong password is turned away');
-  await fay2.page.fill('#login-pass', 'longenough1'); await tap(fay2, 'Log in');
+  await fay2.page.evaluate(() => { document.getElementById('login-error').textContent = ''; });
+  await tap(fay2, 'Log in');
+  ok(await has(fay2, "don't match") && !(await has(fay2, "didn't go through", 300)), 'a second try straight away gets a fresh human check');
+  await tap(fay2, 'Back'); await tap(fay2, 'I already have an account');   // a new screen gets a new check
+  await fay2.page.fill('#login-user', 'fay_99'); await fay2.page.fill('#login-pass', 'longenough1');
+  await tap(fay2, 'Log in');   // straight away: it waits for the human check instead of refusing
   ok(await has(fay2, 'Your status'), 'Fay logs in on a new phone with her username and password');
   await tab(fay2, 'You');
   ok(await has(fay2, 'logged in as fay_99'), 'and it is the same account');
