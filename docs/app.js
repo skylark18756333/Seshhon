@@ -1,4 +1,4 @@
-// SeshOn web app. Loaded by index.html; kept in its own file so the page can forbid inline scripts.
+// Frenzy web app. Loaded by index.html; kept in its own file so the page can forbid inline scripts.
 (function () {
   'use strict';
   var CFG = window.SESHHON_CONFIG || window.SESSHON_CONFIG || {};
@@ -160,8 +160,8 @@
         try { json = text ? JSON.parse(text) : null; } catch (e) {}
         if (!res.ok && json && json.code === 'PGRST202') {
           // The database is missing a function this page calls: an update in supabase/ has not been run yet.
-          console.error('SeshOn database is out of date. Run supabase/update.sql in the Supabase SQL editor.', json.message);
-          throw new Error('SeshOn is being updated. Try again soon.');
+          console.error('Frenzy database is out of date. Run supabase/update.sql in the Supabase SQL editor.', json.message);
+          throw new Error('Frenzy is being updated. Try again soon.');
         }
         if (!res.ok) throw new Error((json && json.message) || 'Something went wrong. Try again.');
         return json;
@@ -309,27 +309,27 @@
 
   // The brush-script name with the three status dots beside it. With a status, only that dot is lit.
   function logo(status) {
-    return '<div class="logo"><div class="wordmark">SeshOn</div><div class="dots' + (status ? '' : ' all') + '" aria-hidden="true">' +
+    return '<div class="logo"><div class="wordmark">Frenzy</div><div class="dots' + (status ? '' : ' all') + '" aria-hidden="true">' +
       STOPS.map(function (k) { return '<i style="--c:' + COLORS[k] + '"' + (k === status ? ' class="lit"' : '') + '></i>'; }).join('') + '</div></div>';
   }
 
   /* ---------- screens ---------- */
   function notConnected() {
     return '<div class="stack" style="gap:20px;margin-block:auto">' + logo() + '<h1>Not connected yet</h1>' +
-      '<p class="muted">This copy of SeshOn has not been pointed at its database. Add the project address and public key to config.js.</p></div>';
+      '<p class="muted">This copy of Frenzy has not been pointed at its database. Add the project address and public key to config.js.</p></div>';
   }
   function starting() {
     return '<div class="stack" style="gap:20px;margin-block:auto">' + logo() + '<p class="muted">Loading…</p></div>';
   }
   function tooYoung() {
-    return '<div class="stack" style="gap:20px;margin-block:auto">' + logo() + '<h1>SeshOn is for people aged 18 and over.</h1>' +
+    return '<div class="stack" style="gap:20px;margin-block:auto">' + logo() + '<h1>Frenzy is for people aged 18 and over.</h1>' +
       '<p class="muted">We can\'t set up an account for you. If you entered your date of birth wrongly, contact us through the Privacy Policy page.</p></div>';
   }
   function ageCheck() {
     var who = PROVIDER_NAMES[ui.age && ui.age.provider] || 'Our age check partner';
     var h = '<div class="stack" style="gap:20px;margin-block:auto">' + logo() + '<h1>Quick age check</h1>' +
-      '<p class="muted">SeshOn is for people aged 18 and over. ' + esc(who) + ' checks your age with a quick selfie. If it can\'t tell from your face, it asks you to show ID instead.</p>' +
-      '<p class="muted small">' + esc(who) + ' only tells us whether you passed. SeshOn never sees or keeps your photo or ID. See the <a href="privacy.html">Privacy Policy</a>.</p>';
+      '<p class="muted">Frenzy is for people aged 18 and over. ' + esc(who) + ' checks your age with a quick selfie. If it can\'t tell from your face, it asks you to show ID instead.</p>' +
+      '<p class="muted small">' + esc(who) + ' only tells us whether you passed. Frenzy never sees or keeps your photo or ID. See the <a href="privacy.html">Privacy Policy</a>.</p>';
     if (ui.ageNote) h += '<p class="error" id="age-note">' + esc(ui.ageNote) + '</p>';
     if (ui.age && ui.age.pending) h += '<button class="btn" data-act="age-finish"' + (ui.ageBusy ? ' disabled' : '') + '>I\'ve finished, check again</button><button class="btn ghost" data-act="age-start"' + (ui.ageBusy ? ' disabled' : '') + '>Start again</button>';
     else h += '<button class="btn" data-act="age-start"' + (ui.ageBusy ? ' disabled' : '') + '>Start age check</button>';
@@ -344,7 +344,7 @@
       '<p class="muted">' + (invited ? 'A friend invited you. Sign up and they will get your friend request.' : 'Go green when you\'re keen, see which friends are too, and pick a place together.') + '</p>' +
       '<form id="join" class="stack" style="gap:16px" novalidate>' +
       '<div class="field"><label for="name">Your first name</label><input id="name" type="text" autocomplete="given-name" maxlength="24"></div>' +
-      '<div class="field"><label for="dob">Date of birth</label><input id="dob" type="date" autocomplete="bday" min="1900-01-01"><span class="muted small">SeshOn is for people aged 18 and over. We only use this to check your age and do not keep it.</span></div>' +
+      '<div class="field"><label for="dob">Date of birth</label><input id="dob" type="date" autocomplete="bday" min="1900-01-01"><span class="muted small">Frenzy is for people aged 18 and over. We only use this to check your age and do not keep it.</span></div>' +
       (CAPTCHA_KEY ? '<div id="captcha"></div>' : '') +
       '<p id="join-error" class="error" hidden></p>' +
       '<button class="btn" type="submit" id="join-btn">Get started</button>' +
@@ -415,7 +415,7 @@
 
     var friends = D.friends;
     if (!friends.length) {
-      h += '<div class="card"><h2>Add your friends</h2><p class="muted small">SeshOn only works with friends on it. Send them your invite link, then accept their request when it arrives.</p>' +
+      h += '<div class="card"><h2>Add your friends</h2><p class="muted small">Frenzy only works with friends on it. Send them your invite link, then accept their request when it arrives.</p>' +
         '<button class="btn" data-act="share">Send your invite link</button>' + linkBox() + '</div>';
     } else if (s === 'off') {
       h += '<div class="card"><h2>Friends are hidden while you\'re red</h2><p class="muted small">Slide to green or amber to see who\'s up for it tonight.</p></div>';
@@ -570,10 +570,10 @@
     }
     return h + '<div class="stack" style="gap:12px" id="venue-list">' + venueList() + '</div>';
   }
-  var PIN_FILL = { near: '#1F7BFF', far: '#6B7080', goal: '#FF4757' };
+  var PIN_FILL = { near: '#1F7BFF', far: '#8A90A0', goal: '#FF4757' };
   function pinIcon(kind) {
     return L.divIcon({ className: '', iconSize: [30, 40], iconAnchor: [15, 39],
-      html: '<span class="pin' + (kind === 'far' ? ' far' : '') + '"><svg width="30" height="40" viewBox="0 0 30 40" aria-hidden="true"><path d="M15 38.5S2.5 23.6 2.5 14a12.5 12.5 0 0 1 25 0c0 9.6-12.5 24.5-12.5 24.5z" fill="' + PIN_FILL[kind] + '" stroke="#0B0B0D" stroke-width="2"/><circle cx="15" cy="14" r="5" fill="#fff"/></svg></span>' });
+      html: '<span class="pin' + (kind === 'far' ? ' far' : '') + '"><svg width="30" height="40" viewBox="0 0 30 40" aria-hidden="true"><path d="M15 38.5S2.5 23.6 2.5 14a12.5 12.5 0 0 1 25 0c0 9.6-12.5 24.5-12.5 24.5z" fill="' + PIN_FILL[kind] + '" stroke="#fff" stroke-width="2.5"/><circle cx="15" cy="14" r="5" fill="#fff"/></svg></span>' });
   }
   function youIcon() { return L.divIcon({ className: '', iconSize: [44, 44], iconAnchor: [22, 22], html: '<span class="you-dot"></span>' }); }
   function fromName() {
@@ -868,7 +868,7 @@
       }).join('') + '</div>';
     }
 
-    h += '<div class="card"><h2>Put SeshOn on your home screen</h2><p class="muted small">On iPhone, tap the Share button in Safari, then Add to Home Screen. On Android, open the browser menu and tap Add to Home screen.</p></div>';
+    h += '<div class="card"><h2>Put Frenzy on your home screen</h2><p class="muted small">On iPhone, tap the Share button in Safari, then Add to Home Screen. On Android, open the browser menu and tap Add to Home screen.</p></div>';
 
     h += '<div class="card"><h2>About</h2><p class="small"><a href="privacy.html">Privacy Policy</a></p><p class="small"><a href="terms.html">Terms of use</a></p></div>';
 
@@ -953,7 +953,7 @@
     var link = inviteLink();
     ui.linkShown = true;
     if (navigator.share) {
-      navigator.share({ title: 'SeshOn', text: 'Add me on SeshOn so we can see when we\'re both up for a sesh.', url: link }).catch(function () {});
+      navigator.share({ title: 'Frenzy', text: 'Add me on Frenzy so we can see when we\'re both up for a sesh.', url: link }).catch(function () {});
       render();
       return;
     }
