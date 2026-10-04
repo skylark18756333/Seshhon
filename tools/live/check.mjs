@@ -177,7 +177,10 @@ try {
   ok(await has(ben, '23 venues within 25 km of you'), 'widening the radius brings the venues back');
   await ben.page.locator('#radius').fill('15');
   ok(await has(ben, '0 venues within 15 km'), 'narrowing the radius filters them out again');
+  const mark = sent.length;
   await ben.page.waitForTimeout(1500);   // let a few background refreshes run
+  const during = sent.slice(mark);
+  ok(during.filter((x) => x.includes('/rpc/api_state')).length >= 2 && during.filter((x) => x.includes('/rpc/api_venues')).length === 0, 'background refreshes do not download the venues again');
   ok(await ben.page.locator('#radius').inputValue() === '15' && await has(ben, 'within 15 km of you'), 'the radius and location survive background refreshes');
   ok(!sent.some((x) => /-32\.05|115\.74/.test(x)), 'the phone\'s location is never sent to the server');
   await ben.page.locator('#radius').fill('25');

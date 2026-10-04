@@ -248,6 +248,21 @@
   function loadSafety() {
     return rpc('my_safety').then(function (sf) { ui.safety = sf || { gender: null, women_only: false }; }, function () { ui.safety = 'off'; });
   }
+  // Venues come from api_venues(), fetched on their own and kept, so the refresh every few seconds stays small.
+  // An older database still sends them inside api_state(); then that copy is used.
+  var VENUES = null, venuesAt = 0, venuesAsked = false;
+  function loadVenues() {
+    venuesAsked = true;
+    return rpc('api_venues').then(function (list) {
+      VENUES = list || []; venuesAt = Date.now();
+      if (D) { D.venues = VENUES; lastKey = ''; }
+    }, function () { venuesAt = Date.now(); });
+  }
+  function freshVenues(maxAgeMs) {   // fetch again if older than maxAgeMs, then redraw
+    if (D && D.legacyVenues) return Promise.resolve();
+    if (VENUES && Date.now() - venuesAt < maxAgeMs) return Promise.resolve();
+    return loadVenues().then(function () { render(); });
+  }
   function load(quiet) {
     return (session && !ui.age ? loadAge() : Promise.resolve()).then(function () { return rpc('api_state'); }).then(function (data) {
       if (data && data.me && ui.account === undefined) return Promise.all([loadAccount(), loadSafety()]).then(function () { return data; });
@@ -256,8 +271,10 @@
       ui.offline = false;
       clockOffset = new Date(data.now).getTime() - Date.now();
       noticeFriends(data);
-      var key = JSON.stringify([data.me, data.friends, data.requests_in, data.requests_out, data.seshes, data.venues, data.deals, data.staff_venues, data.blocked]);
+      if (data.venues) data.legacyVenues = true; else data.venues = VENUES || [];
+      var key = JSON.stringify([data.me, data.friends, data.requests_in, data.requests_out, data.seshes, data.legacyVenues ? data.venues : venuesAt, data.deals, data.staff_venues, data.blocked]);
       D = data; ui.booted = true;
+      if (data.me && !data.legacyVenues && !venuesAsked) loadVenues().then(function () { render(); });
       if (data.me && !pins && !pinsAsked) { pinsAsked = true; loadPins().then(function () { render(); }); }   // venue distances for the sesh vote list
       if (!quiet || key !== lastKey) { lastKey = key; render(); }
       // Photos change rarely: fetch them when the friend list changes, and otherwise once a minute.
@@ -1043,6 +1060,7 @@
   var ACT = {
     tab: function (v) {
       ui.tab = v; ui.screen = null; ui.confirm = null; ui.staffError = ''; go(true);
+      if (v === 'map' || v === 'venues') freshVenues(5 * 60000);
       if (v === 'map' || v === 'sesh' || v === 'events') loadPins().then(function () { if (ui.tab === v && !ui.screen) { if (M.map) M.fit = true; render(); } });
     },
     locate: function () {
@@ -1102,13 +1120,13 @@
     },
     star: function (v) {
       var ven = venueById(ui.screen.id);
-      act('rate_venue', { p_venue: ven.id, p_stars: Number(v), p_tags: ven.my_tags }, 'Rating saved.');
+      act('rate_venue', { p_venue: ven.id, p_stars: Number(v), p_tags: ven.my_tags }, 'Rating saved.').then(function () { return freshVenues(0); });
     },
     tag: function (v) {
       var ven = venueById(ui.screen.id);
       if (!ven.my_stars) { toast('Pick your stars first.'); return; }
       var tags = ven.my_tags.indexOf(v) >= 0 ? ven.my_tags.filter(function (t) { return t !== v; }) : ven.my_tags.concat(v);
-      act('rate_venue', { p_venue: ven.id, p_stars: ven.my_stars, p_tags: tags });
+      act('rate_venue', { p_venue: ven.id, p_stars: ven.my_stars, p_tags: tags }).then(function () { return freshVenues(0); });
     },
     share: shareInvite,
     'pick-photo': function () { var f = document.getElementById('photo-file'); if (f) f.click(); },
@@ -1146,13 +1164,13 @@
       ui.newCode = null; view.innerHTML = ''; render();
     },
     logout: function () {
-      session = null; store(SESSION_KEY, null); D = null; seen = null; lastKey = '';
+      session = null; store(SESSION_KEY, null); D = null; VENUES = null; venuesAsked = false; seen = null; lastKey = '';
       ui.account = undefined; ui.safety = undefined; ui.age = null; ui.auth = null; ui.editAccount = false; ui.tab = 'home'; ui.screen = null; ui.confirm = null;
       view.innerHTML = ''; render(); toast('Logged out. Log in again with your username and password.');
     },
     'delete-account': function () {
       act('delete_account', {}).then(function () {
-        session = null; store(SESSION_KEY, null); D = null; seen = null; ui.confirm = null; ui.tab = 'home'; ui.screen = null; ui.account = undefined; ui.safety = undefined; ui.age = null;
+        session = null; store(SESSION_KEY, null); D = null; VENUES = null; venuesAsked = false; seen = null; ui.confirm = null; ui.tab = 'home'; ui.screen = null; ui.account = undefined; ui.safety = undefined; ui.age = null;
         view.innerHTML = ''; render(); toast('Your account has been deleted.');
       });
     }
@@ -1313,7 +1331,7 @@
       if (CAPTCHA_KEY && !captchaToken) return lfail('Wait a moment for the check above to finish, then try again.');
       lbtn.disabled = true; lerr.hidden = true;
       signInWithPassword(lu, lp, useCaptcha()).then(function () {
-        D = null; lastKey = ''; ui.auth = null; ui.loginName = ''; ui.account = undefined; ui.safety = undefined; ui.age = null;
+        D = null; VENUES = null; venuesAsked = false; lastKey = ''; ui.auth = null; ui.loginName = ''; ui.account = undefined; ui.safety = undefined; ui.age = null;
         document.activeElement && document.activeElement.blur(); view.innerHTML = '';
         return load().then(function () { if (D && D.me) return sendPendingInvite(); });
       }).catch(function (x) { lfail(x.message); });
