@@ -94,6 +94,7 @@ body[data-status="on"], body[data-status="thinking"], body[data-status="off"] {
 .slide .stop { position: relative; z-index: 1; display: flex; align-items: center; justify-content: center; border: 0; background: none; border-radius: 33px; font-family: var(--display); font-weight: 800; font-size: 20px; color: rgba(255, 255, 255, 0.55); transition: color 0.2s; }
 /* Each stop is a lamp: dim until it's your status, then lit and glowing. */
 .slide .stop::before { content: ''; position: absolute; z-index: -1; width: 54px; height: 54px; border-radius: 50%; background: var(--l); opacity: 0.2; transition: opacity 0.2s, box-shadow 0.2s; }
+.slide .stop svg { stroke-width: 3; }
 .slide .stop[aria-pressed="true"] { color: var(--ink); }
 .slide .stop[aria-pressed="true"]::before { opacity: 1; box-shadow: 0 0 24px var(--l), 0 0 6px var(--l); }
 @media (prefers-reduced-motion: reduce) { .slide .knob { transition: none; } }

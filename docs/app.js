@@ -18,6 +18,7 @@
   var COLORS = { on: 'var(--on)', thinking: 'var(--thinking)', off: 'var(--off)' };
   var LABELS = { on: 'Green', thinking: 'Amber', off: 'Red' };
   var STOPS = ['on', 'thinking', 'off'];   // left to right on the status switch: G, A, R
+  var STATUS_ICON = { on: 'tick', thinking: 'query', off: 'cross' };
   var TAGS = ['Good vibe', 'Good value', 'Fast service'];
   var RADIUS_KEY = 'seshon-radius-km';
   var MAP_CENTRE = Array.isArray(CFG.mapCentre) ? CFG.mapCentre : [-31.9523, 115.8613];   // where the venue map starts: Perth CBD unless config.js says otherwise
@@ -379,6 +380,10 @@
     search: '<circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/>',
     clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
     fork: '<path d="M7 3v8"/><path d="M4 3v5a3 3 0 0 0 6 0V3"/><path d="M7 11v10"/><path d="M17 21V3c-2.5 1-4 4-4 8h4"/>',
+    // Status lamps: a tick for green (out), a question mark for amber (maybe), a cross for red (off)
+    tick: '<path d="M4.5 12.5l5 5L19.5 7"/>',
+    query: '<path d="M8.5 8.5a3.5 3.5 0 1 1 5.2 3c-1.1.7-1.7 1.4-1.7 2.7v.6"/><circle cx="12" cy="19" r=".6"/>',
+    cross: '<path d="M6 6l12 12"/><path d="M18 6L6 18"/>',
     star: '<path d="M12 3l2.7 5.6 6.1.8-4.5 4.3 1.1 6.1L12 16.9 6.6 19.8l1.1-6.1L3.2 9.4l6.1-.8z"/>'
   };
   function svg(name, size) {
@@ -497,7 +502,7 @@
       '<p class="muted">' + copy[1] + (s !== 'off' && me.expires_at ? ' Back to red in <span data-until="' + new Date(me.expires_at).getTime() + '" data-kind="status">' + fmtLeft(new Date(me.expires_at).getTime() - now()) + '</span>.' : '') + '</p>' +
       '<div class="slide" id="status-slide" role="group" aria-label="Set your status" style="--c:' + COLORS[s] + ';--i:' + STOPS.indexOf(s) + '"><span class="knob"></span>' +
       STOPS.map(function (k) {
-        return '<button class="stop" style="--l:' + COLORS[k] + '" data-act="status" data-v="' + k + '" aria-label="' + LABELS[k] + '" aria-pressed="' + (s === k) + '">' + LABELS[k].charAt(0) + '</button>';
+        return '<button class="stop" style="--l:' + COLORS[k] + '" data-act="status" data-v="' + k + '" aria-label="' + LABELS[k] + '" aria-pressed="' + (s === k) + '">' + svg(STATUS_ICON[k], 28) + '</button>';
       }).join('') + '</div></section>';
 
     if (D.requests_in.length) {
