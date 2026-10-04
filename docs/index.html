@@ -183,6 +183,11 @@ a { color: var(--fg); }
 .pin { position: relative; display: block; width: 30px; height: 40px; filter: drop-shadow(0 3px 4px rgba(20, 30, 50, 0.35)); transition: transform 0.15s; }
 .leaflet-marker-icon:hover .pin { transform: scale(1.12); transform-origin: 50% 100%; }
 .pin svg { display: block; }
+.pin-badge { position: absolute; top: -2px; right: -3px; z-index: 1; width: 12px; height: 12px; border-radius: 50%; border: 2px solid #fff; }
+.pin-badge.open { background: #2ECC71; }
+.pin-badge.shut { background: #8A90A0; }
+.hours { display: flex; flex-direction: column; gap: 4px; font-size: 15px; }
+.hours .today { font-weight: 700; }
 .pin.far { opacity: 0.55; transform: scale(0.75); transform-origin: 50% 100%; }
 .you-dot { display: block; width: 44px; height: 44px; border-radius: 50%; background: rgba(31, 123, 255, 0.25); position: relative; }
 .you-dot::after { content: ''; position: absolute; inset: 12px; border-radius: 50%; background: var(--accent); border: 4px solid #fff; box-shadow: 0 2px 8px rgba(20, 30, 50, 0.35); }
@@ -228,6 +233,7 @@ input[type="range"]::-moz-range-thumb { width: 28px; height: 28px; border-radius
 <div id="toast" role="status" aria-live="polite" hidden></div>
 
 <script src="vendor/leaflet/leaflet.js"></script>
+<script src="hours.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

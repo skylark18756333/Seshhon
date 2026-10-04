@@ -190,8 +190,12 @@ try {
   const pin = (p, name) => p.page.locator(`.leaflet-container .leaflet-marker-icon[title="${name}"]`).dispatchEvent('click');
   await pin(ben, 'Bodega Nine');
   ok(await has(ben, 'Open venue') && await ben.page.locator('#map-pick', { hasText: 'Bodega Nine' }).count() === 1, 'tapping a pin shows that venue under the map');
+  ok(/(Open till|Closes soon|Opens) /.test(await ben.page.locator('#map-pick').innerText()), 'the picked venue says when it opens or closes');
+  ok(await ben.page.locator('.pin-badge').count() >= 3, 'pins show an open or closed badge');
+  await ben.page.screenshot({ path: path.join(copy, 'venue-pick.png') });
   await tap(ben, 'Open venue');
   ok(await has(ben, 'Rate this venue'), 'and Open venue opens its page');
+  ok(/Tu-Su|Opening hours/.test(await text(ben)) && /(Open till|Closes soon|Opens) /.test(await text(ben)) && await has(ben, 'Mon') && await has(ben, 'Closed'), 'a venue page shows its opening hours and whether it is open');
   await tab(ben, 'Venues');
 
   console.log('Deals on the map, and events');
@@ -224,6 +228,17 @@ try {
   ok(await has(ben, 'Deal used', 4000), 'Ben\'s screen flips to "Deal used" by itself');
   await ana.page.fill('#staff-code', code); await tap(ana, 'Confirm code');
   ok(await has(ana, 'not valid') || await has(ana, 'already') || await has(ana, 'used') || await has(ana, 'expired'), 'a second use of the same code is refused: ' + (await ana.page.locator('#staff-error').innerText().catch(() => '?')));
+  await tab(ana, 'Map');
+  await ana.page.evaluate(() => { document.getElementById('view').scrollTop = 0; });
+  await ana.page.locator('.leaflet-container .leaflet-marker-icon[title="Bodega Nine"]').dispatchEvent('click');
+  await tap(ana, 'Open venue');
+  ok(await has(ana, 'You work here'), 'staff see a box to change their venue\'s hours');
+  await ana.page.fill('#hours-input', 'whenever');
+  await tap(ana, 'Save hours');
+  ok(await has(ana, 'could not be read'), 'hours the app cannot read are refused');
+  await ana.page.fill('#hours-input', 'Mo-Su 00:00-24:00');
+  await tap(ana, 'Save hours');
+  ok(await has(ana, 'Open 24 hours'), 'staff can change the hours and the venue updates');
 
   console.log('Ratings');
   await tap(ben, 'Rate Bodega Nine');

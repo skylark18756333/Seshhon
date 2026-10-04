@@ -560,11 +560,35 @@
     var h = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(a[0] * r) * Math.cos(b[0] * r) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
     return 12742 * Math.asin(Math.min(1, Math.sqrt(h)));
   }
+  // Opening hours (docs/hours.js reads OpenStreetMap's format). Times are Perth time.
+  var hoursCache = {};
+  function hoursOf(ven) {
+    if (!ven.hours || !window.SeshHours) return null;
+    if (!(ven.hours in hoursCache)) hoursCache[ven.hours] = window.SeshHours.parse(ven.hours);
+    return hoursCache[ven.hours];
+  }
+  function perthNow() {
+    var dow = 0, min = 0;
+    try {
+      var parts = new Intl.DateTimeFormat('en-GB', { timeZone: 'Australia/Perth', weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(new Date(now()));
+      parts.forEach(function (p) {
+        if (p.type === 'weekday') dow = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].indexOf(p.value);
+        if (p.type === 'hour') min += (Number(p.value) % 24) * 60;
+        if (p.type === 'minute') min += Number(p.value);
+      });
+    } catch (e) { var d = new Date(now()); dow = (d.getDay() + 6) % 7; min = d.getHours() * 60 + d.getMinutes(); }
+    return { dow: Math.max(0, dow), min: min };
+  }
+  function openState(ven) {   // { open, soon, text } or null when the hours are unknown
+    var h = hoursOf(ven), t = perthNow();
+    return h ? window.SeshHours.status(h, t.dow, t.min) : null;
+  }
+  function hoursLine(ven) { var st = openState(ven); return st ? st.text : (ven.closes || 'Hours unknown'); }
   function fmtKm(d) { return d < 1 ? Math.max(100, Math.round(d * 10) * 100) + ' m' : (d < 10 ? d.toFixed(1) : Math.round(d)) + ' km'; }
   function venueCard(ven, dist) {
     return '<div class="card"><div class="row between"><div class="grow">' + (ven.is_example ? '<div class="eyebrow">Example venue</div>' : '') +
       '<div style="font-weight:700;font-size:17px">' + esc(ven.name) + '</div>' +
-      '<div class="muted small">' + esc([ven.kind, ven.closes].filter(Boolean).join(', ')) + '</div>' +
+      '<div class="muted small">' + esc([ven.kind, hoursLine(ven)].filter(Boolean).join(', ')) + '</div>' +
       '<div class="small">' + (dist != null ? '<strong>' + fmtKm(dist) + '</strong> away, ' : '') +
       (ven.ratings ? '<strong>' + Number(ven.average).toFixed(1) + '</strong> from ' + ven.ratings + ' rating' + (ven.ratings === 1 ? '' : 's') : 'no ratings yet') + '</div></div>' +
       '<button class="btn small-btn ghost" data-act="venue" data-v="' + esc(ven.id) + '">Open</button></div></div>';
@@ -620,16 +644,16 @@
     if (!ven) return '';
     var here = DEALS_ON ? D.deals.filter(function (d) { return d.venue_id === ven.id; }) : [], mine = mySesh(), away = awayText(ven);
     return '<div class="card map-pick" id="map-pick"><div class="row between"><div class="grow">' + (ven.is_example ? '<div class="eyebrow">Example venue</div>' : '') +
-      '<h2 style="font-size:22px">' + esc(ven.name) + '</h2><div class="muted small">' + esc([ven.kind, ven.closes, away].filter(Boolean).join(', ')) + '</div></div>' +
+      '<h2 style="font-size:22px">' + esc(ven.name) + '</h2><div class="muted small">' + esc([ven.kind, hoursLine(ven), away].filter(Boolean).join(', ')) + '</div></div>' +
       '<button class="back" data-act="map-pick" data-v="" aria-label="Close">' + svg('close', 18) + '</button></div>' +
       here.map(dealBanner).join('') +
       '<div class="row"><button class="btn small-btn" data-act="venue" data-v="' + esc(ven.id) + '">Open venue</button>' +
       (mine && !mine.locked_venue ? '<button class="btn small-btn ghost" data-act="suggest" data-v="' + esc(ven.id) + '">Vote for it</button>' : '') + '</div></div>';
   }
   var PIN_FILL = { near: '#1F7BFF', far: '#8A90A0', goal: '#FF4757' };
-  function pinIcon(kind) {
+  function pinIcon(kind, open) {   // open: true, false, or null (hours unknown, no badge)
     return L.divIcon({ className: '', iconSize: [30, 40], iconAnchor: [15, 39],
-      html: '<span class="pin' + (kind === 'far' ? ' far' : '') + '"><svg width="30" height="40" viewBox="0 0 30 40" aria-hidden="true"><path d="M15 38.5S2.5 23.6 2.5 14a12.5 12.5 0 0 1 25 0c0 9.6-12.5 24.5-12.5 24.5z" fill="' + PIN_FILL[kind] + '" stroke="#fff" stroke-width="2.5"/><circle cx="15" cy="14" r="5" fill="#fff"/></svg></span>' });
+      html: '<span class="pin' + (kind === 'far' ? ' far' : '') + '">' + (open === null ? '' : '<i class="pin-badge ' + (open ? 'open' : 'shut') + '"></i>') + '<svg width="30" height="40" viewBox="0 0 30 40" aria-hidden="true"><path d="M15 38.5S2.5 23.6 2.5 14a12.5 12.5 0 0 1 25 0c0 9.6-12.5 24.5-12.5 24.5z" fill="' + PIN_FILL[kind] + '" stroke="#fff" stroke-width="2.5"/><circle cx="15" cy="14" r="5" fill="#fff"/></svg></span>' });
   }
   function youIcon() { return L.divIcon({ className: '', iconSize: [44, 44], iconAnchor: [22, 22], html: '<span class="you-dot"></span>' }); }
   function fromName() {
@@ -711,16 +735,17 @@
       if (!at) return;
       keep[ven.id] = true;
       var inside = km(geo.centre, at) <= ui.radiusKm, kind = ui.mapPick === ven.id ? 'goal' : inside ? 'near' : 'far';
+      var st = openState(ven), open = st ? st.open : null, look = kind + ':' + open;
       var dot = M.dots[ven.id];
       if (!dot) {
-        dot = M.dots[ven.id] = L.marker(at, { icon: pinIcon(kind), title: ven.name, alt: ven.name }).addTo(M.map);
-        dot.kind = kind;
+        dot = M.dots[ven.id] = L.marker(at, { icon: pinIcon(kind, open), title: ven.name, alt: ven.name }).addTo(M.map);
+        dot.look = look;
         dot.on('click', function () { ACT['map-pick'](ven.id); });
       }
-      if (dot.kind !== kind) { dot.kind = kind; dot.setIcon(pinIcon(kind)); }
+      if (dot.look !== look) { dot.look = look; dot.setIcon(pinIcon(kind, open)); }
       dot.setZIndexOffset(kind === 'goal' ? 1000 : 0);
       dot.setLatLng(at);
-      dot.unbindTooltip().bindTooltip(esc(ven.name), { direction: 'top', offset: [0, -34], className: 'tag' });
+      dot.unbindTooltip().bindTooltip(esc(ven.name) + '<br><small>' + esc(hoursLine(ven)) + '</small>', { direction: 'top', offset: [0, -34], className: 'tag' });
     });
     Object.keys(M.dots).forEach(function (id) { if (!keep[id]) { M.map.removeLayer(M.dots[id]); delete M.dots[id]; } });
     if (M.fit) { M.fit = false; M.map.fitBounds(M.circle.getBounds(), { animate: false, padding: [12, 12] }); }
@@ -768,7 +793,7 @@
     if (mine.locked_venue) {
       var lv = venueById(mine.locked_venue);
       h += '<div class="card lead"><div class="eyebrow" style="color:var(--on)">Locked in</div><h2>' + esc(lv ? lv.name : 'A venue') + '</h2>' +
-        (lv ? '<p class="muted small">' + esc([lv.kind, lv.closes, awayText(lv)].filter(Boolean).join(', ')) + '</p><button class="btn" data-act="venue" data-v="' + esc(lv.id) + '">' + (DEALS_ON ? 'See venue and deals' : 'See venue') + '</button>' : '') + '</div>';
+        (lv ? '<p class="muted small">' + esc([lv.kind, hoursLine(lv), awayText(lv)].filter(Boolean).join(', ')) + '</p><button class="btn" data-act="venue" data-v="' + esc(lv.id) + '">' + (DEALS_ON ? 'See venue and deals' : 'See venue') + '</button>' : '') + '</div>';
     } else {
       var tallyInfo = leaderOf(mine), total = mine.votes.length;
       var myVote = (mine.votes.filter(function (v) { return v.user_id === me.id; })[0] || {}).venue_id;
@@ -779,7 +804,7 @@
         var n = tallyInfo.by[ven.id] ? tallyInfo.by[ven.id].n : 0, isMine = myVote === ven.id, isLead = tallyInfo.best === ven.id;
         var deal = DEALS_ON ? D.deals.filter(function (d) { return d.venue_id === ven.id && d.running; })[0] : null;
         h += '<div class="card' + (isLead ? ' lead' : '') + '"><div class="row between"><div class="grow"><div style="font-weight:700;font-size:17px">' + esc(ven.name) + '</div>' +
-          '<div class="muted small">' + esc([ven.kind, ven.closes, pins && pins[ven.id] ? fmtKm(km(geo.centre, pins[ven.id])) + ' away' : ''].filter(Boolean).join(', ')) + '</div></div>' +
+          '<div class="muted small">' + esc([ven.kind, hoursLine(ven), pins && pins[ven.id] ? fmtKm(km(geo.centre, pins[ven.id])) + ' away' : ''].filter(Boolean).join(', ')) + '</div></div>' +
           '<button class="btn small-btn' + (isMine ? '' : ' ghost') + '" data-act="vote" data-v="' + esc(ven.id) + '" aria-pressed="' + isMine + '">' + (isMine ? 'Your vote' : 'Vote') + '</button></div>' +
           (deal ? '<div class="deal-title small">' + esc(deal.title) + '</div>' : '') +
           '<div class="row"><div class="bar"><i style="width:' + (total ? Math.round(n / total * 100) : 0) + '%"></i></div><div class="small" style="font-weight:700">' + n + ' vote' + (n === 1 ? '' : 's') + '</div></div></div>';
@@ -848,10 +873,12 @@
     var away = awayText(ven), fact = function (icon, text) { return '<div class="row">' + svg(icon, 20) + '<span class="grow">' + text + '</span></div>'; };
     var h = topBar(true) + '<div class="bleed">' + miniSlot('hero', id) + '</div>' +
       '<div class="stack" style="gap:12px">' + (ven.is_example ? '<div class="eyebrow">Example venue</div>' : '') + '<h1 class="venue-name">' + esc(ven.name) + '</h1><div class="facts">' +
-      (ven.kind || ven.closes ? fact('place', esc([ven.kind, ven.closes].filter(Boolean).join(', '))) : '') +
+      (ven.kind ? fact('place', esc(ven.kind)) : '') +
+      fact('clock', esc(hoursLine(ven))) +
       (away ? fact('arrow', esc(away)) : '') +
       fact('star', ven.ratings ? '<strong>' + Number(ven.average).toFixed(1) + '</strong> from ' + ven.ratings + ' rating' + (ven.ratings === 1 ? '' : 's') : 'No ratings yet') +
       '</div></div>';
+    h += hoursBlock(ven);
     var here = D.deals.filter(function (d) { return d.venue_id === id; });
     if (DEALS_ON) h += '<div class="stack" style="gap:12px"><h2>Deals here</h2>' + (here.length ? here.map(dealBanner).join('') : '<p class="muted small">No deals here right now.</p>') + '</div>';
     h += '<div class="stack" style="gap:12px;padding-top:18px;border-top:1px solid var(--line)"><h2>Rate this venue</h2>' +
@@ -864,6 +891,21 @@
     var mine = mySesh();
     if (mine && !mine.locked_venue) h += '<button class="btn" data-act="suggest" data-v="' + esc(id) + '">Vote for this in tonight\'s sesh</button>';
     return h;
+  }
+  // The week's hours on a venue page, and for staff at that venue, a box to change them.
+  function hoursBlock(ven) {
+    var rows = window.SeshHours ? window.SeshHours.table(hoursOf(ven)) : null, today = perthNow().dow;
+    var h = '<div class="stack" style="gap:8px"><h2>Opening hours</h2>';
+    h += rows ? '<div class="hours">' + rows.map(function (r, i) { return '<div class="row between' + (i === today ? ' today' : '') + '"><span>' + r.day + '</span><span>' + esc(r.text) + '</span></div>'; }).join('') + '</div>'
+      : '<p class="muted small">' + (ven.hours ? 'Listed as: ' + esc(ven.hours) : 'Hours unknown. Check with the venue before you go.') + '</p>';
+    if ((D.staff_venues || []).indexOf(ven.id) >= 0) {
+      h += '<form id="hours-form" class="stack" novalidate><div class="field"><label for="hours-input">You work here. Change the hours</label>' +
+        '<input id="hours-input" type="text" autocomplete="off" maxlength="255" value="' + esc(ven.hours || '') + '" placeholder="Mo-Th 16:00-24:00; Fr,Sa 16:00-02:00; Su off"></div>' +
+        '<p class="muted small">Days are Mo Tu We Th Fr Sa Su. Use 24-hour times; past midnight is fine (16:00-02:00). Leave it empty if unsure.</p>' +
+        (ui.hoursError ? '<p class="error">' + esc(ui.hoursError) + '</p>' : '') +
+        '<button class="btn small-btn" type="submit">Save hours</button></form>';
+    }
+    return h + '</div>';
   }
   // Shown above every tab: the name on the left, and your profile (the You page) at the top right.
   function topBar(back) {
@@ -1306,6 +1348,14 @@
 
   document.addEventListener('submit', function (e) {
     e.preventDefault();
+    if (e.target.id === 'hours-form') {
+      var ven = ui.screen && venueById(ui.screen.id), val = document.getElementById('hours-input').value.trim();
+      if (!ven) return;
+      if (val && !(window.SeshHours && window.SeshHours.parse(val))) { ui.hoursError = 'Those hours could not be read. Try a format like: Mo-Fr 16:00-24:00; Sa,Su 12:00-02:00'; render(); return; }
+      ui.hoursError = '';
+      act('set_venue_hours', { p_venue: ven.id, p_hours: val }, 'Hours saved.').then(function () { return freshVenues(0); });
+      return;
+    }
     if (e.target.id === 'join') {
       var name = document.getElementById('name').value.trim(), dob = document.getElementById('dob').value;
       var err = document.getElementById('join-error'), btn = document.getElementById('join-btn');
