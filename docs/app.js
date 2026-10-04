@@ -1,4 +1,4 @@
-// Frenzy web app. Loaded by index.html; kept in its own file so the page can forbid inline scripts.
+// Frendzy web app. Loaded by index.html; kept in its own file so the page can forbid inline scripts.
 (function () {
   'use strict';
   var CFG = window.SESHHON_CONFIG || window.SESSHON_CONFIG || {};
@@ -18,6 +18,7 @@
   var COLORS = { on: 'var(--on)', thinking: 'var(--thinking)', off: 'var(--off)' };
   var LABELS = { on: 'Green', thinking: 'Amber', off: 'Red' };
   var STOPS = ['on', 'thinking', 'off'];   // left to right on the status switch: G, A, R
+  var STATUS_ICON = { on: 'tick', thinking: 'query', off: 'cross' };
   var TAGS = ['Good vibe', 'Good value', 'Fast service'];
   var RADIUS_KEY = 'seshon-radius-km';
   var MAP_CENTRE = Array.isArray(CFG.mapCentre) ? CFG.mapCentre : [-31.9523, 115.8613];   // where the venue map starts: Perth CBD unless config.js says otherwise
@@ -160,8 +161,8 @@
         try { json = text ? JSON.parse(text) : null; } catch (e) {}
         if (!res.ok && json && json.code === 'PGRST202') {
           // The database is missing a function this page calls: an update in supabase/ has not been run yet.
-          console.error('Frenzy database is out of date. Run supabase/update.sql in the Supabase SQL editor.', json.message);
-          throw new Error('Frenzy is being updated. Try again soon.');
+          console.error('Frendzy database is out of date. Run supabase/update.sql in the Supabase SQL editor.', json.message);
+          var old = new Error('Frendzy is being updated. Try again soon.'); old.missing = true; throw old;
         }
         if (!res.ok) throw new Error((json && json.message) || 'Something went wrong. Try again.');
         return json;
@@ -186,6 +187,25 @@
         var json = null;
         try { json = text ? JSON.parse(text) : null; } catch (e) {}
         if (!res.ok) throw new Error((json && json.message) || 'The age check is not working right now. Try again soon.');
+        return json;
+      });
+    });
+  }
+  // Login codes are emailed by the email-code Edge Function, which holds the email service key.
+  function emailCode(action, extra) {
+    var body = { action: action };
+    for (var k in extra || {}) body[k] = extra[k];
+    var ready = session && session.expires_at - Date.now() / 1000 < 60 ? refreshSession() : Promise.resolve();
+    return ready.then(function () {
+      if (!session) throw new Error('You have been signed out.');
+      return fetch(API_URL + '/functions/v1/email-code', {
+        method: 'POST',
+        headers: { apikey: API_KEY, Authorization: 'Bearer ' + session.access_token, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+    }).then(function (res) {
+      return res.json().catch(function () { return null; }).then(function (json) {
+        if (!res.ok) throw new Error((json && json.message) || 'The email could not be sent. Try again soon.');
         return json;
       });
     });
@@ -224,7 +244,7 @@
   var D = null;            // the latest answer from api_state()
   var lastKey = '';        // used to skip redraws when nothing changed
   var clockOffset = 0;     // server time minus this phone's time
-  var ui = { messages: [], tab: 'home', screen: null, confirm: null, staffError: '', offline: false, booted: false, linkShown: false, age: null, ageNote: '', ageBusy: false, auth: null, account: undefined, newCode: null, editAccount: false };
+  var ui = { messages: [], tab: 'home', screen: null, confirm: null, staffError: '', offline: false, booted: false, linkShown: false, age: null, ageNote: '', ageBusy: false, auth: null, account: undefined, newCode: null, editAccount: false, twoStep: undefined, emailStep: null };
   ui.radiusKm = Math.min(25, Math.max(1, Number(store(RADIUS_KEY)) || 5));
   var seen = null;         // friend id -> colour at the last look, for "just went on" notices
   var acting = false;
@@ -277,26 +297,62 @@
   function loadVenues() {
     venuesAsked = true;
     return rpc('api_venues').then(function (list) {
-      VENUES = list || []; venuesAt = Date.now();
+      VENUES = Array.isArray(list) ? list : []; venuesAt = Date.now();
       if (D) { D.venues = VENUES; lastKey = ''; }
     }, function () { venuesAt = Date.now(); });
+  }
+  // Busy and trending venues for the map (api_buzz): counts only, never who is going where.
+  var BUZZ = {}, buzzAt = 0;
+  function loadBuzz() {
+    buzzAt = Date.now();
+    return rpc('api_buzz').then(function (list) {
+      BUZZ = {};
+      (Array.isArray(list) ? list : []).forEach(function (b) { BUZZ[b.id] = b; });
+      if (ui.tab === 'map' && !ui.screen) { drawMap(); var l = document.getElementById('venue-list'); if (l) l.innerHTML = venueList(); }
+    }, function () {});   // an older database without api_buzz: the map just has no glows
   }
   function freshVenues(maxAgeMs) {   // fetch again if older than maxAgeMs, then redraw
     if (D && D.legacyVenues) return Promise.resolve();
     if (VENUES && Date.now() - venuesAt < maxAgeMs) return Promise.resolve();
     return loadVenues().then(function () { render(); });
   }
+  // Whether this login still needs its email code (migration 0018). An older database without it means "no".
+  function loadTwoStep() {
+    return rpc('two_step_state').then(function (t) { ui.twoStep = t || { needed: false }; }, function () { ui.twoStep = { needed: false, off: true }; });
+  }
+  function sendLoginCode() {
+    var note = document.getElementById('ts-note'), err = document.getElementById('ts-error');
+    if (note) note.textContent = 'Sending a code...';
+    if (err) err.hidden = true;
+    return emailCode('login').then(function (r) {
+      var n = document.getElementById('ts-note');
+      if (n) n.textContent = 'We sent a 6-digit code to ' + r.hint + '. It works for 10 minutes.';
+    }, function (x) {
+      var n = document.getElementById('ts-note'), e = document.getElementById('ts-error');
+      if (n) n.textContent = '';
+      if (e) { e.textContent = x.message; e.hidden = false; }
+    });
+  }
   function load(quiet) {
+    if (session && ui.twoStep === undefined) {
+      return loadTwoStep().then(function () {
+        if (!ui.twoStep.needed) return load(quiet);
+        ui.booted = true; render(); return sendLoginCode();
+      });
+    }
+    if (session && ui.twoStep.needed) { render(); return Promise.resolve(); }
     return (session && !ui.age ? loadAge() : Promise.resolve()).then(function () { return rpc('api_state'); }).then(function (data) {
       if (data && data.me && ui.account === undefined) return Promise.all([loadAccount(), loadSafety()]).then(function () { return data; });
       return data;
     }).then(function (data) {
       ui.offline = false;
       clockOffset = new Date(data.now).getTime() - Date.now();
+      tidyState(data);
       noticeFriends(data);
       if (data.venues) data.legacyVenues = true; else data.venues = VENUES || [];
       var key = JSON.stringify([data.me, data.friends, data.requests_in, data.requests_out, data.seshes, data.legacyVenues ? data.venues : venuesAt, data.deals, data.staff_venues, data.blocked]);
       D = data; ui.booted = true;
+      if (ui.tab === 'map' && !ui.screen && Date.now() - buzzAt > 60000) loadBuzz();
       if (data.me && !data.legacyVenues && !venuesAsked) loadVenues().then(function () { render(); });
       if (data.me && !pins && !pinsAsked) { pinsAsked = true; loadPins().then(function () { render(); }); }   // venue distances for the sesh vote list
       if (!quiet || key !== lastKey) { lastKey = key; render(); }
@@ -312,6 +368,18 @@
       ui.offline = true; ui.booted = true;
       if (!quiet) toast(e.message);
       render();
+    });
+  }
+  // Every list the screens read is always a list, even if the database leaves one out (an update not run yet),
+  // so one missing piece can't stop the whole app with "Cannot read properties of undefined".
+  function tidyState(data) {
+    ['friends', 'requests_in', 'requests_out', 'seshes', 'deals', 'staff_venues', 'blocked'].forEach(function (k) {
+      if (!Array.isArray(data[k])) data[k] = [];
+    });
+    if (data.venues && !Array.isArray(data.venues)) delete data.venues;
+    data.seshes.forEach(function (s) {
+      if (!Array.isArray(s.members)) s.members = [];
+      if (!Array.isArray(s.votes)) s.votes = [];
     });
   }
   function noticeFriends(data) {
@@ -354,6 +422,11 @@
     arrow: '<path d="M21 3L3 10.5l7.5 3 3 7.5z"/>',
     search: '<circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/>',
     clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+    fork: '<path d="M7 3v8"/><path d="M4 3v5a3 3 0 0 0 6 0V3"/><path d="M7 11v10"/><path d="M17 21V3c-2.5 1-4 4-4 8h4"/>',
+    // Status lamps: a tick for green (out), a question mark for amber (maybe), a cross for red (off)
+    tick: '<path d="M4.5 12.5l5 5L19.5 7"/>',
+    query: '<path d="M8.5 8.5a3.5 3.5 0 1 1 5.2 3c-1.1.7-1.7 1.4-1.7 2.7v.6"/><circle cx="12" cy="19" r=".6"/>',
+    cross: '<path d="M6 6l12 12"/><path d="M18 6L6 18"/>',
     star: '<path d="M12 3l2.7 5.6 6.1.8-4.5 4.3 1.1 6.1L12 16.9 6.6 19.8l1.1-6.1L3.2 9.4l6.1-.8z"/>'
   };
   function svg(name, size) {
@@ -372,29 +445,34 @@
     return id && photos[id] ? '<img class="pic" src="' + esc(photos[id]) + '" alt="">' : initials(name);
   }
 
-  // The brush-script name with the three status dots beside it. With a status, only that dot is lit.
-  function logo(status) {
-    return '<div class="logo"><div class="wordmark">Frenzy</div><div class="dots' + (status ? '' : ' all') + '" aria-hidden="true">' +
+  // The brush-script name with the traffic light beside it. With a status, only that light is lit.
+  // Signed in (live), the traffic light is the status switch: tap a light to change it from any screen.
+  function logo(status, live) {
+    if (live) return '<div class="logo"><div class="wordmark">Frendzy</div><div class="dots switch" role="group" aria-label="Your status">' +
+      STOPS.map(function (k) {
+        return '<button data-act="status-here" data-v="' + k + '" aria-label="Switch to ' + LABELS[k] + '" aria-pressed="' + (k === status) + '"><i style="--c:' + COLORS[k] + '"' + (k === status ? ' class="lit"' : '') + '></i></button>';
+      }).join('') + '</div></div>';
+    return '<div class="logo"><div class="wordmark">Frendzy</div><div class="dots' + (status ? '' : ' all') + '" aria-hidden="true">' +
       STOPS.map(function (k) { return '<i style="--c:' + COLORS[k] + '"' + (k === status ? ' class="lit"' : '') + '></i>'; }).join('') + '</div></div>';
   }
 
   /* ---------- screens ---------- */
   function notConnected() {
     return '<div class="stack" style="gap:20px;margin-block:auto">' + logo() + '<h1>Not connected yet</h1>' +
-      '<p class="muted">This copy of Frenzy has not been pointed at its database. Add the project address and public key to config.js.</p></div>';
+      '<p class="muted">This copy of Frendzy has not been pointed at its database. Add the project address and public key to config.js.</p></div>';
   }
   function starting() {
     return '<div class="stack" style="gap:20px;margin-block:auto">' + logo() + '<p class="muted">Loading…</p></div>';
   }
   function tooYoung() {
-    return '<div class="stack" style="gap:20px;margin-block:auto">' + logo() + '<h1>Frenzy is for people aged 18 and over.</h1>' +
+    return '<div class="stack" style="gap:20px;margin-block:auto">' + logo() + '<h1>Frendzy is for people aged 18 and over.</h1>' +
       '<p class="muted">We can\'t set up an account for you. If you entered your date of birth wrongly, contact us through the Privacy Policy page.</p></div>';
   }
   function ageCheck() {
     var who = PROVIDER_NAMES[ui.age && ui.age.provider] || 'Our age check partner';
     var h = '<div class="stack" style="gap:20px;margin-block:auto">' + logo() + '<h1>Quick age check</h1>' +
-      '<p class="muted">Frenzy is for people aged 18 and over. ' + esc(who) + ' checks your age with a quick selfie. If it can\'t tell from your face, it asks you to show ID instead.</p>' +
-      '<p class="muted small">' + esc(who) + ' only tells us whether you passed. Frenzy never sees or keeps your photo or ID. See the <a href="privacy.html">Privacy Policy</a>.</p>';
+      '<p class="muted">Frendzy is for people aged 18 and over. ' + esc(who) + ' checks your age with a quick selfie. If it can\'t tell from your face, it asks you to show ID instead.</p>' +
+      '<p class="muted small">' + esc(who) + ' only tells us whether you passed. Frendzy never sees or keeps your photo or ID. See the <a href="privacy.html">Privacy Policy</a>.</p>';
     if (ui.ageNote) h += '<p class="error" id="age-note">' + esc(ui.ageNote) + '</p>';
     if (ui.age && ui.age.pending) h += '<button class="btn" data-act="age-finish"' + (ui.ageBusy ? ' disabled' : '') + '>I\'ve finished, check again</button><button class="btn ghost" data-act="age-start"' + (ui.ageBusy ? ' disabled' : '') + '>Start again</button>';
     else h += '<button class="btn" data-act="age-start"' + (ui.ageBusy ? ' disabled' : '') + '>Start age check</button>';
@@ -409,11 +487,14 @@
       '<p class="muted">' + (invited ? 'A friend invited you. Sign up and they will get your friend request.' : 'Go green when you\'re keen, see which friends are too, and pick a place together.') + '</p>' +
       '<form id="join" class="stack" style="gap:16px" novalidate>' +
       '<div class="field"><label for="name">Your first name</label><input id="name" type="text" autocomplete="given-name" maxlength="24"></div>' +
-      '<div class="field"><label for="dob">Date of birth</label><input id="dob" type="date" autocomplete="bday" min="1900-01-01"><span class="muted small">Frenzy is for people aged 18 and over. We only use this to check your age and do not keep it.</span></div>' +
+      '<div class="field"><label for="dob">Date of birth</label><input id="dob" type="date" autocomplete="bday" min="1900-01-01"><span class="muted small">Frendzy is for people aged 18 and over. We only use this to check your age and do not keep it.</span></div>' +
+      '<div class="field"><label for="join-user">Pick a username</label><input id="join-user" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="20"><span class="muted small">3 to 20 letters, numbers or _. Friends add you with it.</span></div>' +
+      '<div class="field"><label for="join-pass">Make a password</label><input id="join-pass" type="password" autocomplete="new-password" maxlength="72"><span class="muted small">At least 10 characters. You use it to log in on another phone.</span></div>' +
+      '<div class="field"><label for="join-email">Your email</label><input id="join-email" type="email" autocomplete="email" autocapitalize="none" spellcheck="false" maxlength="254"><span class="muted small">We email you a code to confirm it, and again whenever you log in on a new phone. Nobody else ever sees it.</span></div>' +
       (CAPTCHA_KEY ? '<div id="captcha"></div>' : '') +
       '<p id="join-error" class="error" hidden></p>' +
       '<button class="btn" type="submit" id="join-btn">Get started</button>' +
-      '<p class="muted small">By continuing you agree to the <a href="terms.html">Terms</a> and <a href="privacy.html">Privacy Policy</a>. Your account lives in this browser until you add a username and password.</p>' +
+      '<p class="muted small">By continuing you agree to the <a href="terms.html">Terms</a> and <a href="privacy.html">Privacy Policy</a>.</p>' +
       '</form><button class="btn ghost" data-act="auth" data-v="login">I already have an account</button></div>';
   }
   function loginScreen() {
@@ -427,6 +508,43 @@
       '<button class="btn ghost" data-act="auth" data-v="recover">Forgot your password?</button>' +
       '<button class="btn ghost" data-act="auth" data-v="">Back</button></div>';
   }
+  // After the password, a login on an account with email codes waits here for the code.
+  function twoStepScreen() {
+    return '<div class="stack" style="gap:24px;margin-block:auto" id="two-step-screen">' + logo() + '<h1>Check your email</h1>' +
+      '<p class="muted" id="ts-note">' + (ui.twoStep && ui.twoStep.hint ? 'We sent a 6-digit code to ' + esc(ui.twoStep.hint) + '.' : '') + '</p>' +
+      '<form id="two-step" class="stack" style="gap:16px" novalidate>' +
+      '<div class="field"><label for="ts-code">Code from the email</label><input id="ts-code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="7" spellcheck="false"></div>' +
+      '<p id="ts-error" class="error" hidden></p>' +
+      '<button class="btn" type="submit" id="ts-btn">Log in</button></form>' +
+      '<button class="btn ghost" data-act="ts-resend">Send a new code</button>' +
+      '<button class="btn ghost" data-act="ts-recover">Can\'t get the email? Use your recovery code</button>' +
+      '<button class="btn ghost" data-act="logout">Cancel</button></div>';
+  }
+  // Confirming the login email, right after saving a username and password (or adding an email later).
+  function emailCard() {
+    return '<div class="stack" style="gap:12px"><h2>Confirm your email</h2>' +
+      '<p class="muted small">We sent a 6-digit code to <strong>' + esc(ui.emailStep.hint) + '</strong>. Once it\'s confirmed, every new login asks for a code from this email as well as your password.</p>' +
+      '<form id="email-confirm" class="stack" style="gap:12px" novalidate>' +
+      '<div class="field"><label for="ec-code">Code from the email</label><input id="ec-code" data-keep type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="7" spellcheck="false"></div>' +
+      '<p id="ec-error" class="error" hidden></p>' +
+      '<button class="btn" type="submit" id="ec-btn">Confirm email</button></form>' +
+      '<div class="row"><button class="btn small-btn ghost" data-act="email-resend">Send again</button><button class="btn small-btn ghost" data-act="email-skip">Later</button></div></div>';
+  }
+  function emailField(label) {
+    return '<div class="field"><label for="save-email">' + label + '</label><input id="save-email" data-keep type="email" autocomplete="email" autocapitalize="none" spellcheck="false" maxlength="254"><span class="muted small">For login codes only. Nobody else ever sees it.</span></div>';
+  }
+  // A copy of a new recovery code goes to the account's confirmed email (migration 0022). It stays on
+  // screen too, in case the email doesn't arrive. Accounts without a confirmed email just skip this.
+  function emailRecovery() {
+    var c = ui.newCode;
+    if (!c || c.emailed || !session) return Promise.resolve();
+    return emailCode('recovery', { username: c.username, code: c.code }).then(function (r) {
+      c.emailed = r.hint;
+      var el = document.getElementById('rc-emailed');
+      if (el && ui.newCode === c) el.innerHTML = 'We also emailed it to <strong>' + esc(r.hint) + '</strong>. Keep that email.';
+    }, function () {});
+  }
+  function emailsOn() { return !!(ui.twoStep && !ui.twoStep.off); }
   function recoverScreen() {
     return '<div class="stack" style="gap:24px;margin-block:auto">' + logo() + '<h1>Use your recovery code</h1>' +
       '<p class="muted">Enter the recovery code you saved when you made your password, and choose a new password.</p>' +
@@ -445,12 +563,14 @@
       '<p class="muted small">If you forget your password, this code is the only way back into your account. Screenshot it or write it down. It won\'t be shown again.</p>' +
       '<div class="linkbox" style="font-size:20px;font-weight:700;letter-spacing:1px;text-align:center" id="recovery-code">' + esc(ui.newCode.code) + '</div>' +
       '<p class="muted small">Your username is <strong>' + esc(ui.newCode.username) + '</strong>.</p>' +
+      '<p class="small" id="rc-emailed">' + (ui.newCode.emailed ? 'We also emailed it to <strong>' + esc(ui.newCode.emailed) + '</strong>. Keep that email.' : '') + '</p>' +
       '<button class="btn" data-act="code-saved">I\'ve saved it</button></div>';
   }
-  function saveForm(username) {
+  function saveForm(username, askEmail) {
     return '<form id="save-account" class="stack" style="gap:12px" novalidate>' +
-      '<div class="field"><label for="save-user">Username</label><input id="save-user" data-keep type="text" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="20" value="' + esc(username || '') + '"><span class="muted small">3 to 20 letters, numbers or _. Friends never see it.</span></div>' +
+      '<div class="field"><label for="save-user">Username</label><input id="save-user" data-keep type="text" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="20" value="' + esc(username || '') + '"><span class="muted small">3 to 20 letters, numbers or _. Friends who know it can add you.</span></div>' +
       '<div class="field"><label for="save-pass">' + (username ? 'New password' : 'Password') + '</label><input id="save-pass" data-keep type="password" autocomplete="new-password" maxlength="72"><span class="muted small">At least 10 characters.</span></div>' +
+      (askEmail ? emailField('Email') : '') +
       '<p id="save-error" class="error" hidden></p>' +
       '<button class="btn" type="submit" id="save-btn">' + (username ? 'Save and get a new recovery code' : 'Save my account') + '</button></form>';
   }
@@ -467,7 +587,7 @@
       '<p class="muted">' + copy[1] + (s !== 'off' && me.expires_at ? ' Back to red in <span data-until="' + new Date(me.expires_at).getTime() + '" data-kind="status">' + fmtLeft(new Date(me.expires_at).getTime() - now()) + '</span>.' : '') + '</p>' +
       '<div class="slide" id="status-slide" role="group" aria-label="Set your status" style="--c:' + COLORS[s] + ';--i:' + STOPS.indexOf(s) + '"><span class="knob"></span>' +
       STOPS.map(function (k) {
-        return '<button class="stop" data-act="status" data-v="' + k + '" aria-label="' + LABELS[k] + '" aria-pressed="' + (s === k) + '">' + LABELS[k].charAt(0) + '</button>';
+        return '<button class="stop" style="--l:' + COLORS[k] + '" data-act="status" data-v="' + k + '" aria-label="' + LABELS[k] + '" aria-pressed="' + (s === k) + '">' + svg(STATUS_ICON[k], 28) + '</button>';
       }).join('') + '</div></section>';
 
     if (D.requests_in.length) {
@@ -483,8 +603,8 @@
 
     var friends = D.friends;
     if (!friends.length) {
-      h += '<div class="card"><h2>Add your friends</h2><p class="muted small">Frenzy only works with friends on it. Send them your invite link, then accept their request when it arrives.</p>' +
-        '<button class="btn" data-act="share">Send your invite link</button>' + linkBox() + '</div>';
+      h += '<div class="card"><h2>Add your friends</h2><p class="muted small">Frendzy only works with friends on it. Add them by username or send them your invite link, then accept their request when it arrives.</p>' +
+        addFriendForm() + '<button class="btn ghost" data-act="share">Send your invite link</button>' + linkBox() + '</div>';
     } else if (s === 'off') {
       h += '<div class="card"><h2>Friends are hidden while you\'re red</h2><p class="muted small">Slide to green or amber to see who\'s up for it tonight.</p></div>';
     } else {
@@ -503,6 +623,16 @@
     return h;
   }
 
+  // Add a friend by their exact username. Hidden if the database is older than usernames.
+  function addFriendForm() {
+    if (ui.account === 'off') return '';
+    var mine = ui.account && ui.account.username;
+    return '<form id="add-friend" class="stack" style="gap:8px" novalidate>' +
+      '<div class="field"><label for="friend-user">Add by username</label><div class="row"><input id="friend-user" data-keep class="grow" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="21" placeholder="their username">' +
+      '<button class="btn small-btn" type="submit" id="friend-btn">Add</button></div></div>' +
+      (ui.addFriendError ? '<p class="error" id="friend-error">' + esc(ui.addFriendError) + '</p>' : '') +
+      '<p class="muted small">' + (mine ? 'Your username is <strong>' + esc(mine) + '</strong>. Tell your friends so they can add you.' : 'Pick a username on the You page so friends can add you too.') + '</p></form>';
+  }
   function linkBox() {
     return ui.linkShown ? '<p class="muted small">Copy this link and send it to a friend:</p><div class="linkbox" id="invite-link">' + esc(inviteLink()) + '</div>' : '';
   }
@@ -619,6 +749,38 @@
       (ven.ratings ? '<strong>' + Number(ven.average).toFixed(1) + '</strong> from ' + ven.ratings + ' rating' + (ven.ratings === 1 ? '' : 's') : 'no ratings yet') + '</div></div>' +
       '<button class="btn small-btn ghost" data-act="' + (onMap && pins && pins[ven.id] ? 'map-pick' : 'venue') + '" data-v="' + esc(ven.id) + '">' + (onMap && pins && pins[ven.id] ? 'Show' : 'Open') + '</button></div></div>';
   }
+  // Snap Map style tags and filters. Busy and trending come from counts (api_buzz), never anyone's location.
+  var FILTERS = [['popular', 'Popular'], ['trending', 'Trending'], ['deals', 'Deals'], ['open', 'Open now']];
+  function topPick(ven) { return ven.ratings >= 3 && Number(ven.average) >= 4.3; }
+  function hasDeal(ven) { return DEALS_ON && D.deals.some(function (d) { return d.venue_id === ven.id; }); }
+  function busyOf(ven) { return (BUZZ[ven.id] && BUZZ[ven.id].busy) || 0; }
+  function tagOf(ven) {
+    if (busyOf(ven)) return 'Busy tonight';
+    if (BUZZ[ven.id] && BUZZ[ven.id].trending) return 'Trending this week';
+    if (topPick(ven)) return 'Top pick';
+    if (hasDeal(ven)) return 'Deal on';
+    return '';
+  }
+  function filterOk(ven) {
+    var f = ui.mapFilter;
+    if (!f) return true;
+    if (f === 'popular') return busyOf(ven) > 0 || topPick(ven);
+    if (f === 'trending') return !!(BUZZ[ven.id] && BUZZ[ven.id].trending);
+    if (f === 'deals') return hasDeal(ven);
+    var st = openState(ven); return !!(st && st.open);
+  }
+  function filterChips() {
+    return '<div class="map-chips" role="group" aria-label="Show only">' + FILTERS.filter(function (f) { return f[0] !== 'deals' || DEALS_ON; }).map(function (f) {
+      return '<button class="chip" data-act="map-filter" data-v="' + f[0] + '" aria-pressed="' + (ui.mapFilter === f[0]) + '">' + f[1] + '</button>';
+    }).join('') + '</div>';
+  }
+  function filterName() { return (FILTERS.filter(function (f) { return f[0] === ui.mapFilter; })[0] || [])[1] || ''; }
+  // With a filter on but no spot chosen, it searches all venues, like the search box does.
+  function filterHits() {
+    if (!ui.mapFilter || geo.chosen) return null;
+    return D.venues.filter(filterOk).map(function (ven) { return { ven: ven, d: null }; })
+      .sort(function (a, b) { return busyOf(b.ven) - busyOf(a.ven) || (b.ven.ratings || 0) - (a.ven.ratings || 0) || a.ven.name.localeCompare(b.ven.name); });
+  }
   // Venue search on the Map tab: matches venue names and kinds anywhere, whatever the radius.
   var SEARCH_MAX = 30, SEARCH_LIST = 6;   // pins on the map, cards under the search box
   function fold(t) { return String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').trim(); }
@@ -627,7 +789,7 @@
     if (!words.length) return null;
     var hits = D.venues.filter(function (ven) {
       var text = ' ' + fold(ven.name + ' ' + (ven.kind || ''));
-      return words.every(function (w) { return text.indexOf(' ' + w) >= 0; });
+      return words.every(function (w) { return text.indexOf(' ' + w) >= 0; }) && filterOk(ven);
     }).map(function (ven) { return { ven: ven, d: pins && pins[ven.id] && geo.chosen ? km(geo.centre, pins[ven.id]) : null }; });
     var q = fold(ui.venueQuery);
     hits.sort(function (a, b) {
@@ -638,28 +800,34 @@
     });
     return hits;
   }
-  function searchList(hits) {
-    if (!hits.length) return '<p class="small">No venues match <strong>' + esc(ui.venueQuery.trim()) + '</strong>.</p>';
-    return '<p class="small"><strong>' + hits.length + ' venue' + (hits.length === 1 ? '' : 's') + '</strong> match' + (hits.length === 1 ? 'es' : '') +
-      (hits.length > SEARCH_LIST ? '<span class="muted">. Showing the closest matches, so type more to narrow it down.</span>' : '') + '</p>' +
-      hits.slice(0, SEARCH_LIST).map(function (x) { return venueCard(x.ven, x.d, true); }).join('');
+  function searchList(hits, list) {   // list: the long list under the map (filters), else the few under the search box
+    var what = ui.venueQuery && ui.venueQuery.trim() ? '<strong>' + esc(ui.venueQuery.trim()) + '</strong>' : '';
+    if (ui.mapFilter) what = (what ? what + ' and ' : '') + '<strong>' + esc(filterName()) + '</strong>';
+    var count = list ? ' id="venue-count"' : '', max = list ? SEARCH_MAX : SEARCH_LIST;
+    if (!hits.length) return '<p class="small"' + count + '>No venues match ' + what + '.</p>';
+    return '<p class="small"' + count + '><strong>' + hits.length + ' venue' + (hits.length === 1 ? '' : 's') + '</strong> match' + (hits.length === 1 ? 'es' : '') +
+      (hits.length > max ? '<span class="muted">' + (list ? '. Showing the first ' + max + '.' : '. Showing the closest matches, so type more to narrow it down.') + '</span>' : '') + '</p>' +
+      hits.slice(0, max).map(function (x) { return venueCard(x.ven, x.d, true); }).join('');
   }
   function searchBox() {   // results sit right under the box, so they're visible above the phone keyboard
     var hits = searchHits();
-    return hits ? searchList(hits) : '';
+    return hits ? searchList(hits, false) : '';
   }
   function venueList() {
+    var hits = filterHits();
+    if (hits) return searchList(hits, true);
     if (!geo.chosen) return '<div class="card" id="venue-count"><div style="font-weight:700">Choose where to look</div>' +
       '<p class="muted small">Tap the arrow on the map to search near you, or tap the map to pick a spot. Or search for a venue by name above.</p></div>';
     if (!pins) return D.venues.map(function (v) { return venueCard(v, null); }).join('');
     var near = [], far = 0, unpinned = [];
     D.venues.forEach(function (ven) {
+      if (!filterOk(ven)) return;
       if (!pins[ven.id]) { unpinned.push(ven); return; }
       var d = km(geo.centre, pins[ven.id]);
       if (d <= ui.radiusKm) near.push({ ven: ven, d: d }); else far += 1;
     });
     near.sort(function (a, b) { return a.d - b.d; });
-    var h = '<p class="small" id="venue-count"><strong>' + near.length + ' venue' + (near.length === 1 ? '' : 's') + '</strong> within ' + ui.radiusKm + ' km' +
+    var h = '<p class="small" id="venue-count"><strong>' + near.length + (ui.mapFilter ? ' ' + esc(filterName().toLowerCase()) : '') + ' venue' + (near.length === 1 ? '' : 's') + '</strong> within ' + ui.radiusKm + ' km' +
       (geo.mine ? ' of you' : ' of the pin') + (far ? '<span class="muted">. ' + far + ' more further away.</span>' : '') + '</p>';
     h += near.map(function (n) { return venueCard(n.ven, n.d); }).join('');
     if (unpinned.length) h += '<div class="eyebrow" style="padding-top:8px">Not on the map yet</div>' + unpinned.map(function (v) { return venueCard(v, null); }).join('');
@@ -687,10 +855,10 @@
     var h = '<div class="stack" style="gap:6px"><h1>Map</h1><p class="muted small">Pick how far you want to go.</p></div>' +
       '<div class="venue-search" role="search"><label for="venue-search" class="sr-only">Search venues</label>' + svg('search', 18) +
       '<input type="search" id="venue-search" data-keep placeholder="Search venues" autocomplete="off" enterkeyhint="search" value="' + esc(ui.venueQuery || '') + '">' +
-      (ui.venueQuery ? '<button class="back" data-act="clear-search" aria-label="Clear search">' + svg('close', 16) + '</button>' : '') + '</div>' +
+      (ui.venueQuery ? '<button class="back" data-act="clear-search" aria-label="Clear search">' + svg('close', 16) + '</button>' : '') + '</div>' + filterChips() +
       '<div class="stack search-results" id="search-results" aria-live="polite">' + searchBox() + '</div>';
     if (window.L) {
-      h += '<div class="stack" style="gap:12px"><div class="map-box"><div id="map-slot" class="map big"></div>' +
+      h += '<div class="stack" style="gap:12px"><div class="map-box"><div id="map-slot" class="map big"></div>' + mapFriends() +
         '<button class="map-fab" data-act="locate" aria-label="' + (geo.busy ? 'Finding you' : 'Near me') + '" aria-pressed="' + geo.mine + '"' + (geo.busy ? ' disabled' : '') + '>' + svg('arrow', 20) + '</button></div>' + mapPick() +
         '<div class="radius"><div class="row between"><label for="radius" class="eyebrow">How far</label><div class="radius-num"><span id="radius-label">' + ui.radiusKm + '</span><small>km</small></div></div>' +
         '<input type="range" id="radius" min="1" max="25" step="1" value="' + ui.radiusKm + '" style="--p:' + radiusFill() + '" aria-valuetext="' + ui.radiusKm + ' km">' +
@@ -698,6 +866,17 @@
         '<p class="muted small">' + (geo.busy ? 'Finding you...' : geo.mine ? 'Searching around you. Your location stays on this phone and is never saved or shown to friends.' : geo.chosen ? 'Tap the map to search somewhere else, or the arrow to search near you.' : '') + '</p></div>';
     }
     return h + '<div class="stack" style="gap:12px" id="venue-list">' + venueList() + '</div>';
+  }
+  // Friends who are out, as faces along the bottom of the map. Faces only: never where anyone is.
+  function mapFriends() {
+    if (D.me.colour === 'off') return '';
+    var out = D.friends.filter(function (f) { return f.colour === 'on' || f.colour === 'thinking'; })
+      .sort(function (x, y) { return STOPS.indexOf(x.colour) - STOPS.indexOf(y.colour); });
+    if (!out.length) return '';
+    return '<div class="map-friends" aria-label="Friends out tonight">' + out.map(function (f) {
+      return '<div class="mini-face" style="--c:' + COLORS[f.colour] + ';--h:' + hue(f.name) + '" title="' + esc(first(f.name)) + ', ' + LABELS[f.colour] + '">' +
+        '<div class="face-pic">' + face(f.id, f.name) + '</div><span>' + esc(first(f.name)) + '</span></div>';
+    }).join('') + '</div>';
   }
   // The venue picked on the map, with its deals, shown straight under the map.
   function mapPick() {
@@ -716,7 +895,7 @@
   function ratingRow(ven) {
     googleRating(ven.id);
     var g = googleLine(ven.id);
-    return '<div class="stack" style="gap:4px"><div class="small">' + (ven.ratings ? '<strong>' + Number(ven.average).toFixed(1) + '</strong> ★ on Frenzy (' + ven.ratings + ')' : 'No Frenzy ratings yet') + (g ? ' · ' + g : '') + '</div>' +
+    return '<div class="stack" style="gap:4px"><div class="small">' + (ven.ratings ? '<strong>' + Number(ven.average).toFixed(1) + '</strong> ★ on Frendzy (' + ven.ratings + ')' : 'No Frendzy ratings yet') + (g ? ' · ' + g : '') + '</div>' +
       '<div class="stars small-stars" role="group" aria-label="Rate ' + esc(ven.name) + '">' + [1, 2, 3, 4, 5].map(function (n) {
         return '<button class="star" data-act="quick-star" data-v="' + esc(ven.id) + ':' + n + '" aria-label="Rate ' + n + ' star' + (n > 1 ? 's' : '') + '" aria-pressed="' + (ven.my_stars >= n) + '"><svg width="24" height="24" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true">' + ICON.star + '</svg></button>';
       }).join('') + '</div></div>';
@@ -725,6 +904,23 @@
   function pinIcon(kind, open) {   // open: true, false, or null (hours unknown, no badge)
     return L.divIcon({ className: '', iconSize: [30, 40], iconAnchor: [15, 39],
       html: '<span class="pin' + (kind === 'far' ? ' far' : '') + '">' + (open === null ? '' : '<i class="pin-badge ' + (open ? 'open' : 'shut') + '"></i>') + '<svg width="30" height="40" viewBox="0 0 30 40" aria-hidden="true"><path d="M15 38.5S2.5 23.6 2.5 14a12.5 12.5 0 0 1 25 0c0 9.6-12.5 24.5-12.5 24.5z" fill="' + PIN_FILL[kind] + '" stroke="#0B0B0D" stroke-width="2"/><circle cx="15" cy="14" r="5" fill="#fff"/></svg></span>' });
+  }
+  // Snap Map style venue bubble: a round icon with a bold name, a tag like "Top pick", and a glow where it's busy.
+  function kindGlyph(ven) {
+    var k = String(ven.kind || '').toLowerCase();
+    return /club|night|music|live/.test(k) ? 'events' : /restaurant|cafe|food|eat|kitchen/.test(k) ? 'fork' : 'venues';
+  }
+  function bubbleIcon(ven, kind, open) {
+    var tag = kind === 'far' ? '' : tagOf(ven), busy = busyOf(ven);
+    return L.divIcon({ className: '', iconSize: [40, 40], iconAnchor: [20, 20],
+      html: '<span class="bub ' + kind + (tag ? ' tagged' : '') + (busy ? ' busy-' + busy : '') + '">' + (busy ? '<i class="heat"></i>' : '') +
+        (tag ? '<b class="bub-tag">' + esc(tag) + '</b>' : '') +
+        '<span class="bub-disc">' + svg(kindGlyph(ven), 20) + (open === null ? '' : '<i class="pin-badge ' + (open ? 'open' : 'shut') + '"></i>') + '</span>' +
+        '<span class="bub-name">' + esc(ven.name) + '</span></span>' });
+  }
+  function meIcon() {   // you, as your own face, only when you chose "Near me". Never sent to anyone.
+    return L.divIcon({ className: '', iconSize: [48, 48], iconAnchor: [24, 24],
+      html: '<span class="me-mark"><span class="face-pic me" style="--c:var(--accent);--h:' + hue(D.me.name) + '">' + face(D.me.id, D.me.name) + '</span><b>Me</b></span>' });
   }
   function youIcon() { return L.divIcon({ className: '', iconSize: [44, 44], iconAnchor: [22, 22], html: '<span class="you-dot"></span>' }); }
   function fromName() {
@@ -779,7 +975,7 @@
     if (!slot || !window.L) return;
     if (!M.map) {
       M.el = document.createElement('div');
-      M.el.className = 'map';
+      M.el.className = 'map big';
       M.el.setAttribute('aria-label', 'Map of venues');
       M.map = L.map(M.el, { center: geo.centre, zoom: 13, attributionControl: true });
       L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -789,6 +985,9 @@
       M.map.attributionControl.setPrefix(false);
       M.circle = L.circle(geo.centre, { radius: ui.radiusKm * 1000, color: '#1F7BFF', weight: 2, dashArray: '6 6', fillColor: '#1F7BFF', fillOpacity: 0.1, interactive: false }).addTo(M.map);
       M.centre = L.marker(geo.centre, { icon: youIcon(), interactive: false, keyboard: false }).addTo(M.map);
+      M.centre.look = 'pin';
+      var zoomClass = function () { M.el.classList.toggle('names', M.map.getZoom() >= 15); };
+      M.map.on('zoomend', zoomClass); zoomClass();
       M.map.on('click', function (e) { geo.centre = [e.latlng.lat, e.latlng.lng]; geo.mine = false; geo.chosen = true; render(); });
       M.fit = true;
     }
@@ -800,28 +999,29 @@
     if (!M.map) return;
     M.circle.setLatLng(geo.centre).setRadius(ui.radiusKm * 1000).setStyle({ opacity: geo.chosen ? 1 : 0, fillOpacity: geo.chosen ? 0.1 : 0 });
     M.centre.setLatLng(geo.centre).setOpacity(geo.chosen ? 1 : 0);
+    var meLook = geo.mine ? 'me:' + (photos[D.me.id] ? 1 : 0) : 'pin';
+    if (M.centre.look !== meLook) { M.centre.look = meLook; M.centre.setIcon(geo.mine ? meIcon() : youIcon()); }
     // Which pins: search matches while searching; otherwise the venues inside the circle once a spot is chosen.
-    var hits = searchHits(), show = null;
+    var hits = searchHits() || filterHits(), show = null;
     if (hits) { show = {}; hits.slice(0, SEARCH_MAX).forEach(function (x) { show[x.ven.id] = true; }); }
     var keep = {};
     D.venues.forEach(function (ven) {
       var at = pins && pins[ven.id];
       if (!at) return;
       var inside = geo.chosen && km(geo.centre, at) <= ui.radiusKm;
-      if (ui.mapPick !== ven.id && (show ? !show[ven.id] : !inside)) return;
+      if (ui.mapPick !== ven.id && (show ? !show[ven.id] : !inside || !filterOk(ven))) return;
       keep[ven.id] = true;
       var kind = ui.mapPick === ven.id ? 'goal' : inside || show ? 'near' : 'far';
-      var st = openState(ven), open = st ? st.open : null, look = kind + ':' + open;
+      var st = openState(ven), open = st ? st.open : null, look = [kind, open, tagOf(ven), busyOf(ven)].join(':');
       var dot = M.dots[ven.id];
       if (!dot) {
-        dot = M.dots[ven.id] = L.marker(at, { icon: pinIcon(kind, open), title: ven.name, alt: ven.name }).addTo(M.map);
+        dot = M.dots[ven.id] = L.marker(at, { icon: bubbleIcon(ven, kind, open), title: ven.name, alt: ven.name }).addTo(M.map);
         dot.look = look;
         dot.on('click', function () { ACT['map-pick'](ven.id); });
       }
-      if (dot.look !== look) { dot.look = look; dot.setIcon(pinIcon(kind, open)); }
-      dot.setZIndexOffset(kind === 'goal' ? 1000 : 0);
+      if (dot.look !== look) { dot.look = look; dot.setIcon(bubbleIcon(ven, kind, open)); }
+      dot.setZIndexOffset(kind === 'goal' ? 1000 : busyOf(ven) * 100 + (tagOf(ven) ? 50 : 0));
       dot.setLatLng(at);
-      dot.unbindTooltip().bindTooltip(esc(ven.name) + '<br><small>' + esc(hoursLine(ven)) + '</small>', { direction: 'top', offset: [0, -34], className: 'tag' });
     });
     Object.keys(M.dots).forEach(function (id) { if (!keep[id]) { M.map.removeLayer(M.dots[id]); delete M.dots[id]; } });
     if (M.fitHits && hits && hits.length) {
@@ -1004,7 +1204,7 @@
   // Shown above every tab: the name on the left, and your profile (the You page) at the top right.
   function topBar(back) {
     var me = D.me;
-    return '<div class="top"><div class="row" style="gap:6px">' + (back ? backBtn() : '') + logo(me.colour) + '</div><div class="row" style="gap:10px">' +
+    return '<div class="top"><div class="row" style="gap:6px">' + (back ? backBtn() : '') + logo(me.colour, true) + '</div><div class="row" style="gap:10px">' +
       (ui.offline ? '<span class="pill" style="border-color:var(--off);color:var(--off)">Offline</span>' : '') +
       '<button class="avatar profile-btn" style="--c:' + COLORS[me.colour] + '" data-act="tab" data-v="you" aria-label="You"' + (ui.tab === 'you' ? ' aria-current="page"' : '') + '>' + face(me.id, me.name) + '</button></div></div>';
   }
@@ -1044,8 +1244,9 @@
       '<div class="row"><button class="btn small-btn" data-act="pick-photo"' + (ui.photoBusy ? ' disabled' : '') + '>' + (ui.photoBusy ? 'Saving...' : photos[me.id] ? 'Change photo' : 'Add a photo') + '</button>' +
       (photos[me.id] && !ui.photoBusy ? '<button class="btn small-btn ghost" data-act="remove-photo">Remove</button>' : '') + '</div></div>';
 
-    h += '<div class="card"><h2>Invite a friend</h2><p class="muted small">Send this link. When they sign up you get a friend request to accept.</p>' +
-      '<button class="btn" data-act="share">Send your invite link</button>' + linkBox() + '</div>';
+    h += '<div class="card"><h2>Add a friend</h2>' + addFriendForm() +
+      '<p class="muted small">Not on Frendzy yet? Send them your invite link. When they sign up you get a friend request to accept.</p>' +
+      '<button class="btn ghost" data-act="share">Send your invite link</button>' + linkBox() + '</div>';
 
     if (DEALS_ON && D.staff_venues.length) {
       h += '<div class="card" style="border-color:var(--thinking)"><h2>Staff: confirm a deal code</h2><p class="muted small">Type the code from the customer\'s phone. Each code works once.</p>' +
@@ -1079,20 +1280,24 @@
       }).join('') + '</div>';
     }
 
-    h += '<div class="card"><h2>Put Frenzy on your home screen</h2><p class="muted small">On iPhone, tap the Share button in Safari, then Add to Home Screen. On Android, open the browser menu and tap Add to Home screen.</p></div>';
+    h += '<div class="card"><h2>Put Frendzy on your home screen</h2><p class="muted small">On iPhone, tap the Share button in Safari, then Add to Home Screen. On Android, open the browser menu and tap Add to Home screen.</p></div>';
 
     h += '<div class="card"><h2>About</h2><p class="small"><a href="privacy.html">Privacy Policy</a></p><p class="small"><a href="terms.html">Terms of use</a></p></div>';
 
     if (ui.account !== 'off' && ui.account !== undefined) {
       var a = ui.account;
-      if (ui.newCode) h += '<div class="card" style="border-color:var(--on)">' + codeCard() + '</div>';
+      if (ui.emailStep) h += '<div class="card" style="border-color:var(--on)">' + emailCard() + '</div>';
+      else if (ui.newCode) h += '<div class="card" style="border-color:var(--on)">' + codeCard() + '</div>';
       else if (a && !ui.editAccount) {
         h += '<div class="card"><h2>Username and password</h2><p class="muted small">You\'re logged in as <strong>' + esc(a.username) + '</strong>. Use it to log in on another phone.</p>' +
+          (a.email ? '<p class="muted small">New logins also need a code sent to <strong>' + esc(a.email) + '</strong>.</p>'
+            : emailsOn() ? '<form id="add-email" class="stack" style="gap:12px" novalidate><p class="muted small">Add an email so every new login needs a code from it as well as your password.</p>' + emailField('Email for login codes') +
+              '<p id="save-error" class="error" hidden></p><button class="btn small-btn" type="submit" id="save-btn">Send me a code</button></form>' : '') +
           '<div class="row"><button class="btn small-btn ghost" data-act="edit-account">Change password</button><button class="btn small-btn ghost" data-act="logout">Log out</button></div></div>';
       } else {
         h += '<div class="card"><h2>' + (a ? 'Change password' : 'Keep your account') + '</h2>' +
-          (a ? '' : '<p class="muted small">Right now your account only lives in this browser. Add a username and password so you can log in on a new phone. No email needed.</p>') +
-          saveForm(a ? a.username : '') + (a ? '<button class="btn ghost" data-act="edit-account">Cancel</button>' : '') + '</div>';
+          (a ? '' : '<p class="muted small">Right now your account only lives in this browser. Add a username and password so you can log in on a new phone.' + (emailsOn() ? ' Each new login will also need a code we email you.' : '') + '</p>') +
+          saveForm(a ? a.username : '', !a && emailsOn()) + (a ? '<button class="btn ghost" data-act="edit-account">Cancel</button>' : '') + '</div>';
       }
     }
 
@@ -1124,8 +1329,11 @@
   }
 
   /* ---------- render ---------- */
+  // The whole screen glows in your status colour: green, amber or red.
+  function glow(v) { document.body.setAttribute('data-status', v || ''); }
   function render() {
     if (drag) return; // never rebuild the screen under a finger that is sliding the status switch
+    glow(D && D.me && session ? D.me.colour : '');
     var keep = document.getElementById('staff-code'), keepValue = keep ? keep.value : null, keepFocus = keep && document.activeElement === keep;
     var chatIn = document.getElementById('chat-input'), chatValue = chatIn ? chatIn.value : null, chatFocus = chatIn && document.activeElement === chatIn;
     var chatScroll = document.getElementById('chat-list'), chatTop = chatScroll ? chatScroll.scrollTop : null;
@@ -1136,6 +1344,11 @@
 
     if (!API_URL || !API_KEY) { tabs.hidden = true; view.innerHTML = notConnected(); return; }
     if (!ui.booted) { tabs.hidden = true; view.innerHTML = starting(); return; }
+    if (session && ui.twoStep && ui.twoStep.needed) {
+      tabs.hidden = true;
+      if (!document.getElementById('two-step-screen')) view.innerHTML = twoStepScreen();
+      return;
+    }
     if (needsAgeCheck() && (D && D.me || waiting())) {
       tabs.hidden = true;
       view.innerHTML = ageCheck();
@@ -1149,6 +1362,12 @@
           : want === 'login' ? loginScreen() : want === 'recover' ? recoverScreen() : welcome();
         mountCaptcha();
       }
+      return;
+    }
+    if (ui.newCode && ui.newCode.after === 'home') {   // straight after sign-up: confirm the email, then save the recovery code
+      tabs.hidden = true;
+      if (ui.emailStep) { if (!document.getElementById('email-confirm')) view.innerHTML = '<div class="stack" style="margin-block:auto">' + logo() + emailCard() + '</div>'; }
+      else if (!document.getElementById('newcode')) view.innerHTML = '<div class="stack" style="margin-block:auto">' + logo() + codeCard() + '</div>';
       return;
     }
     var html;
@@ -1183,7 +1402,7 @@
     var link = inviteLink();
     ui.linkShown = true;
     if (navigator.share) {
-      navigator.share({ title: 'Frenzy', text: 'Add me on Frenzy so we can see when we\'re both up for a sesh.', url: link }).catch(function () {});
+      navigator.share({ title: 'Frendzy', text: 'Add me on Frendzy so we can see when we\'re both up for a sesh.', url: link }).catch(function () {});
       render();
       return;
     }
@@ -1197,6 +1416,7 @@
     tab: function (v) {
       ui.tab = v; ui.screen = null; ui.confirm = null; ui.staffError = ''; go(true);
       if (v === 'map' || v === 'venues') freshVenues(5 * 60000);
+      if (v === 'map' && Date.now() - buzzAt > 60000) loadBuzz();
       if (v === 'map' || v === 'sesh' || v === 'events') loadPins().then(function () { if (ui.tab === v && !ui.screen) { if (M.map) M.fit = true; render(); } });
     },
     locate: function () {
@@ -1212,10 +1432,15 @@
       }, { enableHighAccuracy: false, maximumAge: 300000, timeout: 10000 });
     },
     status: function (v) {
-      moveKnob(v);
+      moveKnob(v); glow(v);
       act('set_status', { new_colour: v }, v === 'on' ? 'You\'re green. Friends who are around can see it.' : null).then(function () {
         ui.tab = 'home'; ui.screen = null; go(false);
       });
+    },
+    'status-here': function (v) {   // the traffic light in the header: change status and stay on this screen
+      if (!D || !D.me || v === D.me.colour) return;
+      glow(v);
+      act('set_status', { new_colour: v }, { on: 'You\'re green. Friends who are around can see it.', thinking: 'You\'re amber.', off: 'You\'re red. You\'re hidden.' }[v]);
     },
     'go-sesh': function () {
       if (mySesh()) { ui.tab = 'sesh'; go(true); return; }
@@ -1240,6 +1465,9 @@
       if (v && M.map && pins && pins[v] && !M.map.getBounds().pad(-0.1).contains(pins[v])) M.map.setView(pins[v], Math.max(M.map.getZoom(), 15), { animate: false });
       var card = document.getElementById('map-pick');
       if (card && card.scrollIntoView) card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    },
+    'map-filter': function (v) {
+      ui.mapFilter = ui.mapFilter === v ? '' : v; M.fitHits = !geo.chosen; render();
     },
     'clear-search': function () {
       ui.venueQuery = ''; render();
@@ -1297,26 +1525,37 @@
     'women-only': function (v) {
       act('set_safety', { p_gender: ui.safety.gender, p_women_only: v === 'on' }, v === 'on' ? 'Women and non-binary only is on.' : 'Women and non-binary only is off.').then(function (r) { if (r) { ui.safety = r; render(); } });
     },
-    unblock: function (v) { act('unblock_user', { p_user: v }, 'Unblocked. You can add each other again with an invite link.'); },
+    unblock: function (v) { act('unblock_user', { p_user: v }, 'Unblocked. You can add each other again.'); },
     accept: function (v) { act('answer_friend', { p_friendship: v, p_accept: true }, 'You\'re now friends.'); },
     unfriend: function (v) { ui.confirm = null; act('answer_friend', { p_friendship: v, p_accept: false }); },
     ask: function (v) { ui.confirm = v; go(false); },
     'cancel-confirm': function () { ui.confirm = null; go(false); },
     auth: function (v) { ui.auth = v || null; view.innerHTML = ''; render(); },
     'edit-account': function () { ui.editAccount = !ui.editAccount; go(false); },
+    'ts-resend': function () { sendLoginCode(); },
+    'ts-recover': function () {
+      session = null; store(SESSION_KEY, null); D = null; ui.twoStep = undefined; ui.auth = 'recover';
+      view.innerHTML = ''; render();
+    },
+    'email-resend': function () {
+      if (!ui.emailStep) return;
+      emailCode('setup', { email: ui.emailStep.email }).then(function () { toast('Code sent again.'); }, function (x) { toast(x.message); });
+    },
+    'email-skip': function () { ui.emailStep = null; go(false); },
     'code-saved': function () {
       var after = ui.newCode && ui.newCode.after;
       if (after === 'login') { ui.loginName = ui.newCode.username; ui.auth = 'login'; }
+      if (after === 'home') ui.tab = 'home';
       ui.newCode = null; view.innerHTML = ''; render();
     },
     logout: function () {
       session = null; store(SESSION_KEY, null); D = null; VENUES = null; venuesAsked = false; seen = null; lastKey = '';
-      ui.account = undefined; ui.safety = undefined; ui.age = null; ui.auth = null; ui.editAccount = false; ui.tab = 'home'; ui.screen = null; ui.confirm = null;
+      ui.account = undefined; ui.safety = undefined; ui.age = null; ui.auth = null; ui.editAccount = false; ui.tab = 'home'; ui.screen = null; ui.confirm = null; ui.twoStep = undefined; ui.emailStep = null;
       view.innerHTML = ''; render(); toast('Logged out. Log in again with your username and password.');
     },
     'delete-account': function () {
       act('delete_account', {}).then(function () {
-        session = null; store(SESSION_KEY, null); D = null; VENUES = null; venuesAsked = false; seen = null; ui.confirm = null; ui.tab = 'home'; ui.screen = null; ui.account = undefined; ui.safety = undefined; ui.age = null;
+        session = null; store(SESSION_KEY, null); D = null; VENUES = null; venuesAsked = false; seen = null; ui.confirm = null; ui.tab = 'home'; ui.screen = null; ui.account = undefined; ui.safety = undefined; ui.age = null; ui.twoStep = undefined; ui.emailStep = null;
         view.innerHTML = ''; render(); toast('Your account has been deleted.');
       });
     }
@@ -1427,9 +1666,23 @@
     }).catch(function (e) { toast(e.message); });
   }
 
+  // The username and password picked on the sign-up screen. Kept in memory only, never in storage,
+  // so they are lost if the age check leaves the page; then the You page asks for them again.
+  var newLogin = null;
+  function saveNewLogin() {
+    var l = newLogin;
+    newLogin = null;
+    if (!l) return Promise.resolve();
+    return rpc('save_account', { p_username: l.username, p_password: l.password }).then(function (r) {
+      ui.newCode = { code: r.recovery_code, username: r.username, after: 'home' };   // load() then reads the account
+      // Then a code to confirm the email. The account is saved either way; the email can be added later on the You page.
+      if (l.email) return emailCode('setup', { email: l.email }).then(function (sent) { ui.emailStep = { email: l.email, hint: sent.hint }; }, function (x) { toast(x.message); });
+    }, function (e) { ui.tab = 'you'; toast(e.message + ' Pick another username below.'); });
+  }
   function finishSignUp(name, dob) {
     return rpc('api_sign_up', { p_name: name, p_birth_date: dob })
       .then(function () { waiting(null); })
+      .then(saveNewLogin)
       .then(sendPendingInvite)
       .then(function () { document.activeElement && document.activeElement.blur(); view.innerHTML = ''; return load(); });
   }
@@ -1465,14 +1718,25 @@
     }
     if (e.target.id === 'join') {
       var name = document.getElementById('name').value.trim(), dob = document.getElementById('dob').value;
+      var ju = document.getElementById('join-user').value.trim().toLowerCase(), jp = document.getElementById('join-pass').value;
       var err = document.getElementById('join-error'), btn = document.getElementById('join-btn');
       var fail = function (msg) { err.textContent = msg; err.hidden = false; btn.disabled = false; };
       if (!name) return fail('Enter your first name to continue.');
       if (!/^\d{4}-\d{2}-\d{2}$/.test(dob) || dob < '1900-01-01' || dob > todayPerth()) return fail('Enter your date of birth.');
       if (dob > eighteenYearsAgo()) { store(UNDERAGE_KEY, true); view.innerHTML = tooYoung(); return; }
+      if (!/^[a-z0-9_]{3,20}$/.test(ju)) return fail('Pick a username of 3 to 20 letters, numbers or _.');
+      if (jp.length < 10) return fail('Use a password of at least 10 characters.');
+      var je = document.getElementById('join-email').value.trim();
+      if (!/^[^@\s]+@[^@\s]+\.[A-Za-z]{2,}$/.test(je)) return fail('Enter your email address. Login codes go there.');
       if (CAPTCHA_KEY && !session && !captchaToken) return fail('Wait a moment for the check above to finish, then try again.');
       btn.disabled = true; err.hidden = true;
       (session ? Promise.resolve() : signInAnonymously(useCaptcha()))
+        // An older database without username_free() just skips this early check; save_account still refuses a taken name.
+        .then(function () { return rpc('username_free', { p_username: ju }).catch(function (x) { if (x.missing) return true; throw x; }); })
+        .then(function (free) {
+          if (free === false) throw new Error('That username is taken. Try another.');
+          newLogin = { username: ju, password: jp, email: je };
+        })
         .then(loadAge)
         .then(function () {
           if (needsAgeCheck()) { waiting({ name: name, dob: dob }); ui.ageNote = ''; document.activeElement && document.activeElement.blur(); render(); return; }
@@ -1488,7 +1752,11 @@
       if (CAPTCHA_KEY && !captchaToken) return lfail('Wait a moment for the check above to finish, then try again.');
       lbtn.disabled = true; lerr.hidden = true;
       signInWithPassword(lu, lp, useCaptcha()).then(function () {
-        D = null; VENUES = null; venuesAsked = false; lastKey = ''; ui.auth = null; ui.loginName = ''; ui.account = undefined; ui.safety = undefined; ui.age = null;
+        // Straight after a recovery code, this login doesn't need the email code.
+        var ticket = ui.ticket; ui.ticket = null;
+        return ticket ? rpc('two_step_use_ticket', { p_ticket: ticket }).then(function (ok) { if (ok) return refreshSession(); }, function () {}) : null;
+      }).then(function () {
+        D = null; VENUES = null; venuesAsked = false; lastKey = ''; ui.auth = null; ui.loginName = ''; ui.account = undefined; ui.safety = undefined; ui.age = null; ui.twoStep = undefined; ui.emailStep = null;
         document.activeElement && document.activeElement.blur(); view.innerHTML = '';
         return load().then(function () { if (D && D.me) return sendPendingInvite(); });
       }).catch(function (x) { lfail(x.message); });
@@ -1507,25 +1775,85 @@
         .then(function (r) {
           if (!r || !r.ok) return rfail((r && r.message) || 'That didn\'t work. Try again.');
           // This phone's temporary sign-in was only for the recovery; log in with the new password next.
-          session = null; store(SESSION_KEY, null);
           ui.newCode = { code: r.recovery_code, username: r.username, after: 'login' };
-          document.activeElement && document.activeElement.blur(); view.innerHTML = ''; render();
+          return emailRecovery().then(function () {
+            session = null; store(SESSION_KEY, null); ui.twoStep = undefined; ui.ticket = r.ticket || null;
+            document.activeElement && document.activeElement.blur(); view.innerHTML = ''; render();
+          });
         })
         .catch(function (x) { rfail(x.message); });
       return;
     }
-    if (e.target.id === 'save-account') {
-      var su = document.getElementById('save-user').value.trim().toLowerCase(), sp = document.getElementById('save-pass').value;
+    if (e.target.id === 'two-step') {
+      var tc = document.getElementById('ts-code').value.replace(/\D/g, '');
+      var terr = document.getElementById('ts-error'), tbtn = document.getElementById('ts-btn');
+      var tfail = function (msg) { terr.textContent = msg; terr.hidden = false; tbtn.disabled = false; };
+      if (tc.length !== 6) return tfail('Enter the 6-digit code from the email.');
+      tbtn.disabled = true; terr.hidden = true;
+      rpc('two_step_check', { p_code: tc }).then(function (r) {
+        if (!r || !r.ok) return tfail((r && r.message) || 'That didn\'t work. Try again.');
+        // A fresh sign-in token, now with full access.
+        return refreshSession().then(function () {
+          ui.twoStep = { needed: false }; document.activeElement && document.activeElement.blur(); view.innerHTML = '';
+          return load().then(function () { if (D && D.me) return sendPendingInvite(); });
+        });
+      }).catch(function (x) { tfail(x.message); });
+      return;
+    }
+    if (e.target.id === 'email-confirm') {
+      var ec = document.getElementById('ec-code').value.replace(/\D/g, '');
+      var eerr = document.getElementById('ec-error'), ebtn = document.getElementById('ec-btn');
+      var efail = function (msg) { eerr.textContent = msg; eerr.hidden = false; ebtn.disabled = false; };
+      if (ec.length !== 6) return efail('Enter the 6-digit code from the email.');
+      ebtn.disabled = true; eerr.hidden = true;
+      rpc('two_step_check', { p_code: ec }).then(function (r) {
+        if (!r || !r.ok) return efail((r && r.message) || 'That didn\'t work. Try again.');
+        if (ui.account && ui.account !== 'off') ui.account.email = r.email;
+        ui.emailStep = null; toast('Email confirmed. New logins will ask for a code from it.');
+        document.activeElement && document.activeElement.blur(); render();
+        emailRecovery();
+      }).catch(function (x) { efail(x.message); });
+      return;
+    }
+    if (e.target.id === 'save-account' || e.target.id === 'add-email') {
+      var adding = e.target.id === 'add-email';
+      var su = adding ? '' : document.getElementById('save-user').value.trim().toLowerCase(), sp = adding ? '' : document.getElementById('save-pass').value;
+      var emailIn = document.getElementById('save-email'), em = emailIn ? emailIn.value.trim() : '';
       var serr = document.getElementById('save-error'), sbtn = document.getElementById('save-btn');
       var sfail = function (msg) { serr.textContent = msg; serr.hidden = false; sbtn.disabled = false; };
-      if (!/^[a-z0-9_]{3,20}$/.test(su)) return sfail('Pick a username of 3 to 20 letters, numbers or _.');
-      if (sp.length < 10) return sfail('Use a password of at least 10 characters.');
+      if (!adding && !/^[a-z0-9_]{3,20}$/.test(su)) return sfail('Pick a username of 3 to 20 letters, numbers or _.');
+      if (!adding && sp.length < 10) return sfail('Use a password of at least 10 characters.');
+      if (emailIn && !/^[^@\s]+@[^@\s]+\.[A-Za-z]{2,}$/.test(em)) return sfail('Enter your email address. Login codes go there.');
       sbtn.disabled = true; serr.hidden = true;
-      rpc('save_account', { p_username: su, p_password: sp }).then(function (r) {
-        ui.account = { username: r.username }; ui.editAccount = false;
-        ui.newCode = { code: r.recovery_code, username: r.username, after: 'you' };
+      (adding ? Promise.resolve(null) : rpc('save_account', { p_username: su, p_password: sp })).then(function (r) {
+        if (r) {
+          ui.account = { username: r.username }; ui.editAccount = false;
+          ui.newCode = { code: r.recovery_code, username: r.username, after: 'you' };
+        }
+        if (!em) return;
+        // The account is saved either way; if the email can't be sent, it can be added again from here.
+        return emailCode('setup', { email: em }).then(function (s) {
+          ui.emailStep = { email: em, hint: s.hint };
+        }, function (x) { if (adding) throw x; toast(x.message); });
+      }).then(function () {
         document.activeElement && document.activeElement.blur(); render();
+        if (!ui.emailStep) emailRecovery();   // a password change on an account that already has its email
       }).catch(function (x) { sfail(x.message); });
+      return;
+    }
+    if (e.target.id === 'add-friend') {
+      var fu = document.getElementById('friend-user'), fname = fu.value.trim(), fbtn = document.getElementById('friend-btn');
+      if (!fname) { ui.addFriendError = 'Type your friend\'s username.'; go(false); return; }
+      fbtn.disabled = true;
+      rpc('request_friend_by_username', { p_username: fname }).then(function (r) {
+        if (!r || !r.ok) { ui.addFriendError = (r && r.message) || 'That didn\'t work. Try again.'; return; }
+        ui.addFriendError = ''; fu.value = '';
+        toast(r.state === 'accepted' ? 'You and ' + first(r.name) + ' are now friends.'
+          : r.state === 'requested' ? 'Friend request sent to ' + first(r.name) + '.' : 'You and ' + first(r.name) + ' are already friends.');
+        return load();
+      }).catch(function (x) {
+        ui.addFriendError = x.missing ? 'Adding by username needs a database update. Send your invite link for now.' : x.message;
+      }).then(function () { var b = document.getElementById('friend-btn'); if (b) b.disabled = false; go(false); });
       return;
     }
     if (e.target.id === 'chat-form') {
