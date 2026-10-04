@@ -8,6 +8,8 @@ import crypto from 'node:crypto';
 const [, , sock, dbPort, listen = '54330'] = process.argv;
 const KEY = 'test-anon-key';
 const tokens = new Map(); // access token -> user id
+const sessions = new Map(); // access or refresh token -> { sid, role }, like the session_id and role in a real token
+let lastEmail = null; // the latest email code "sent", for the test to read
 let ageOutcome = 'passed'; // what the pretend age check provider answers
 
 function lit(v) {
@@ -25,9 +27,14 @@ function psql(sql) {
     p.on('close', (code) => resolve({ code, out: out.trim(), err: err.trim() }));
   });
 }
-function session(uid) {
+// Each token gets its role from the same hook Supabase Auth would call (migration 0018), when there is one.
+async function session(uid, sid = crypto.randomUUID()) {
   const access = crypto.randomUUID(), refresh = crypto.randomUUID();
+  const event = JSON.stringify({ user_id: uid, claims: { sub: uid, role: 'authenticated', session_id: sid } });
+  const r = await psql(`select coalesce(public.two_step_token_hook(${lit(event)}::jsonb) #>> '{claims,role}', 'authenticated')`);
+  const role = r.code === 0 && r.out ? r.out : 'authenticated';
   tokens.set(access, uid); tokens.set(refresh, uid);
+  sessions.set(access, { sid, role }); sessions.set(refresh, { sid, role });
   return { access_token: access, refresh_token: refresh, expires_in: 3600, expires_at: Math.floor(Date.now() / 1000) + 3600, user: { id: uid } };
 }
 const send = (res, status, body) => {
@@ -43,23 +50,36 @@ http.createServer(async (req, res) => {
   if (url.pathname === '/auth/v1/signup') {
     const uid = crypto.randomUUID();
     await psql(`insert into auth.users (id, is_anonymous) values ('${uid}', true)`);
-    return send(res, 200, session(uid));
+    return send(res, 200, await session(uid));
   }
   // Username and password log-in: the same check Supabase Auth does on the stored bcrypt hash.
   if (url.pathname === '/auth/v1/token' && url.searchParams.get('grant_type') === 'password') {
     const r = await psql(`select id from auth.users where lower(email) = lower(${lit(body.email)}) and email_confirmed_at is not null
       and encrypted_password = extensions.crypt(${lit(body.password)}, encrypted_password)`);
-    return r.out ? send(res, 200, session(r.out)) : send(res, 400, { error: 'invalid_grant', error_description: 'Invalid login credentials' });
+    return r.out ? send(res, 200, await session(r.out)) : send(res, 400, { error: 'invalid_grant', error_description: 'Invalid login credentials' });
   }
   if (url.pathname === '/auth/v1/token') {
     const uid = tokens.get(body.refresh_token);
-    return uid ? send(res, 200, session(uid)) : send(res, 400, { message: 'Invalid Refresh Token' });
+    return uid ? send(res, 200, await session(uid, sessions.get(body.refresh_token).sid)) : send(res, 400, { message: 'Invalid Refresh Token' });
   }
   // Test-only switches for the age check: turn it on or off, and pick what the pretend provider answers.
   if (url.pathname === '/__fake/age-check') {
     if ('required' in body) await psql(`update public.app_settings set age_check_required = ${body.required ? 'true' : 'false'}`);
     if (body.outcome) ageOutcome = body.outcome;
     return send(res, 200, {});
+  }
+  if (url.pathname === '/__fake/last-email') return send(res, 200, lastEmail);
+  // A stand-in for the email-code Edge Function: the same database call, and the "email" is kept for the test.
+  if (url.pathname === '/functions/v1/email-code') {
+    const token = (req.headers.authorization || '').replace('Bearer ', ''), uid = tokens.get(token);
+    if (!uid) return send(res, 401, { message: 'Sign in first.' });
+    const purpose = body.action === 'setup' ? 'setup' : 'login';
+    const r = await psql(`begin; set local role service_role; select to_jsonb(public.two_step_make_code(${lit(uid)}, ${lit(sessions.get(token).sid)}, ${lit(purpose)}, ${lit(purpose === 'setup' ? body.email : null)})); commit;`);
+    if (r.code !== 0) return send(res, 400, { message: (r.err.match(/ERROR:\s+(.*)/) || [, r.err])[1] });
+    const lines = r.out.split('\n').filter((l) => l && l !== 'BEGIN' && l !== 'COMMIT' && l !== 'SET');
+    lastEmail = JSON.parse(lines[lines.length - 1]);
+    const [name, domain] = lastEmail.email.split('@');
+    return send(res, 200, { sent: true, hint: name.slice(0, 1) + '•••@' + domain });
   }
   // A stand-in for the google-rating Edge Function: every venue gets the same pretend Google rating.
   if (url.pathname === '/functions/v1/google-rating') {
@@ -98,10 +118,14 @@ http.createServer(async (req, res) => {
     const uid = tokens.get((req.headers.authorization || '').replace('Bearer ', ''));
     if (!uid) return send(res, 401, { message: 'JWT expired' });
     const args = Object.entries(body).map(([k, v]) => `${k} := ${lit(v)}`).join(', ');
-    const sql = `begin; set local role authenticated; select set_config('request.jwt.claim.sub', '${uid}', true); select to_jsonb(public.${m[1]}(${args})); commit;`;
+    const { sid, role } = sessions.get((req.headers.authorization || '').replace('Bearer ', ''));
+    const claims = JSON.stringify({ sub: uid, role, session_id: sid });
+    const sql = `begin; set local role ${role}; select set_config('request.jwt.claim.sub', '${uid}', true), set_config('request.jwt.claims', ${lit(claims)}, true); select to_jsonb(public.${m[1]}(${args})); commit;`;
     const r = await psql(sql);
     if (r.code !== 0) {
       const msg = (r.err.match(/ERROR:\s+(.*)/) || [, r.err])[1];
+      // Like PostgREST, a function the database doesn't have yet is a 404 with code PGRST202.
+      if (/^function public\.\w+\(.*\) does not exist/.test(msg)) return send(res, 404, { code: 'PGRST202', message: 'Could not find the function public.' + m[1] + ' in the schema cache' });
       return send(res, 400, { message: msg });
     }
     const lines = r.out.split('\n').filter((l) => l && l !== 'BEGIN' && l !== 'COMMIT' && l !== 'SET');

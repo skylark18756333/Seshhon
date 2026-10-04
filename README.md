@@ -164,9 +164,36 @@ To switch it on:
 People who signed up before the switch are asked to do the check the next time they open the app,
 and cannot go Green or Amber until they pass. Each person gets at most 5 attempts a day.
 
+## Email login codes (two-step login)
+
+When someone saves a username and password, they also give an email address and confirm it with a
+6-digit code. After that, logging in on a new phone needs the password and a fresh code from that email.
+The email is private: it is never shown to anyone (the owner only sees a hint like f•••@gmail.com).
+Accounts saved before this keep logging in with just their password until they add an email on the You
+page. A recovery code still gets someone back in if they lose their email too.
+
+- `supabase/migrations/0018_email_two_step.sql`: stores the email and hashed codes, and the login check.
+- `supabase/functions/email-code/`: the Edge Function that emails the codes. It holds the email service key.
+
+To switch it on, in this order:
+
+1. Run `supabase/migrations/0018_email_two_step.sql` in the Supabase SQL editor.
+2. Make a free account with an email service. Brevo works without owning a web domain: add and verify a
+   sender address under **Senders**, then create an API key under **SMTP & API**. (Resend also works,
+   but needs a domain of your own.)
+3. In Supabase, go to Edge Functions, create a function called `email-code` with
+   `supabase/functions/email-code/index.ts`, and turn **Verify JWT** off (it checks the sign-in itself).
+   Or: `supabase functions deploy email-code --no-verify-jwt`.
+4. In Edge Functions, Secrets, add `BREVO_API_KEY` (or `RESEND_API_KEY`) and `EMAIL_FROM` (the verified
+   sender address).
+5. Last, in Authentication, Hooks, add a **Customize Access Token (JWT) Claims** hook: type Postgres,
+   schema `public`, function `two_step_token_hook`. This is what makes the database refuse a login
+   until its code is typed. If logins ever break, switch the hook off: everyone can log in with just
+   their password again, and nothing else is lost.
+
 ## Google ratings (optional, paid)
 
-Venue cards can show a venue's Google rating ("4.4 ★ on Google Maps (812)") next to Frenzy's own
+Venue cards can show a venue's Google rating ("4.4 ★ on Google Maps (812)") next to Frendzy's own
 ratings. It is **off** until switched on, and each look-up is billed by Google to your Google Cloud
 account. Google's terms allow keeping a venue's Google place ID but not its rating, so the rating is
 fetched fresh each time someone opens a venue, and each person is limited to 100 look-ups a day.
