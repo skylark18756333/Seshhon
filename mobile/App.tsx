@@ -127,7 +127,6 @@ function Shell() {
       bounces={false}
       contentInsetAdjustmentBehavior="never"
       automaticallyAdjustContentInsets={false}
-      decelerationRate="normal"
       textZoom={100}
       webviewDebuggingEnabled={__DEV__}
     />
