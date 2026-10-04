@@ -107,6 +107,11 @@ body[data-status="on"], body[data-status="thinking"], body[data-status="off"] {
 .btn { min-height: 54px; padding: 0 20px; border-radius: 27px; border: 0; background: var(--c, var(--accent)); color: var(--cf, var(--accent-ink)); font-weight: 700; font-size: 16px; width: 100%; }
 .btn.ghost { background: var(--surface); color: var(--fg); border: 1px solid var(--line); }
 .btn.small-btn { min-height: 44px; width: auto; padding: 0 18px; font-size: 14px; border-radius: 22px; white-space: nowrap; }
+.card.pick-row { flex-direction: row; align-items: center; gap: 14px; width: 100%; border: 2px solid transparent; text-align: left; color: inherit; font: inherit; cursor: pointer; }
+.card.pick-row.picked { border-color: var(--accent); }
+.pick-box { width: 28px; height: 28px; border-radius: 8px; border: 2px solid var(--line); display: grid; place-items: center; flex: none; }
+.pick-row.picked .pick-box { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.eyebrow svg, .small svg, .btn svg { vertical-align: -2px; }
 .btn:disabled { background: var(--surface-2); color: var(--muted); cursor: default; border: 0; }
 .card { background: var(--surface); border: 0; border-radius: 18px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
 .card.lead { border: 2px solid var(--accent); }
@@ -156,6 +161,10 @@ body[data-status="on"], body[data-status="thinking"], body[data-status="off"] {
 .field label { font-weight: 500; }
 .field input[type="text"], .field input[type="password"], .field input[type="date"], .field input[type="email"] { height: 52px; width: 100%; border-radius: 14px; border: 1px solid var(--line); background: var(--surface); padding: 0 16px; }
 .field input:focus { border-color: var(--accent); outline: none; }
+.pw { position: relative; }
+.field .pw input { padding-right: 56px; }
+.peek { position: absolute; top: 4px; right: 4px; width: 44px; height: 44px; border: 0; border-radius: 12px; background: transparent; color: var(--muted); display: grid; place-items: center; }
+.peek[aria-pressed="true"] { color: var(--accent); }
 .check { display: flex; align-items: center; gap: 12px; min-height: 44px; }
 .check input { width: 22px; height: 22px; accent-color: var(--accent); }
 .linkbox { font-size: 14px; padding: 12px 14px; border-radius: 12px; background: var(--bg); border: 1px solid var(--line); overflow-wrap: anywhere; user-select: all; -webkit-user-select: all; }
