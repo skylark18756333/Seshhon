@@ -56,6 +56,7 @@ async function phone(name) {
 const text = (p) => p.page.locator('body').innerText();
 const has = async (p, s, t = 4000) => { try { await p.page.waitForFunction((x) => document.body.innerText.toLowerCase().includes(x.toLowerCase()), s, { timeout: t }); return true; } catch { return false; } };
 const gone = async (p, s, t = 4000) => { try { await p.page.waitForFunction((x) => !document.body.innerText.toLowerCase().includes(x.toLowerCase()), s, { timeout: t }); return true; } catch { return false; } };
+const lastEmail = () => fetch('http://127.0.0.1:54330/__fake/last-email', { method: 'POST', headers: { apikey: 'test-anon-key' } }).then((r) => r.json());
 const tap = (p, label) => p.page.getByRole('button', { name: label, exact: true }).first().click();
 async function signUp(p, name, link) {
   await p.page.goto(`http://127.0.0.1:${WEB_PORT}/${link || ''}`);
@@ -63,7 +64,9 @@ async function signUp(p, name, link) {
   await p.page.fill('#dob', '1995-04-12');
   await p.page.fill('#join-user', name.toLowerCase().replace(/[^a-z0-9_]/g, '') + '_live');
   await p.page.fill('#join-pass', 'longenough1');
+  await p.page.fill('#join-email', name.toLowerCase().replace(/[^a-z0-9_]/g, '') + '@example.com');
   await tap(p, 'Get started');
+  await has(p, 'Confirm your email'); await tap(p, 'Later');   // email codes are checked in full for Ana and Fay
   await has(p, 'Save your recovery code');
   await tap(p, "I've saved it");
   await has(p, 'Your status');
@@ -91,10 +94,17 @@ try {
   ok(await has(ana, 'Pick a username of 3 to 20'), 'cannot sign up without a username');
   await ana.page.fill('#join-user', 'Ana_1'); await ana.page.fill('#join-pass', 'short'); await tap(ana, 'Get started');
   ok(await has(ana, 'at least 10 characters'), 'a short password is explained');
-  await ana.page.fill('#join-pass', 'longenough1');
+  await ana.page.fill('#join-pass', 'longenough1'); await tap(ana, 'Get started');
+  ok(await has(ana, 'Enter your email address'), 'cannot sign up without an email');
+  await ana.page.fill('#join-email', 'Ana@Example.com');
   if (process.env.SHOTS) { await ana.page.evaluate(() => { document.getElementById('join-error').hidden = true; }); await ana.page.screenshot({ path: process.env.SHOTS + '/sign-up.png', fullPage: true }); }
   await tap(ana, 'Get started');
-  ok(await has(ana, 'Save your recovery code') && await has(ana, 'ana_1'), 'signing up shows the username and a recovery code');
+  ok(await has(ana, 'Confirm your email') && await has(ana, 'a•••@example.com'), 'signing up sends a code to confirm the email, and only a hint of it is shown');
+  ok((await lastEmail()).email === 'ana@example.com', 'the code goes to Ana\'s email');
+  await ana.page.fill('#ec-code', '00000'); await tap(ana, 'Confirm email');
+  ok(await has(ana, '6-digit code'), 'a short code is explained');
+  await ana.page.fill('#ec-code', (await lastEmail()).code); await tap(ana, 'Confirm email');
+  ok(await has(ana, 'Save your recovery code') && await has(ana, 'ana_1'), 'after confirming the email, signing up shows the username and a recovery code');
   ok(await ana.page.locator('.tour').count() === 0, 'the walkthrough waits until the recovery code is saved');
   await tap(ana, "I've saved it");
   ok(await has(ana, 'Welcome, Ana.'), 'the walkthrough opens straight after sign-up');
@@ -197,9 +207,9 @@ try {
   console.log('Venue map');
   ok(await ben.page.locator('.leaflet-container').count() === 0, 'the Venues tab is a plain list with no map');
   ok(await ben.page.locator('nav button:has-text("You")').count() === 0 && await ben.page.locator('button.profile-btn').count() === 1, 'You is a profile button at the top right, not a tab');
-  await tab(ben, 'Map');
   const sent = [];
   ben.page.on('request', (r) => { if (r.url().startsWith(API)) sent.push(r.url() + ' ' + (r.postData() || '')); });
+  await tab(ben, 'Map');
   ok(await has(ben, 'Choose where to look') && await ben.page.locator('.leaflet-container .leaflet-marker-icon.leaflet-interactive').count() === 0, 'no venues show until you choose where to look');
   await ben.page.evaluate(() => { document.getElementById('view').scrollTop = 0; });
   await ben.page.screenshot({ path: path.join(copy, 'map-choose.png') });
@@ -236,15 +246,35 @@ try {
   ok(during.filter((x) => x.includes('/rpc/api_state')).length >= 2 && during.filter((x) => x.includes('/rpc/api_venues')).length === 0, 'background refreshes do not download the venues again');
   ok(await ben.page.locator('#radius').inputValue() === '15' && await has(ben, 'within 15 km of you'), 'the radius and location survive background refreshes');
   ok(!sent.some((x) => /-32\.05|115\.74/.test(x)), 'the phone\'s location is never sent to the server');
+  ok(await ben.page.locator('.leaflet-container .me-mark').count() === 1, 'Near me shows you as a Me marker on your own map');
+  ok(sent.some((x) => x.includes('/rpc/api_buzz')), 'the map asks which venues are busy, by counts only');
+  await ben.page.locator('#radius').fill('25');
+  const mapChip = (p, name) => p.page.evaluate((n) => { document.getElementById('view').scrollTop = 0; [...document.querySelectorAll('.map-chips .chip')].find((b) => b.textContent === n).click(); }, name);
+  await mapChip(ben, 'Open now');
+  ok(await ben.page.locator('.map-chips .chip', { hasText: 'Open now' }).getAttribute('aria-pressed') === 'true' && await has(ben, 'open now venue'), 'the Open now chip filters the venues');
+  const openPins = await ben.page.locator('.leaflet-container .leaflet-marker-icon.leaflet-interactive').count();
+  ok(openPins === Number(/(\d+) open now venues? within/.exec(await ben.page.locator('#venue-count').innerText())[1]), 'and the map shows a bubble for each open one: ' + openPins);
+  await mapChip(ben, 'Open now');
+  ok(await has(ben, '23 venues within 25 km of you'), 'tapping the chip again shows every venue');
+  { // the traffic light in the header is the status switch, and the screen glows in that colour
+    const before = await ben.page.evaluate(() => document.body.dataset.status);
+    const other = before === 'thinking' ? 'Green' : 'Amber', otherKey = other === 'Green' ? 'on' : 'thinking';
+    await ben.page.getByRole('button', { name: 'Switch to ' + other }).click();
+    await ben.page.waitForFunction((k) => document.body.dataset.status === k && document.querySelector('.dots.switch [aria-pressed="true"]')?.getAttribute('data-v') === k, otherKey, { timeout: 6000 }).catch(() => {});
+    ok(await ben.page.evaluate(() => document.body.dataset.status) === otherKey && await ben.page.locator('#venue-search').count() === 1, 'tapping a light in the header changes your status and keeps you on the map');
+    await ben.page.getByRole('button', { name: 'Switch to ' + { on: 'Green', thinking: 'Amber', off: 'Red' }[before] }).click();
+    await ben.page.waitForFunction((k) => document.body.dataset.status === k, before, { timeout: 6000 }).catch(() => {});
+    ok(await ben.page.evaluate(() => document.body.dataset.status) === before, 'and back again');
+  }
   await ben.page.locator('#radius').fill('25');
   await ben.page.evaluate(() => { document.getElementById('view').scrollTop = 0; });
   await ben.page.screenshot({ path: path.join(copy, 'venue-map.png') });
   await ben.page.evaluate(() => { document.getElementById('view').scrollTop = 0; });
   const pin = (p, name) => p.page.locator(`.leaflet-container .leaflet-marker-icon[title="${name}"]`).dispatchEvent('click');
   await pin(ben, 'Lowtide Bar');
-  ok(await has(ben, 'No Frenzy ratings yet') && await has(ben, '4.4 ★ on Google Maps (120)'), 'the card under a pin shows Frenzy and Google ratings');
+  ok(await has(ben, 'No Frendzy ratings yet') && await has(ben, '4.4 ★ on Google Maps (120)'), 'the card under a pin shows Frendzy and Google ratings');
   await ben.page.getByRole('button', { name: 'Rate 5 stars' }).click();
-  ok(await has(ben, '5.0 ★ on Frenzy (1)'), 'tapping a star on the card rates the venue');
+  ok(await has(ben, '5.0 ★ on Frendzy (1)'), 'tapping a star on the card rates the venue');
   await pin(ben, 'Bodega Nine');
   ok(await has(ben, 'Open venue') && await ben.page.locator('#map-pick', { hasText: 'Bodega Nine' }).count() === 1, 'tapping a pin shows that venue under the map');
   ok(/(Open till|Closes soon|Opens) /.test(await ben.page.locator('#map-pick').innerText()), 'the picked venue says when it opens or closes');
@@ -320,6 +350,7 @@ try {
   console.log('Going Red hides you');
   await tab(cam, 'Home');
   { // drag the knob across the switch from Amber to Red, like a finger would
+    await cam.page.waitForSelector('#status-slide');
     const box = await cam.page.locator('#status-slide').boundingBox(), y = box.y + box.height / 2;
     await cam.page.mouse.move(box.x + box.width / 2, y); await cam.page.mouse.down();
     for (let i = 1; i <= 8; i++) await cam.page.mouse.move(box.x + box.width / 2 + (box.width / 3) * i / 8, y);
@@ -377,7 +408,7 @@ try {
   const eve = await phone('Eve');
   await eve.page.goto(`http://127.0.0.1:${WEB_PORT}/`);
   await eve.page.fill('#name', 'Eve'); await eve.page.fill('#dob', '1999-02-03');
-  await eve.page.fill('#join-user', 'eve_live'); await eve.page.fill('#join-pass', 'longenough1'); await tap(eve, 'Get started');
+  await eve.page.fill('#join-user', 'eve_live'); await eve.page.fill('#join-pass', 'longenough1'); await eve.page.fill('#join-email', 'eve@example.com'); await tap(eve, 'Get started');
   ok(await has(eve, 'Quick age check') && await has(eve, 'Yoti checks your age with a quick selfie'), 'with the check switched on, sign-up asks for the age check');
   await tap(eve, 'Start age check');
   ok(await has(eve, "couldn't confirm you're 18"), 'a failed check is explained and Eve is not let in');
@@ -404,9 +435,11 @@ try {
   const fay = await phone('Fay');
   await fay.page.goto(`http://127.0.0.1:${WEB_PORT}/`);
   await fay.page.fill('#name', 'Fay'); await fay.page.fill('#dob', '1995-04-12');
-  await fay.page.fill('#join-user', 'ANA_1'); await fay.page.fill('#join-pass', 'longenough1'); await tap(fay, 'Get started');
+  await fay.page.fill('#join-user', 'ANA_1'); await fay.page.fill('#join-pass', 'longenough1'); await fay.page.fill('#join-email', 'Fay@Example.com'); await tap(fay, 'Get started');
   ok(await has(fay, 'That username is taken'), 'a taken username is refused at sign-up');
   await fay.page.fill('#join-user', 'Fay_99'); await tap(fay, 'Get started');
+  ok(await has(fay, 'Confirm your email'), 'Fay is asked to confirm her email');
+  await fay.page.fill('#ec-code', (await lastEmail()).code); await tap(fay, 'Confirm email');
   ok(await has(fay, 'Save your recovery code'), 'signing up shows a recovery code');
   const code1 = (await fay.page.locator('#recovery-code').innerText()).trim();
   ok(/^[A-Z2-9]{4}(-[A-Z2-9]{4}){3}$/.test(code1), 'the recovery code looks like XXXX-XXXX-XXXX-XXXX');
@@ -414,6 +447,7 @@ try {
   await skipTour(fay);
   await tab(fay, 'You');
   ok(await has(fay, 'logged in as fay_99'), 'Fay sees her username');
+  ok(await has(fay, 'need a code sent to f•••@example.com'), 'and that new logins need an email code');
 
   console.log('Add a friend by username');
   ok(await has(fay, 'Your username is fay_99'), 'Fay is shown the username to give friends');
@@ -435,7 +469,20 @@ try {
   await tap(fay2, 'Log in');
   ok(await has(fay2, "don't match"), 'a wrong password is turned away');
   await fay2.page.fill('#login-pass', 'longenough1'); await tap(fay2, 'Log in');
-  ok(await has(fay2, 'Your status'), 'Fay logs in on a new phone with her username and password');
+  ok(await has(fay2, 'Check your email') && await has(fay2, 'sent a 6-digit code to f•••@example.com'), 'the right password then asks for a code from her email');
+  await fay2.page.reload();
+  ok(await has(fay2, 'Check your email') && !(await has(fay2, 'Your status', 800)), 'reloading the page does not skip the code');
+  ok(await fay2.page.evaluate(async () => {   // and the database itself refuses this login until the code is typed
+    const s = JSON.parse(localStorage.getItem('seshhon-session-v1'));
+    const r = await fetch('http://127.0.0.1:54330/rest/v1/rpc/api_state', { method: 'POST', headers: { apikey: 'test-anon-key', Authorization: 'Bearer ' + s.access_token, 'Content-Type': 'application/json' }, body: '{}' });
+    return !r.ok;
+  }), 'the database gives nothing to a login still waiting for its code');
+  await fay2.page.waitForTimeout(500);
+  const loginCode = (await lastEmail()).code;
+  await fay2.page.fill('#ts-code', loginCode === '123456' ? '654321' : '123456'); await tap(fay2, 'Log in');
+  ok(await has(fay2, "isn't right"), 'a wrong code is turned away');
+  await fay2.page.fill('#ts-code', loginCode); await tap(fay2, 'Log in');
+  ok(await has(fay2, 'Your status'), 'Fay logs in on a new phone with her password and the emailed code');
   await tab(fay2, 'You');
   ok(await has(fay2, 'logged in as fay_99'), 'and it is the same account');
   await tap(fay2, 'Log out');
@@ -451,7 +498,7 @@ try {
   await tap(fay2, "I've saved it");
   ok(await fay2.page.locator('#login-user').inputValue() === 'fay_99', 'then the log-in form has the username filled in');
   await fay2.page.fill('#login-pass', 'brandnewpass'); await tap(fay2, 'Log in');
-  ok(await has(fay2, 'Your status'), 'and the new password works');
+  ok(await has(fay2, 'Your status'), 'and the new password works, without an email code straight after a recovery');
 
   console.log('Profile photos');
   const pim = await phone('Pim'), quin = await phone('Quin');

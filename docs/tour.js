@@ -1,5 +1,5 @@
 // The short walkthrough shown once after someone signs up, and again from "Show the tour" on the You page.
-// Kept in its own file (loaded before app.js) so the page can forbid inline scripts. app.js opens it with FrenzyTour.open().
+// Kept in its own file (loaded before app.js) so the page can forbid inline scripts. app.js opens it with FrendzyTour.open().
 (function () {
   'use strict';
   var COLORS = { on: 'var(--on)', thinking: 'var(--thinking)', off: 'var(--off)' };
@@ -10,15 +10,15 @@
       '<div class="face-pic">' + name.charAt(0) + '</div><div class="face-name">' + name + '</div>' +
       '<div class="state" style="--c:' + (colour === 'off' ? 'var(--muted)' : COLORS[colour]) + '">' + { on: 'Green', thinking: 'Amber', off: 'Red' }[colour] + '</div></div>';
   }
-  var PIN = '<svg width="30" height="40" viewBox="0 0 30 40" aria-hidden="true"><path d="M15 39s13-13.4 13-23.5C28 7.5 22.2 2 15 2S2 7.5 2 15.5C2 25.6 15 39 15 39z" fill="var(--accent)" stroke="#fff" stroke-width="2"/><circle cx="15" cy="15" r="5" fill="#fff"/></svg>';
+  var PIN = '<svg width="30" height="40" viewBox="0 0 30 40" aria-hidden="true"><path d="M15 39s13-13.4 13-23.5C28 7.5 22.2 2 15 2S2 7.5 2 15.5C2 25.6 15 39 15 39z" fill="#1F7BFF" stroke="#0B0B0D" stroke-width="2"/><circle cx="15" cy="15" r="5" fill="#fff"/></svg>';
 
   // Each step: a picture made from the app's own pieces, a heading and a line or two.
   function steps(name) {
     return [
       {
-        art: '<div class="logo tour-logo"><div class="wordmark">Frenzy</div><div class="dots all"><i style="--c:var(--on)"></i><i style="--c:var(--thinking)"></i><i style="--c:var(--off)"></i></div></div>',
-        title: name ? 'Welcome, ' + esc(name) + '.' : 'Welcome to Frenzy.',
-        body: 'Frenzy is for getting off your phone and out with your mates. Here\'s how it works in five quick steps.'
+        art: '<div class="logo tour-logo"><div class="wordmark">Frendzy</div><div class="dots all"><i style="--c:var(--on)"></i><i style="--c:var(--thinking)"></i><i style="--c:var(--off)"></i></div></div>',
+        title: name ? 'Welcome, ' + esc(name) + '.' : 'Welcome to Frendzy.',
+        body: 'Frendzy is for getting off your phone and out with your mates. Here\'s how it works in five quick steps.'
       },
       {
         art: '<div class="slide tour-slide" aria-hidden="true"><span class="knob"></span><span class="stop">G</span><span class="stop">A</span><span class="stop">R</span></div>',
@@ -29,7 +29,7 @@
       {
         art: '<div class="faces tour-faces" aria-hidden="true">' + face('Mia', 'on', 320) + face('Jay', 'thinking', 200) + face('Sam', 'off', 30) + '</div>',
         title: 'Bring your friends',
-        body: 'Frenzy only works with friends on it. Send them your invite link, then accept their request. Friends show up as faces lit in their status colour, and only friends see your photo.'
+        body: 'Frendzy only works with friends on it. Send them your invite link, then accept their request. Friends show up as faces lit in their status colour, and only friends see your photo.'
       },
       {
         art: '<div class="tour-chat" aria-hidden="true"><div class="msg">Who\'s keen tonight?</div><div class="msg me">Me! Vote for a spot</div>' +
@@ -92,7 +92,7 @@
     }
   }
 
-  window.FrenzyTour = {
+  window.FrendzyTour = {
     // opts.name: the person's first name for the welcome; opts.onClose: called once when it is finished or skipped.
     open: function (opts) {
       opts = opts || {};
