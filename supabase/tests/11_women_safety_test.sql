@@ -56,8 +56,8 @@ select public.expect(public.my_safety() = '{"gender": null, "women_only": false}
 select set_config('request.jwt.claim.sub', :m2, false) \g /dev/null
 select public.expect_error($$select public.request_friend('WRENWREN')$$, 'Milo cannot send Wren a request from her link');
 select set_config('request.jwt.claim.sub', :q1, false) \g /dev/null
-select public.set_safety('nonbinary', false) \g /dev/null
-select public.expect_error($$select public.request_friend('WRENWREN')$$, 'someone who has not said they are a woman is also refused');
+select public.set_safety('man', false) \g /dev/null
+select public.expect_error($$select public.request_friend('WRENWREN')$$, 'someone who says they are a man is also refused');
 
 select set_config('request.jwt.claim.sub', :w2, false) \g /dev/null
 select public.expect((select count(*) from public.statuses where user_id = :w1) = 1, 'Willa still sees Wren''s status');

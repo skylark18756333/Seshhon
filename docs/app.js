@@ -812,7 +812,7 @@
     return h;
   }
 
-  // Gender is optional and private. Women can turn on women-only mode. Hidden if the database is older.
+  // Gender is optional and private. Women and non-binary people can turn on the women and non-binary only mode. Hidden if the database is older.
   function safetyCard() {
     var sf = ui.safety;
     if (!sf || sf === 'off') return '';
@@ -822,10 +822,10 @@
         var on = (sf.gender || '') === o[0];
         return '<button class="btn small-btn' + (on ? '' : ' ghost') + '" data-act="gender" data-v="' + o[0] + '" aria-pressed="' + on + '">' + o[1] + '</button>';
       }).join('') + '</div>';
-    if (sf.gender === 'woman') {
-      h += '<h2 style="margin-top:8px">Women-only mode</h2><p class="muted small">' + (sf.women_only
-        ? 'On. Only women can see your status, add you, or join and chat in seshes you start. Anyone else just sees you as red. In someone else\'s sesh, the people in it can still see you.'
-        : 'When it\'s on, only women can see your status, add you, or join and chat in seshes you start.') + '</p>' +
+    if (sf.gender === 'woman' || sf.gender === 'nonbinary') {
+      h += '<h2 style="margin-top:8px">Women and non-binary only</h2><p class="muted small">' + (sf.women_only
+        ? 'On. Only women and non-binary people can see your status, add you, or join and chat in seshes you start. Anyone else just sees you as red. In someone else\'s sesh, the people in it can still see you.'
+        : 'When it\'s on, only women and non-binary people can see your status, add you, or join and chat in seshes you start.') + '</p>' +
         '<button class="btn small-btn' + (sf.women_only ? ' ghost' : '') + '" data-act="women-only" data-v="' + (sf.women_only ? 'off' : 'on') + '" aria-pressed="' + !!sf.women_only + '">' + (sf.women_only ? 'Turn off' : 'Turn on') + '</button>';
     }
     return h + '</div>';
@@ -979,10 +979,10 @@
     'block-user': function (v) { ui.confirm = null; act('block_user', { p_user: v }, 'Blocked.'); },
     'block-request': function (v) { ui.confirm = null; act('block_request', { p_friendship: v }, 'Blocked.'); },
     gender: function (v) {
-      act('set_safety', { p_gender: v || null, p_women_only: v === 'woman' && !!ui.safety.women_only }).then(function (r) { if (r) { ui.safety = r; render(); } });
+      act('set_safety', { p_gender: v || null, p_women_only: (v === 'woman' || v === 'nonbinary') && !!ui.safety.women_only }).then(function (r) { if (r) { ui.safety = r; render(); } });
     },
     'women-only': function (v) {
-      act('set_safety', { p_gender: 'woman', p_women_only: v === 'on' }, v === 'on' ? 'Women-only mode is on.' : 'Women-only mode is off.').then(function (r) { if (r) { ui.safety = r; render(); } });
+      act('set_safety', { p_gender: ui.safety.gender, p_women_only: v === 'on' }, v === 'on' ? 'Women and non-binary only is on.' : 'Women and non-binary only is off.').then(function (r) { if (r) { ui.safety = r; render(); } });
     },
     unblock: function (v) { act('unblock_user', { p_user: v }, 'Unblocked. You can add each other again with an invite link.'); },
     accept: function (v) { act('answer_friend', { p_friendship: v, p_accept: true }, 'You\'re now friends.'); },

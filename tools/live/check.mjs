@@ -251,9 +251,9 @@ try {
   await tab(ana, 'Home');
   ok(await gone(ana, 'Cam', 5000), 'Cam disappears from Ana\'s friends');
 
-  console.log('Women-only mode and blocking');
+  console.log('Women and non-binary mode, and blocking');
   await tab(ana, 'You'); await tap(ana, 'Woman');
-  ok(await has(ana, 'Women-only mode'), 'Ana says she is a woman and is offered women-only mode');
+  ok(await has(ana, 'Women and non-binary only'), 'Ana says she is a woman and is offered the mode');
   await tap(ana, 'Turn on');
   ok(await has(ana, 'Turn off') && await has(ana, 'Anyone else just sees you as red'), 'Ana turns on women-only mode');
   if (process.env.SHOTS) await ana.page.screenshot({ path: process.env.SHOTS + '/women-only.png', fullPage: true });
@@ -262,7 +262,7 @@ try {
   await tap(ana, 'Turn off');
   ok(await ben.page.waitForFunction(() => /Ana\s+Green/.test(document.body.innerText), null, { timeout: 5000 }).then(() => true, () => false), 'with it off, Ben sees Ana is Green again');
   await tap(ana, 'Rather not say');
-  ok(await gone(ana, 'Women-only mode'), 'Ana can take her gender back off');
+  ok(await gone(ana, 'Women and non-binary only'), 'Ana can take her gender back off');
   const gus = await phone('Gus');
   await signUp(gus, 'Gus', anaLink);
   await tab(ana, 'Home');
