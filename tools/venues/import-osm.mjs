@@ -24,6 +24,15 @@ const QUERY = `[out:json][timeout:180];(` +
 const SERVERS = ['https://overpass-api.de/api/interpreter', 'https://overpass.kumi.systems/api/interpreter'];
 
 async function download() {
+  // The public Overpass servers are often busy (504). Try each a few times, waiting longer each round.
+  for (let round = 0; round < 4; round++) {
+    if (round) { console.error('Waiting ' + 30 * round + 's before trying again...'); await new Promise((r) => setTimeout(r, 30000 * round)); }
+    const data = await tryServers();
+    if (data) return data;
+  }
+  throw new Error('Could not reach OpenStreetMap. Try again later.');
+}
+async function tryServers() {
   for (const url of SERVERS) {
     try {
       const res = await fetch(url, { method: 'POST', body: new URLSearchParams({ data: QUERY }), headers: { 'User-Agent': 'SeshOn venue import (github.com/skylark18756333/Seshhon)' } });
@@ -31,7 +40,7 @@ async function download() {
       console.error(url + ' answered ' + res.status);
     } catch (e) { console.error(url + ' failed: ' + e.message); }
   }
-  throw new Error('Could not reach OpenStreetMap. Try again later.');
+  return null;
 }
 
 const q = (s) => "'" + String(s).replace(/'/g, "''") + "'";
