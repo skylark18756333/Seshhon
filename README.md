@@ -144,3 +144,26 @@ To switch it on:
 
 People who signed up before the switch are asked to do the check the next time they open the app,
 and cannot go Green or Amber until they pass. Each person gets at most 5 attempts a day.
+
+## Google ratings (optional, paid)
+
+Venue cards can show a venue's Google rating ("4.4 ★ on Google Maps (812)") next to Frenzy's own
+ratings. It is **off** until switched on, and each look-up is billed by Google to your Google Cloud
+account. Google's terms allow keeping a venue's Google place ID but not its rating, so the rating is
+fetched fresh each time someone opens a venue, and each person is limited to 100 look-ups a day.
+
+- `supabase/functions/google-rating/`: the Edge Function that holds the Google key, finds the venue on
+  Google (once, then remembers its place ID) and fetches the rating.
+- `supabase/migrations/0016_google_ratings.sql`: the daily limit and the place ID helpers.
+
+To switch it on:
+
+1. In Google Cloud Console, create a project, turn on billing, and enable **Places API (New)**.
+   Create an API key, restrict it to Places API (New), and set a monthly budget alert.
+2. Run `supabase/migrations/0016_google_ratings.sql` in the Supabase SQL editor.
+3. In Supabase, go to Edge Functions, create a function called `google-rating` with
+   `supabase/functions/google-rating/index.ts`, and turn **Verify JWT** off (it checks the sign-in itself).
+   Or: `supabase functions deploy google-rating --no-verify-jwt`.
+4. In Edge Functions, Secrets, add `GOOGLE_PLACES_KEY` with the key.
+5. In `docs/config.js`, set `googleRatings: true`.
+

@@ -61,6 +61,11 @@ http.createServer(async (req, res) => {
     if (body.outcome) ageOutcome = body.outcome;
     return send(res, 200, {});
   }
+  // A stand-in for the google-rating Edge Function: every venue gets the same pretend Google rating.
+  if (url.pathname === '/functions/v1/google-rating') {
+    if (!tokens.get((req.headers.authorization || '').replace('Bearer ', ''))) return send(res, 401, { message: 'Sign in first.' });
+    return send(res, 200, { enabled: true, found: true, rating: 4.4, count: 120, url: 'https://maps.google.com/?cid=1' });
+  }
   // A stand-in for the age-check Edge Function: same database calls, with a pretend provider whose
   // check page just sends the person straight back.
   if (url.pathname === '/functions/v1/age-check') {

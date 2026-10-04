@@ -28,7 +28,7 @@ const api = spawn('node', [path.join(here, 'fake-supabase.mjs'), sock, dbPort, '
 const web = http.createServer((req, res) => {
   const p = new URL(req.url, 'http://x').pathname;
   if (p === '/config.js') { res.setHeader('Content-Type', 'text/javascript'); // Serve the real docs/config.js, only swapping the address and key, so a misnamed setting is caught here.
-    return res.end(fs.readFileSync(path.join(root, 'docs/config.js'), 'utf8').replace(/url: '[^']*'/, `url: '${API}'`).replace(/key: '[^']*'/, "key: 'test-anon-key'").replace(/pollMs: \d+/, 'pollMs: 600, chatPollMs: 500').replace(/deals: (true|false)/, 'deals: ' + dealsOn).replace(/captchaSiteKey: '[^']*'/, "captchaSiteKey: ''")); }
+    return res.end(fs.readFileSync(path.join(root, 'docs/config.js'), 'utf8').replace(/url: '[^']*'/, `url: '${API}'`).replace(/key: '[^']*'/, "key: 'test-anon-key'").replace(/pollMs: \d+/, 'pollMs: 600, chatPollMs: 500').replace(/deals: (true|false)/, 'deals: ' + dealsOn).replace(/captchaSiteKey: '[^']*'/, "captchaSiteKey: ''").replace(/googleRatings: (true|false)/, 'googleRatings: true')); }
   const f = path.join(root, 'docs', p === '/' ? 'index.html' : p);
   if (f === path.join(root, 'docs/index.html')) { // The security policy must allow the real Supabase address; here it is swapped for the stand-in.
     const html = fs.readFileSync(f, 'utf8'), live = fs.readFileSync(path.join(root, 'docs/config.js'), 'utf8').match(/url: '([^']*)'/)[1];
@@ -177,7 +177,10 @@ try {
   ok(await has(ben, '23 venues within 25 km of you'), 'widening the radius brings the venues back');
   await ben.page.locator('#radius').fill('15');
   ok(await has(ben, '0 venues within 15 km'), 'narrowing the radius filters them out again');
+  const mark = sent.length;
   await ben.page.waitForTimeout(1500);   // let a few background refreshes run
+  const during = sent.slice(mark);
+  ok(during.filter((x) => x.includes('/rpc/api_state')).length >= 2 && during.filter((x) => x.includes('/rpc/api_venues')).length === 0, 'background refreshes do not download the venues again');
   ok(await ben.page.locator('#radius').inputValue() === '15' && await has(ben, 'within 15 km of you'), 'the radius and location survive background refreshes');
   ok(!sent.some((x) => /-32\.05|115\.74/.test(x)), 'the phone\'s location is never sent to the server');
   await ben.page.locator('#radius').fill('25');
@@ -185,10 +188,18 @@ try {
   await ben.page.screenshot({ path: path.join(copy, 'venue-map.png') });
   await ben.page.evaluate(() => { document.getElementById('view').scrollTop = 0; });
   const pin = (p, name) => p.page.locator(`.leaflet-container .leaflet-marker-icon[title="${name}"]`).dispatchEvent('click');
+  await pin(ben, 'Lowtide Bar');
+  ok(await has(ben, 'No Frenzy ratings yet') && await has(ben, '4.4 ★ on Google Maps (120)'), 'the card under a pin shows Frenzy and Google ratings');
+  await ben.page.getByRole('button', { name: 'Rate 5 stars' }).click();
+  ok(await has(ben, '5.0 ★ on Frenzy (1)'), 'tapping a star on the card rates the venue');
   await pin(ben, 'Bodega Nine');
   ok(await has(ben, 'Open venue') && await ben.page.locator('#map-pick', { hasText: 'Bodega Nine' }).count() === 1, 'tapping a pin shows that venue under the map');
+  ok(/(Open till|Closes soon|Opens) /.test(await ben.page.locator('#map-pick').innerText()), 'the picked venue says when it opens or closes');
+  ok(await ben.page.locator('.pin-badge').count() >= 3, 'pins show an open or closed badge');
+  await ben.page.screenshot({ path: path.join(copy, 'venue-pick.png') });
   await tap(ben, 'Open venue');
   ok(await has(ben, 'Rate this venue'), 'and Open venue opens its page');
+  ok(/Tu-Su|Opening hours/.test(await text(ben)) && /(Open till|Closes soon|Opens) /.test(await text(ben)) && await has(ben, 'Mon') && await has(ben, 'Closed'), 'a venue page shows its opening hours and whether it is open');
   await tab(ben, 'Venues');
 
   console.log('Deals on the map, and events');
@@ -221,6 +232,17 @@ try {
   ok(await has(ben, 'Deal used', 4000), 'Ben\'s screen flips to "Deal used" by itself');
   await ana.page.fill('#staff-code', code); await tap(ana, 'Confirm code');
   ok(await has(ana, 'not valid') || await has(ana, 'already') || await has(ana, 'used') || await has(ana, 'expired'), 'a second use of the same code is refused: ' + (await ana.page.locator('#staff-error').innerText().catch(() => '?')));
+  await tab(ana, 'Map');
+  await ana.page.evaluate(() => { document.getElementById('view').scrollTop = 0; });
+  await ana.page.locator('.leaflet-container .leaflet-marker-icon[title="Bodega Nine"]').dispatchEvent('click');
+  await tap(ana, 'Open venue');
+  ok(await has(ana, 'You work here'), 'staff see a box to change their venue\'s hours');
+  await ana.page.fill('#hours-input', 'whenever');
+  await tap(ana, 'Save hours');
+  ok(await has(ana, 'could not be read'), 'hours the app cannot read are refused');
+  await ana.page.fill('#hours-input', 'Mo-Su 00:00-24:00');
+  await tap(ana, 'Save hours');
+  ok(await has(ana, 'Open 24 hours'), 'staff can change the hours and the venue updates');
 
   console.log('Ratings');
   await tap(ben, 'Rate Bodega Nine');

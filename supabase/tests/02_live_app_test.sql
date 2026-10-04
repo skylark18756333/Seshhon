@@ -67,7 +67,7 @@ select public.expect((select f ->> 'colour' from jsonb_array_elements(public.api
 select set_config('request.jwt.claim.sub', :s, false) \g /dev/null
 select public.expect((public.api_state() -> 'friends') = '[]'::jsonb and (public.api_state() -> 'seshes') = '[]'::jsonb, 'a stranger sees no friends and no seshes');
 select public.expect(jsonb_array_length(public.api_state() -> 'staff_venues') = 1, 'staff see which venue they work at');
-select public.expect(jsonb_array_length(public.api_state() -> 'deals') >= 6 and jsonb_array_length(public.api_state() -> 'venues') >= 3, 'everyone sees venues and deals');
+select public.expect(jsonb_array_length(public.api_state() -> 'deals') >= 6 and jsonb_array_length(public.api_venues()) >= 3, 'everyone sees venues and deals');
 
 -- ---- sesh actions
 select set_config('request.jwt.claim.sub', :a, false) \g /dev/null
@@ -94,7 +94,7 @@ select public.expect_error('select public.cast_vote(' || quote_literal(:'sesh1')
 -- ---- ratings through the app
 select public.rate_venue('a0000000-0000-4000-8000-000000000002', 5, array['Good vibe']) \g /dev/null
 select public.rate_venue('a0000000-0000-4000-8000-000000000002', 3, array['Good value']) \g /dev/null
-select public.expect((select v ->> 'my_stars' from jsonb_array_elements(public.api_state() -> 'venues') v where v ->> 'name' = 'Bodega Nine') = '3', 'rating again replaces your earlier rating');
+select public.expect((select v ->> 'my_stars' from jsonb_array_elements(public.api_venues()) v where v ->> 'name' = 'Bodega Nine') = '3', 'rating again replaces your earlier rating');
 select public.expect_error($$select public.rate_venue('a0000000-0000-4000-8000-000000000002', 4, array['a','b','c','d','e','f'])$$, 'too many tags are refused');
 
 -- ---- deleting an account
