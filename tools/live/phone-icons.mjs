@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 const here = path.dirname(fileURLToPath(import.meta.url));
-const out = (name) => path.join(here, '../../mobile/assets', name);
+const out = (name) => path.join(here, '../../mobile/' + (name.startsWith('store/') ? '' : 'assets/'), name);
 const BG = '#050506';
 const FONT = 'brand/permanent-marker.woff2';
 const page = path.join(here, '.phone-icon.html');
@@ -31,7 +31,18 @@ const pictures = [
   // Splash screen: the mark alone, shown on the dark background while the app opens.
   ['splash-icon.png', picture({ bg: 'transparent', scale: 1.6 })],
   ['favicon.png', picture({ bg: BG, scale: 2 }), 48],
+  // Play Store listing icon.
+  ['store/icon-512.png', picture({ bg: BG, scale: 2 }), 512],
 ];
+
+// Play Store feature graphic (1024 x 500): the mark, the name and the line.
+const feature = `<style>@font-face { font-family: 'Permanent Marker'; src: url(${FONT}) format('woff2'); }</style>
+<body style="margin:0"><div id="p" style="width:1024px;height:500px;background:${BG};display:flex;align-items:center;gap:56px;padding:0 80px;box-sizing:border-box;font-family:'Permanent Marker',cursive;color:#fff">
+<div style="font-size:300px;line-height:1;transform:rotate(-6deg);position:relative">F<div style="position:absolute;left:-10%;right:-25%;bottom:6px;height:22px;border-radius:10px 30px 8px 24px;background:#F5C542;transform:skewX(-20deg)"></div></div>
+<div><div style="font-size:120px;line-height:1">Frenzy</div>
+<div style="display:flex;gap:18px;margin:26px 0"><i style="width:34px;height:34px;border-radius:50%;background:#3DDC84"></i><i style="width:34px;height:34px;border-radius:50%;background:#F5C542"></i><i style="width:34px;height:34px;border-radius:50%;background:#F0524B"></i></div>
+<div style="font:700 34px/1.2 system-ui,sans-serif;color:#d8d8dc">Get off the apps. Get out.</div></div>
+</div></body>`;
 
 const b = await chromium.launch({ executablePath: process.env.CHROMIUM || '/opt/pw-browsers/chromium' });
 for (const [name, html, size = 1024] of pictures) {
@@ -40,6 +51,14 @@ for (const [name, html, size = 1024] of pictures) {
   await p.goto('file://' + page);
   await p.evaluate(() => document.fonts.ready);
   await p.locator('#p').screenshot({ path: out(name), omitBackground: true });
+  await p.close();
+}
+{
+  const p = await b.newPage({ viewport: { width: 1024, height: 500 } });
+  fs.writeFileSync(page, feature);
+  await p.goto('file://' + page);
+  await p.evaluate(() => document.fonts.ready);
+  await p.locator('#p').screenshot({ path: out('store/feature-graphic.png') });
   await p.close();
 }
 await b.close();

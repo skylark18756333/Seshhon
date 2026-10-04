@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
   push:
     branches: ['claude/**']
-    paths: [mobile/**, .github/workflows/phone-app-crash-check.yml]
+    paths: [mobile/**, '!mobile/store/**', '!mobile/**/*.md']
 
 jobs:
   check:
@@ -53,14 +53,14 @@ jobs:
             adb shell monkey -p com.seshhon.app -c android.intent.category.LAUNCHER 1
             sleep 25
             echo "===== still running? ====="
-            RUNNING=yes; adb shell pidof com.seshhon.app || RUNNING=no
-            echo "running: $RUNNING"
+            adb shell pidof com.seshhon.app > "$RUNNER_TEMP/pid" || true
             echo "===== crash report ====="
             adb logcat -d -b crash || true
             adb exec-out screencap -p > "$RUNNER_TEMP/screen.png" || true
             echo "===== app log ====="
             adb logcat -d | grep -E "AndroidRuntime|ReactNativeJS|chromium" | tail -80 || true
-            [ "$RUNNING" = yes ]
+            test -s "$RUNNER_TEMP/pid" || { echo "The app closed by itself."; exit 1; }
+            echo "The app is still running."
       - name: Keep the screenshot
         if: always()
         uses: actions/upload-artifact@v4
