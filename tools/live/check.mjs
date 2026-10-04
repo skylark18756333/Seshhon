@@ -63,6 +63,10 @@ async function signUp(p, name, link) {
   await p.page.fill('#dob', '1995-04-12');
   await tap(p, 'Get started');
   await has(p, 'Your status');
+  await skipTour(p);
+}
+async function skipTour(p) {   // the walkthrough opens after every sign-up
+  try { await p.page.locator('.tour-skip').click({ timeout: 4000 }); await p.page.locator('.tour').waitFor({ state: 'detached', timeout: 4000 }); } catch {}
 }
 async function tab(p, t) { await (t === 'You' ? p.page.locator('button.profile-btn') : p.page.locator(`nav button:has-text("${t}")`)).click(); }   // You is the profile button at the top right
 async function inviteOf(p) { await tab(p, 'You'); await tap(p, 'Send your invite link'); const l = await p.page.locator('#invite-link').innerText(); return l.slice(l.indexOf('?')); }
@@ -80,6 +84,23 @@ try {
   ok(await has(ana, 'aged 18 and over') && (await ana.page.locator('#name').count()) === 0, 'and stays turned away after a reload');
   await ana.page.evaluate(() => localStorage.clear()); await ana.page.reload();
   await ana.page.fill('#name', 'Ana'); await ana.page.fill('#dob', '1995-04-12'); await tap(ana, 'Get started');
+  ok(await has(ana, 'Welcome, Ana.'), 'the walkthrough opens straight after sign-up');
+  ok(await ana.page.locator('#app[inert]').count() === 1, 'and the app behind it cannot be tapped');
+  await tap(ana, 'Show me');
+  ok(await has(ana, 'Slide to show you\'re up for it'), 'Next goes to the status step');
+  await ana.page.reload();
+  ok(await has(ana, 'Welcome, Ana.'), 'a reload part-way through shows the walkthrough again');
+  for (let i = 0; i < 5; i++) await ana.page.locator('[data-tour="next"]').click();
+  ok(await has(ana, "You're in control"), 'the last step is reached');
+  await tap(ana, "Let's go");
+  ok(await gone(ana, 'Welcome, Ana.') && (await ana.page.locator('#app[inert]').count()) === 0, "Let's go closes the walkthrough");
+  await ana.page.reload();
+  ok(await has(ana, 'Your status') && !(await has(ana, 'Welcome, Ana.', 1500)), 'and it does not come back after a reload');
+  await tab(ana, 'You'); await tap(ana, 'Show the tour');
+  ok(await has(ana, 'Welcome, Ana.'), 'the You page can show the walkthrough again');
+  await ana.page.keyboard.press('Escape');
+  ok(await gone(ana, 'Welcome, Ana.'), 'Escape closes it');
+  await tab(ana, 'Home');
   ok(await has(ana, "You're red."), 'Ana signs up and starts Red');
   ok(await has(ana, 'Add your friends'), 'a new person is told to add friends');
 
@@ -353,6 +374,8 @@ try {
   await ageSet({ outcome: 'passed' });
   await tap(eve, "I've finished, check again");
   ok(await has(eve, "You're red."), 'once the check passes, Eve is signed up');
+  ok(await has(eve, 'Welcome, Eve.'), 'and the walkthrough opens after the age check too');
+  await skipTour(eve);
   ok(await eve.page.evaluate(() => sessionStorage.getItem('seshhon-signup-waiting')) === null, 'the date of birth held during the check is cleared');
   await dan.page.reload();
   ok(await has(dan, 'Quick age check'), 'someone who joined before the check was switched on is asked to do it');

@@ -143,7 +143,7 @@ nav { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-to
 nav button { position: relative; background: none; border: 0; min-height: 50px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; font-size: 11px; font-weight: 500; color: var(--muted); border-radius: 12px; }
 nav button[aria-current="page"] { color: var(--accent); font-weight: 700; }
 .badge { position: absolute; top: 4px; left: calc(50% + 6px); min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--off); color: #fff; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
-#toast { position: fixed; left: 50%; bottom: calc(96px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); width: max-content; max-width: min(360px, calc(100% - 32px)); background: var(--fg); color: var(--ink); font-weight: 700; font-size: 14px; padding: 12px 18px; border-radius: 24px; text-align: center; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); }
+#toast { position: fixed; left: 50%; bottom: calc(96px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); width: max-content; max-width: min(360px, calc(100% - 32px)); background: var(--fg); color: var(--ink); font-weight: 700; font-size: 14px; padding: 12px 18px; border-radius: 24px; text-align: center; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); z-index: 2100; }
 a { color: var(--fg); }
 /* Sesh chat: friends on the left in grey with their face and name, you on the right in blue. */
 .chat { max-height: 440px; min-height: 80px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; padding: 4px 0; }
@@ -228,6 +228,39 @@ input[type="range"]::-moz-range-thumb { width: 28px; height: 28px; border-radius
 .deal-banner .big { font-family: var(--brush); font-size: 30px; line-height: 1.05; color: var(--zest); transform: rotate(-2deg); transform-origin: left; overflow-wrap: anywhere; }
 .deal-banner .sub { font-family: var(--display); font-weight: 800; font-size: 12px; letter-spacing: 2px; text-transform: uppercase; color: #fff; }
 .banner { background: var(--surface-2); border: 1px solid var(--off); border-radius: 12px; padding: 10px 14px; font-size: 14px; }
+/* Tour after sign-up (tour.js): a card over a dimmed app, one step at a time, with a small picture made from the app's own pieces. */
+.tour { position: fixed; inset: 0; z-index: 2000; display: flex; align-items: flex-end; justify-content: center; padding: 16px 16px calc(16px + env(safe-area-inset-bottom, 0px)); background: rgba(5, 5, 6, 0.82); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); touch-action: pan-y; }
+.tour-card { width: 100%; max-width: 420px; max-height: 100%; overflow-y: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 26px; padding: 18px 20px 20px; display: flex; flex-direction: column; gap: 14px; box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.6); }
+.tour-card h1 { font-size: 26px; outline: none; }
+.tour-skip { font-size: 14px; min-height: 40px; padding: 0 4px; }
+.tour-art { height: 170px; border-radius: 18px; background: radial-gradient(90% 90% at 50% 100%, rgba(31, 123, 255, 0.22), transparent 70%), var(--bg); border: 1px solid var(--line); display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.tour-logo .wordmark { font-size: 44px; }
+.tour-logo .dots i { width: 13px; height: 13px; box-shadow: 0 0 12px var(--c); }
+.tour-slide { width: calc(100% - 36px); max-width: 280px; pointer-events: none; --c: var(--on); }
+.tour-slide .stop { display: flex; align-items: center; justify-content: center; color: var(--fg); text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6); }
+.tour-slide .knob { animation: tour-knob 4.5s infinite; }
+@keyframes tour-knob {
+  0%, 26% { transform: translateX(0); background: var(--on); box-shadow: 0 0 22px color-mix(in srgb, var(--on) 45%, transparent); }
+  33%, 59% { transform: translateX(100%); background: var(--thinking); box-shadow: 0 0 22px color-mix(in srgb, var(--thinking) 45%, transparent); }
+  66%, 92% { transform: translateX(200%); background: var(--off); box-shadow: 0 0 22px color-mix(in srgb, var(--off) 45%, transparent); }
+  100% { transform: translateX(0); background: var(--on); }
+}
+.tour-faces { width: calc(100% - 36px); grid-template-columns: repeat(3, minmax(0, 1fr)); padding-top: 0; }
+.tour-chat { width: calc(100% - 36px); display: flex; flex-direction: column; gap: 8px; font-size: 14px; }
+.tour-chat .msg { font-size: 14px; padding: 8px 12px; }
+.tour-chat .msg.me { align-self: flex-end; }
+.tour-vote { gap: 8px; margin-top: 4px; }
+.tour-map { position: relative; width: 100%; height: 100%; background: linear-gradient(115deg, transparent 47%, #3A4256 47.5%, #3A4256 49.5%, transparent 50%), linear-gradient(20deg, transparent 60%, #2E3546 60.5%, #2E3546 62%, transparent 62.5%), #141B2A; }
+.tour-pin { position: absolute; transform: translate(-50%, -100%); filter: drop-shadow(0 3px 5px rgba(0, 0, 0, 0.6)); }
+.tour-pin.hot svg path { fill: var(--zest); }
+.tour-tag { position: absolute; transform: translateX(-50%); background: rgba(16, 17, 21, 0.92); border-radius: 10px; padding: 5px 10px; font-size: 14px; font-weight: 500; white-space: nowrap; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5); }
+.tour-tag small { display: block; color: #C9CCD3; font-size: 12px; font-weight: 400; }
+.tour-shield { color: var(--on); filter: drop-shadow(0 0 18px color-mix(in srgb, var(--on) 50%, transparent)); }
+.tour-dots { display: flex; justify-content: center; gap: 6px; }
+.tour-dots i { width: 7px; height: 7px; border-radius: 50%; background: var(--line); }
+.tour-dots i.on { width: 20px; border-radius: 4px; background: var(--accent); }
+.tour .row .btn { flex: 1; }
+@media (prefers-reduced-motion: reduce) { .tour-slide .knob { animation: none; } }
 </style>
 <script src="load-config.js"></script>
 </head>
@@ -247,6 +280,7 @@ input[type="range"]::-moz-range-thumb { width: 28px; height: 28px; border-radius
 
 <script src="vendor/leaflet/leaflet.js"></script>
 <script src="hours.js"></script>
+<script src="tour.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
