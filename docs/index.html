@@ -20,6 +20,7 @@
 /* Layout: one phone-width column, scrolling content above a tab bar. Night-out look: near-black screens, a brush-script
    logo, blue for your own messages and main actions, and the G/A/R status colours kept for status only. */
 @font-face { font-family: 'Permanent Marker'; font-weight: 400; font-display: swap; src: url(fonts/permanent-marker-latin-400-normal.woff2) format('woff2'); }
+@font-face { font-family: 'Tilt Neon'; font-weight: 400; font-display: swap; src: url(fonts/tilt-neon-latin-400-normal.woff2) format('woff2'); }
 @font-face { font-family: 'Montserrat'; font-weight: 700; font-display: swap; src: url(fonts/montserrat-latin-700-normal.woff2) format('woff2'); }
 @font-face { font-family: 'Montserrat'; font-weight: 800; font-display: swap; src: url(fonts/montserrat-latin-800-normal.woff2) format('woff2'); }
 @font-face { font-family: 'Inter'; font-weight: 400; font-display: swap; src: url(fonts/inter-latin-400-normal.woff2) format('woff2'); }
@@ -40,6 +41,7 @@
   --thinking: #F5C542;
   --off: #F0524B;
   --ink: #0B0B0D;
+  --neon: 'Tilt Neon', 'Trebuchet MS', system-ui, sans-serif;
   --brush: 'Permanent Marker', 'Marker Felt', 'Comic Sans MS', cursive;
   --display: 'Montserrat', 'Trebuchet MS', system-ui, sans-serif;
   --body: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
@@ -74,18 +76,20 @@ body[data-status="on"], body[data-status="thinking"], body[data-status="off"] {
   background: radial-gradient(140% 55% at 50% -12%, color-mix(in srgb, var(--glow) 42%, transparent), color-mix(in srgb, var(--glow) 10%, transparent) 55%, transparent 78%) fixed, var(--bg); }
 .top .back { border: 0; background: none; width: 36px; margin-left: -8px; }
 .logo { display: flex; align-items: center; gap: 10px; }
-.wordmark { position: relative; font-family: var(--brush); font-weight: 400; font-size: 31px; line-height: 1; letter-spacing: 0.5px; color: #fff; transform: rotate(-4deg); padding-bottom: 4px; white-space: nowrap; }
-.wordmark::after { content: ''; position: absolute; left: 6%; right: -2%; bottom: -1px; height: 5px; border-radius: 3px 8px 2px 6px; background: var(--thinking); transform: skewX(-20deg) rotate(-1deg); }
+.wordmark { font-family: var(--neon); font-weight: 400; font-size: 32px; line-height: 1; letter-spacing: 0.3px; text-transform: lowercase; color: #fff; white-space: nowrap; padding-bottom: 6px;
+  text-shadow: 0 0 4px rgba(255, 255, 255, 0.9), 0 0 12px rgba(255, 255, 255, 0.55), 0 0 26px rgba(255, 255, 255, 0.3); }
+/* Beside the name: a neon speech bubble holding the three status lights. */
 .dots { display: flex; gap: 5px; }
 .dots i { width: 9px; height: 9px; border-radius: 50%; background: var(--c); opacity: 0.28; }
 .dots i.lit { opacity: 1; box-shadow: 0 0 10px var(--c); }
-.dots.all { gap: 7px; padding: 9px 11px; border-radius: 16px 16px 16px 5px; background: #fff; }
-.dots.all i { opacity: 1; }
-/* Signed in, the traffic light in the header is the status switch. */
-.dots.switch { gap: 0; padding: 0 4px; border-radius: 18px 18px 18px 5px; background: #fff; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45); }
-.dots.switch button { display: flex; align-items: center; justify-content: center; width: 26px; height: 34px; padding: 0; border: 0; background: none; border-radius: 13px; }
-.dots.switch i { width: 12px; height: 12px; opacity: 1; transition: transform 0.15s; }
-.dots.switch i.lit { transform: scale(1.35); box-shadow: 0 0 0 2px #fff, 0 0 0 3.5px var(--c); }
+.dots.all, .dots.switch { border: 2px solid #fff; border-radius: 16px 16px 16px 5px; background: rgba(5, 5, 6, 0.6); box-shadow: 0 0 8px rgba(255, 255, 255, 0.55), inset 0 0 6px rgba(255, 255, 255, 0.25); }
+.dots.all { gap: 6px; padding: 7px 9px; }
+.dots.all i, .dots.switch i { opacity: 1; box-shadow: 0 0 8px var(--c); }
+/* Signed in, the bubble is the status switch: tap a light. Your status is the bigger light with a ring. */
+.dots.switch { gap: 0; padding: 0 3px; }
+.dots.switch button { display: flex; align-items: center; justify-content: center; width: 24px; height: 30px; padding: 0; border: 0; background: none; border-radius: 12px; }
+.dots.switch i { width: 10px; height: 10px; transition: transform 0.15s; }
+.dots.switch i.lit { transform: scale(1.4); box-shadow: 0 0 0 1.5px #050506, 0 0 0 3px var(--c), 0 0 12px var(--c); }
 .pill { font-size: 12px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; padding: 5px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
 .status-word { font-family: var(--display); font-weight: 800; font-size: 50px; line-height: 1; letter-spacing: -1.5px; }
 /* Status switch: one track, a coloured knob you drag or flick across G, A, R; tapping a letter also works. */
