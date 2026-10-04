@@ -61,7 +61,11 @@ async function signUp(p, name, link) {
   await p.page.goto(`http://127.0.0.1:${WEB_PORT}/${link || ''}`);
   await p.page.fill('#name', name);
   await p.page.fill('#dob', '1995-04-12');
+  await p.page.fill('#join-user', name.toLowerCase().replace(/[^a-z0-9_]/g, '') + '_live');
+  await p.page.fill('#join-pass', 'longenough1');
   await tap(p, 'Get started');
+  await has(p, 'Save your recovery code');
+  await tap(p, "I've saved it");
   await has(p, 'Your status');
   await skipTour(p);
 }
@@ -84,6 +88,15 @@ try {
   ok(await has(ana, 'aged 18 and over') && (await ana.page.locator('#name').count()) === 0, 'and stays turned away after a reload');
   await ana.page.evaluate(() => localStorage.clear()); await ana.page.reload();
   await ana.page.fill('#name', 'Ana'); await ana.page.fill('#dob', '1995-04-12'); await tap(ana, 'Get started');
+  ok(await has(ana, 'Pick a username of 3 to 20'), 'cannot sign up without a username');
+  await ana.page.fill('#join-user', 'Ana_1'); await ana.page.fill('#join-pass', 'short'); await tap(ana, 'Get started');
+  ok(await has(ana, 'at least 10 characters'), 'a short password is explained');
+  await ana.page.fill('#join-pass', 'longenough1');
+  if (process.env.SHOTS) { await ana.page.evaluate(() => { document.getElementById('join-error').hidden = true; }); await ana.page.screenshot({ path: process.env.SHOTS + '/sign-up.png', fullPage: true }); }
+  await tap(ana, 'Get started');
+  ok(await has(ana, 'Save your recovery code') && await has(ana, 'ana_1'), 'signing up shows the username and a recovery code');
+  ok(await ana.page.locator('.tour').count() === 0, 'the walkthrough waits until the recovery code is saved');
+  await tap(ana, "I've saved it");
   ok(await has(ana, 'Welcome, Ana.'), 'the walkthrough opens straight after sign-up');
   ok(await ana.page.locator('#app[inert]').count() === 1, 'and the app behind it cannot be tapped');
   await tap(ana, 'Show me');
@@ -363,7 +376,8 @@ try {
   await ageSet({ required: true, outcome: 'failed' });
   const eve = await phone('Eve');
   await eve.page.goto(`http://127.0.0.1:${WEB_PORT}/`);
-  await eve.page.fill('#name', 'Eve'); await eve.page.fill('#dob', '1999-02-03'); await tap(eve, 'Get started');
+  await eve.page.fill('#name', 'Eve'); await eve.page.fill('#dob', '1999-02-03');
+  await eve.page.fill('#join-user', 'eve_live'); await eve.page.fill('#join-pass', 'longenough1'); await tap(eve, 'Get started');
   ok(await has(eve, 'Quick age check') && await has(eve, 'Yoti checks your age with a quick selfie'), 'with the check switched on, sign-up asks for the age check');
   await tap(eve, 'Start age check');
   ok(await has(eve, "couldn't confirm you're 18"), 'a failed check is explained and Eve is not let in');
@@ -376,6 +390,9 @@ try {
   ok(await has(eve, "You're red."), 'once the check passes, Eve is signed up');
   ok(await has(eve, 'Welcome, Eve.'), 'and the walkthrough opens after the age check too');
   await skipTour(eve);
+  await tab(eve, 'You');
+  ok(await has(eve, 'Keep your account'), 'the password is never stored during the check, so the You page asks for it again');
+  await tab(eve, 'Home');
   ok(await eve.page.evaluate(() => sessionStorage.getItem('seshhon-signup-waiting')) === null, 'the date of birth held during the check is cleared');
   await dan.page.reload();
   ok(await has(dan, 'Quick age check'), 'someone who joined before the check was switched on is asked to do it');
@@ -385,17 +402,32 @@ try {
 
   console.log('Username and password');
   const fay = await phone('Fay');
-  await signUp(fay, 'Fay');
-  await tab(fay, 'You');
-  ok(await has(fay, 'Keep your account'), 'a new account is offered a username and password');
-  await fay.page.fill('#save-user', 'x'); await fay.page.fill('#save-pass', 'longenough1'); await tap(fay, 'Save my account');
-  ok(await has(fay, '3 to 20 letters'), 'a bad username is explained');
-  await fay.page.fill('#save-user', 'Fay_99'); await tap(fay, 'Save my account');
-  ok(await has(fay, 'Save your recovery code'), 'saving shows a recovery code');
+  await fay.page.goto(`http://127.0.0.1:${WEB_PORT}/`);
+  await fay.page.fill('#name', 'Fay'); await fay.page.fill('#dob', '1995-04-12');
+  await fay.page.fill('#join-user', 'ANA_1'); await fay.page.fill('#join-pass', 'longenough1'); await tap(fay, 'Get started');
+  ok(await has(fay, 'That username is taken'), 'a taken username is refused at sign-up');
+  await fay.page.fill('#join-user', 'Fay_99'); await tap(fay, 'Get started');
+  ok(await has(fay, 'Save your recovery code'), 'signing up shows a recovery code');
   const code1 = (await fay.page.locator('#recovery-code').innerText()).trim();
   ok(/^[A-Z2-9]{4}(-[A-Z2-9]{4}){3}$/.test(code1), 'the recovery code looks like XXXX-XXXX-XXXX-XXXX');
   await tap(fay, "I've saved it");
+  await skipTour(fay);
+  await tab(fay, 'You');
   ok(await has(fay, 'logged in as fay_99'), 'Fay sees her username');
+
+  console.log('Add a friend by username');
+  ok(await has(fay, 'Your username is fay_99'), 'Fay is shown the username to give friends');
+  await fay.page.fill('#friend-user', 'nobody_here'); await tap(fay, 'Add');
+  ok(await has(fay, 'No one with that username'), 'an unknown username finds no one');
+  await fay.page.fill('#friend-user', '@Ana_1'); await tap(fay, 'Add');
+  ok(await has(fay, 'Friend request sent to Ana'), 'Fay adds Ana by username');
+  ok(await has(fay, 'Waiting for them to accept'), 'the request shows as waiting');
+  if (process.env.SHOTS) await fay.page.locator('#add-friend').locator('xpath=..').screenshot({ path: process.env.SHOTS + '/add-friend.png' });
+  await tab(ana, 'Home');
+  ok(await has(ana, 'Fay wants to add you'), 'Ana gets Fay\'s request');
+  await tap(ana, 'Accept');
+  await tab(fay, 'You');
+  ok(await gone(fay, 'Waiting for them to accept'), 'Fay and Ana are now friends');
   const fay2 = await phone('Fay on a new phone');
   await fay2.page.goto(`http://127.0.0.1:${WEB_PORT}/`);
   await tap(fay2, 'I already have an account');
