@@ -18,7 +18,6 @@
   var LABELS = { on: 'Green', thinking: 'Amber', off: 'Red' };
   var STOPS = ['on', 'thinking', 'off'];   // left to right on the status switch: G, A, R
   var TAGS = ['Good vibe', 'Good value', 'Fast service'];
-  var DEAL_TYPES = ['All', 'Food', 'Drinks', 'Entry', 'Events'];
   var RADIUS_KEY = 'seshon-radius-km';
   var MAP_CENTRE = Array.isArray(CFG.mapCentre) ? CFG.mapCentre : [-31.9523, 115.8613];   // where the venue map starts: Perth CBD unless config.js says otherwise
 
@@ -202,7 +201,7 @@
   var D = null;            // the latest answer from api_state()
   var lastKey = '';        // used to skip redraws when nothing changed
   var clockOffset = 0;     // server time minus this phone's time
-  var ui = { messages: [], tab: 'home', screen: null, filter: 'All', confirm: null, staffError: '', offline: false, booted: false, linkShown: false, age: null, ageNote: '', ageBusy: false, auth: null, account: undefined, newCode: null, editAccount: false };
+  var ui = { messages: [], tab: 'home', screen: null, confirm: null, staffError: '', offline: false, booted: false, linkShown: false, age: null, ageNote: '', ageBusy: false, auth: null, account: undefined, newCode: null, editAccount: false };
   ui.radiusKm = Math.min(25, Math.max(1, Number(store(RADIUS_KEY)) || 5));
   var seen = null;         // friend id -> colour at the last look, for "just went on" notices
   var acting = false;
@@ -301,10 +300,12 @@
     home: '<path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/>',
     sesh: '<circle cx="9" cy="8" r="4"/><path d="M2 21c0-4 3-6 7-6s7 2 7 6"/><path d="M17 4a4 4 0 0 1 0 8"/><path d="M22 21c0-3-1-5-4-6"/>',
     deals: '<path d="M3 12V3h9l9 9-9 9z"/><circle cx="8" cy="8" r="1.5"/>',
+    events: '<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>',
     map: '<path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/>',
     venues: '<path d="M5 3h14l-7 9z"/><path d="M12 12v8"/><path d="M8 21h8"/>',
     you: '<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/>',
     back: '<path d="M15 5l-7 7 7 7"/>',
+    close: '<path d="M6 6l12 12"/><path d="M18 6L6 18"/>',
     send: '<path d="M21 3L10 14"/><path d="M21 3l-7 18-4-7-7-4z"/>',
     place: '<path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/>',
     arrow: '<path d="M21 3L3 10.5l7.5 3 3 7.5z"/>',
@@ -450,7 +451,7 @@
         }).join('') + '</div></section>';
       var sesh = mySesh();
       if (s === 'on') h += '<button class="btn" data-act="go-sesh">' + (sesh ? 'Open tonight\'s sesh' : 'Start a sesh') + '</button>';
-      else h += '<button class="btn" style="--c:var(--thinking);--cf:var(--ink)" data-act="tab" data-v="' + (DEALS_ON ? 'deals' : 'venues') + '">' + (DEALS_ON ? 'See tonight\'s deals' : 'See venues') + '</button>';
+      else h += '<button class="btn" style="--c:var(--thinking);--cf:var(--ink)" data-act="tab" data-v="events">See what\'s on tonight</button>';
     }
     return h;
   }
@@ -582,13 +583,25 @@
     var h = '<div class="stack" style="gap:6px"><h1>Map</h1><p class="muted small">Pick how far you want to go.</p></div>';
     if (window.L) {
       h += '<div class="stack" style="gap:12px"><div class="map-box"><div id="map-slot" class="map big"></div>' +
-        '<button class="map-fab" data-act="locate" aria-label="' + (geo.busy ? 'Finding you' : 'Near me') + '" aria-pressed="' + geo.mine + '"' + (geo.busy ? ' disabled' : '') + '>' + svg('arrow', 20) + '</button></div>' +
+        '<button class="map-fab" data-act="locate" aria-label="' + (geo.busy ? 'Finding you' : 'Near me') + '" aria-pressed="' + geo.mine + '"' + (geo.busy ? ' disabled' : '') + '>' + svg('arrow', 20) + '</button></div>' + mapPick() +
         '<div class="radius"><div class="row between"><label for="radius" class="eyebrow">How far</label><div class="radius-num"><span id="radius-label">' + ui.radiusKm + '</span><small>km</small></div></div>' +
         '<input type="range" id="radius" min="1" max="25" step="1" value="' + ui.radiusKm + '" style="--p:' + radiusFill() + '" aria-valuetext="' + ui.radiusKm + ' km">' +
         '<div class="scale" aria-hidden="true"><span>1 km</span><span>25 km</span></div></div>' +
         '<p class="muted small">' + (geo.busy ? 'Finding you...' : geo.mine ? 'Searching around you. Your location stays on this phone and is never saved or shown to friends.' : 'Tap the map to search somewhere else, or the arrow to search near you.') + '</p></div>';
     }
     return h + '<div class="stack" style="gap:12px" id="venue-list">' + venueList() + '</div>';
+  }
+  // The venue picked on the map, with its deals, shown straight under the map.
+  function mapPick() {
+    var ven = ui.mapPick && venueById(ui.mapPick);
+    if (!ven) return '';
+    var here = DEALS_ON ? D.deals.filter(function (d) { return d.venue_id === ven.id; }) : [], mine = mySesh(), away = awayText(ven);
+    return '<div class="card map-pick" id="map-pick"><div class="row between"><div class="grow">' + (ven.is_example ? '<div class="eyebrow">Example venue</div>' : '') +
+      '<h2 style="font-size:22px">' + esc(ven.name) + '</h2><div class="muted small">' + esc([ven.kind, ven.closes, away].filter(Boolean).join(', ')) + '</div></div>' +
+      '<button class="back" data-act="map-pick" data-v="" aria-label="Close">' + svg('close', 18) + '</button></div>' +
+      here.map(dealBanner).join('') +
+      '<div class="row"><button class="btn small-btn" data-act="venue" data-v="' + esc(ven.id) + '">Open venue</button>' +
+      (mine && !mine.locked_venue ? '<button class="btn small-btn ghost" data-act="suggest" data-v="' + esc(ven.id) + '">Vote for it</button>' : '') + '</div></div>';
   }
   var PIN_FILL = { near: '#1F7BFF', far: '#8A90A0', goal: '#FF4757' };
   function pinIcon(kind) {
@@ -674,14 +687,15 @@
       var at = pins && pins[ven.id];
       if (!at) return;
       keep[ven.id] = true;
-      var inside = km(geo.centre, at) <= ui.radiusKm;
+      var inside = km(geo.centre, at) <= ui.radiusKm, kind = ui.mapPick === ven.id ? 'goal' : inside ? 'near' : 'far';
       var dot = M.dots[ven.id];
       if (!dot) {
-        dot = M.dots[ven.id] = L.marker(at, { icon: pinIcon(inside ? 'near' : 'far'), title: ven.name, alt: ven.name }).addTo(M.map);
-        dot.inside = inside;
-        dot.on('click', function () { ACT.venue(ven.id); });
+        dot = M.dots[ven.id] = L.marker(at, { icon: pinIcon(kind), title: ven.name, alt: ven.name }).addTo(M.map);
+        dot.kind = kind;
+        dot.on('click', function () { ACT['map-pick'](ven.id); });
       }
-      if (dot.inside !== inside) { dot.inside = inside; dot.setIcon(pinIcon(inside ? 'near' : 'far')); }
+      if (dot.kind !== kind) { dot.kind = kind; dot.setIcon(pinIcon(kind)); }
+      dot.setZIndexOffset(kind === 'goal' ? 1000 : 0);
       dot.setLatLng(at);
       dot.unbindTooltip().bindTooltip(esc(ven.name), { direction: 'top', offset: [0, -34], className: 'tag' });
     });
@@ -788,13 +802,21 @@
       (d.is_alcohol ? '<div class="small muted">18+. Bring photo ID. Please drink responsibly.</div>' : '') +
       '<div class="row">' + redeemBtn(d) + '</div></div>';
   }
-  function deals() {
-    var list = D.deals.filter(function (d) { return ui.filter === 'All' || d.type === ui.filter; });
-    return '<div class="stack" style="gap:6px"><h1>Deals near you</h1><p class="muted small">Deals only work during their hours. Each person can use a deal once per night.</p></div>' +
-      '<div class="chips" role="group" aria-label="Filter deals">' + DEAL_TYPES.map(function (t) {
-        return '<button class="chip" data-act="filter" data-v="' + t + '" aria-pressed="' + (ui.filter === t) + '">' + t + '</button>';
-      }).join('') + '</div>' +
-      '<div class="stack" style="gap:12px">' + (list.length ? list.map(function (d) { return dealCard(d, true); }).join('') : '<p class="muted">No deals of this type tonight.</p>') + '</div>';
+  // What's on: gigs, quiz nights and live music that venues list as events. Never drink promotions.
+  function events() {
+    var list = D.deals.filter(function (d) { return d.type === 'Events' && !d.is_alcohol; }).map(function (d) {
+      var at = pins && pins[d.venue_id];
+      return { d: d, ven: venueById(d.venue_id), km: at ? km(geo.centre, at) : null };
+    }).sort(function (x, y) { return (y.d.running - x.d.running) || ((x.km == null ? 1e9 : x.km) - (y.km == null ? 1e9 : y.km)); });
+    var h = '<div class="stack" style="gap:6px"><h1>Events</h1><p class="muted small">What\'s on at venues tonight.</p></div>';
+    if (!list.length) return h + '<div class="card"><h2>Nothing listed yet</h2><p class="muted small">Gigs, quiz nights and live music show up here when venues add them.</p></div>';
+    return h + '<div class="stack" style="gap:14px">' + list.map(function (e) {
+      var d = e.d, ven = e.ven;
+      return '<div class="deal-banner' + (d.running ? '' : ' off') + '"><div class="row between"><span class="sub">' + esc(ven ? ven.name : 'A venue') + '</span><span class="small muted">' + dealLabel(d) + '</span></div>' +
+        '<div class="big">' + esc(d.title) + '</div>' +
+        (e.km != null ? '<div class="small muted">' + esc(fmtKm(e.km) + (geo.mine ? ' away' : ' from ' + fromName())) + '</div>' : '') +
+        '<div class="row">' + (ven ? '<button class="btn small-btn ghost" data-act="venue" data-v="' + esc(ven.id) + '">See venue</button>' : '') + (DEALS_ON ? redeemBtn(d) : '') + '</div></div>';
+    }).join('') + '</div>';
   }
 
   function venue(id) {
@@ -950,13 +972,13 @@
     var html;
     if (ui.screen && ui.screen.type === 'venue') html = venue(ui.screen.id);
     else if (ui.screen && ui.screen.type === 'redeem') html = redeem(ui.screen.id);
-    else html = topBar() + { home: home, sesh: sesh, map: mapTab, venues: venues, deals: deals, you: you }[ui.tab]();
+    else html = topBar() + { home: home, sesh: sesh, map: mapTab, venues: venues, events: events, you: you }[ui.tab]();
     view.innerHTML = html;
     mountMap();
     mountMini();
     tabs.hidden = false;
     var requests = D.requests_in.length;
-    var tabList = [['home', 'Home'], ['sesh', 'Sesh'], ['map', 'Map'], ['venues', 'Venues']].concat(DEALS_ON ? [['deals', 'Deals']] : []);
+    var tabList = [['home', 'Home'], ['sesh', 'Sesh'], ['map', 'Map'], ['venues', 'Venues'], ['events', 'Events']];
     tabs.style.gridTemplateColumns = 'repeat(' + tabList.length + ', minmax(0, 1fr))';
     tabs.innerHTML = tabList.map(function (t) {
       return '<button data-act="tab" data-v="' + t[0] + '"' + (ui.tab === t[0] && !ui.screen ? ' aria-current="page"' : '') + '>' + svg(t[0], 22) + '<span>' + t[1] + '</span>' +
@@ -992,7 +1014,7 @@
   var ACT = {
     tab: function (v) {
       ui.tab = v; ui.screen = null; ui.confirm = null; ui.staffError = ''; go(true);
-      if (v === 'map' || v === 'sesh') loadPins().then(function () { if (ui.tab === v && !ui.screen) { if (M.map) M.fit = true; render(); } });
+      if (v === 'map' || v === 'sesh' || v === 'events') loadPins().then(function () { if (ui.tab === v && !ui.screen) { if (M.map) M.fit = true; render(); } });
     },
     locate: function () {
       if (!navigator.geolocation) { toast('This phone cannot share its location. Tap the map instead.'); return; }
@@ -1030,7 +1052,11 @@
       var s = mySesh(); if (!s) return;
       act('cast_vote', { p_sesh: s.id, p_venue: v }).then(function () { ui.screen = null; ui.tab = 'sesh'; go(true); });
     },
-    filter: function (v) { ui.filter = v; go(false); },
+    'map-pick': function (v) {
+      ui.mapPick = v || null; render();
+      var card = document.getElementById('map-pick');
+      if (card && card.scrollIntoView) card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    },
     venue: function (v) {
       ui.screen = { type: 'venue', id: v }; go(true);
       if (!pins) loadPins().then(function () { if (ui.screen && ui.screen.id === v) render(); });

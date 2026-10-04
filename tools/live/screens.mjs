@@ -131,7 +131,13 @@ try {
   await has(ana, 'Rate this venue');
   await shot(ana, '5-venue.png');
   await tab(ana, 'Map');
-  await shot(ana, '6-map.png');
+  await ana.page.waitForTimeout(500);
+  await ana.page.locator('.leaflet-marker-icon[title="The Paper Lantern"]').dispatchEvent('click');
+  await has(ana, 'Open venue');
+  await shot(ana, '6-map.png', 120);
+  await tab(ana, 'Events');
+  await has(ana, 'Live music tonight');
+  await shot(ana, '7-events.png');
 } catch (e) {
   console.log('crashed: ' + e.message);
   process.exitCode = 1;

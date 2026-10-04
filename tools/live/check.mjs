@@ -184,17 +184,24 @@ try {
   await ben.page.evaluate(() => { document.getElementById('view').scrollTop = 0; });
   await ben.page.screenshot({ path: path.join(copy, 'venue-map.png') });
   await ben.page.evaluate(() => { document.getElementById('view').scrollTop = 0; });
-  await ben.page.locator('.leaflet-container .leaflet-marker-icon.leaflet-interactive').first().dispatchEvent('click');
-  ok(await has(ben, 'Rate this venue'), 'tapping a pin opens that venue');
+  const pin = (p, name) => p.page.locator(`.leaflet-container .leaflet-marker-icon[title="${name}"]`).dispatchEvent('click');
+  await pin(ben, 'Bodega Nine');
+  ok(await has(ben, 'Open venue') && await ben.page.locator('#map-pick', { hasText: 'Bodega Nine' }).count() === 1, 'tapping a pin shows that venue under the map');
+  await tap(ben, 'Open venue');
+  ok(await has(ben, 'Rate this venue'), 'and Open venue opens its page');
   await tab(ben, 'Venues');
 
-  console.log('Deals');
-  await tab(ben, 'Deals');
-  ok(await has(ben, '2-for-1 pizzas'), 'deals list shows food deals');
-  await tap(ben, 'Drinks');
-  ok(await has(ben, 'Happy hour: 25% off house drinks'), 'Drinks filter shows the compliant happy hour');
-  await tap(ben, 'All');
-  const bodega = ben.page.locator('.card', { hasText: 'Test deal: free garlic bread' });
+  console.log('Deals on the map, and events');
+  ok(await ben.page.locator('nav button:has-text("Deals")').count() === 0 && await ben.page.locator('nav button:has-text("Events")').count() === 1, 'there is an Events tab and no Deals tab');
+  await tab(ben, 'Events');
+  ok(await has(ben, 'Live music tonight') && !(await text(ben)).includes('2-for-1 pizzas') && !(await text(ben)).includes('Happy hour'), 'Events lists events only, never food or drink deals');
+  await tab(ben, 'Map');
+  await pin(ben, 'Bodega Nine');
+  ok(await has(ben, '2-for-1 pizzas'), 'a venue\'s deals show under the map when its pin is tapped');
+  await pin(ben, 'Lowtide Bar');
+  ok(await has(ben, 'Happy hour: 25% off house drinks') && !(await text(ben)).includes('2-for-1 pizzas'), 'tapping another pin shows that venue\'s deals instead');
+  await pin(ben, 'Bodega Nine');
+  const bodega = ben.page.locator('.deal-banner', { hasText: 'Test deal: free garlic bread' });
   await bodega.getByRole('button', { name: 'Use deal' }).click();
   ok(await has(ben, 'Show this to staff'), 'Ben gets a deal code screen');
   const code = await ben.page.locator('#code').innerText();
@@ -222,7 +229,7 @@ try {
   await ben.page.getByRole('button', { name: 'Good vibe' }).click();
   await ben.page.reload();
   await has(ben, 'Your status');
-  await tab(ben, 'Deals'); await ben.page.locator('.card', { hasText: 'Bodega Nine' }).getByRole('button', { name: 'Venue' }).first().click();
+  await tab(ben, 'Map'); await pin(ben, 'Bodega Nine'); await tap(ben, 'Open venue');
   ok(await ben.page.locator('button[aria-label="4 stars"][aria-pressed="true"]').count() === 1, 'rating and sign-in survive a page reload');
 
   console.log('Chat is erased');
@@ -256,6 +263,8 @@ try {
   const dan = await phone('Dan');
   await signUp(dan, 'Dan');
   ok((await dan.page.locator('nav button:has-text("Deals")').count()) === 0 && (await dan.page.locator('nav button:has-text("Venues")').count()) === 1, 'with deals off there is a Venues tab and no Deals tab');
+  await tab(dan, 'Events');
+  ok(await has(dan, 'Live music tonight') && await dan.page.getByRole('button', { name: 'Use deal' }).count() === 0, 'with deals off, events still show but cannot be redeemed');
   await tab(dan, 'Venues'); await dan.page.getByRole('button', { name: 'Open' }).first().click();
   ok(await has(dan, 'Rate this venue') && !(await text(dan)).includes('Deals here'), 'a venue page shows ratings but no deals');
 
