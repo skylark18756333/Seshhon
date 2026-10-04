@@ -172,10 +172,12 @@ try {
   await ben.page.fill('#venue-search', 'bodega');
   ok(await has(ben, '1 venue matches') && await ben.page.locator('.leaflet-container .leaflet-marker-icon.leaflet-interactive').count() === 1, 'searching finds a venue by name before choosing where to look');
   await ben.page.fill('#venue-search', 'live music');
-  ok(await has(ben, 'The Paper Lantern') && !(await ben.page.locator('#venue-list').innerText()).includes('Bodega Nine'), 'search matches venue kinds too');
+  ok(await has(ben, 'The Paper Lantern') && !(await ben.page.locator('#search-results').innerText()).includes('Bodega Nine'), 'search matches venue kinds too');
+  const below = async (a, b) => (await ben.page.locator(a).boundingBox()).y < (await ben.page.locator(b).boundingBox()).y;
+  ok(await below('#search-results', '.leaflet-container'), 'search results show straight under the search box, above the map');
   await ben.page.waitForTimeout(5600);   // a background refresh must not wipe the search box
   ok(await ben.page.locator('#venue-search').inputValue() === 'live music', 'the search survives background refreshes');
-  await ben.page.locator('#venue-list').getByRole('button', { name: 'Show' }).first().click();
+  await ben.page.locator('#search-results').getByRole('button', { name: 'Show' }).first().click();
   ok(await ben.page.locator('#map-pick').count() === 1, 'Show puts a found venue under the map');
   await ben.page.evaluate(() => { document.getElementById('view').scrollTop = 0; });
   await ben.page.screenshot({ path: path.join(copy, 'map-search.png') });

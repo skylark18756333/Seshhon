@@ -206,6 +206,8 @@ a { color: var(--fg); }
 .venue-search:focus-within { border-color: var(--accent); }
 .venue-search input { flex: 1; min-width: 0; height: 100%; border: 0; background: transparent; color: var(--fg); font: inherit; outline: none; }
 .venue-search input::-webkit-search-cancel-button { display: none; }
+.search-results { gap: 10px; flex-shrink: 0; }
+.search-results:empty { display: none; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 .radius { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 14px 16px 6px; }
 .radius-num { font-family: var(--display); font-weight: 800; font-size: 26px; letter-spacing: -0.5px; }
