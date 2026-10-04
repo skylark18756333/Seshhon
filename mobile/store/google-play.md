@@ -1,17 +1,17 @@
 # Google Play: everything to paste in
 
-Draft for the first Play Store release of Frenzy. Copy each part into Play Console when it asks.
+Draft for the first Play Store release of Frendzy. Copy each part into Play Console when it asks.
 Check anything marked **[confirm]** first.
 
 ## App details (Create app)
 
-- App name: **Frenzy** (up to 30 characters; can be changed later, the hidden ID `com.seshhon.app` can't)
+- App name: **Frendzy** (up to 30 characters; can be changed later, the hidden ID `com.seshhon.app` can't)
 - Default language: English (Australia)
 - App or game: App
 - Free or paid: Free
 - Category: Social
 - Contact email: **[confirm: the email people can contact you on]**
-- Privacy policy: `https://skylark18756333.github.io/Seshhon/privacy.html`
+- Privacy policy: `https://frendzy.au/privacy.html`
   (fill in the [ ] blanks on that page first)
 
 ## Store listing
@@ -22,7 +22,7 @@ Check anything marked **[confirm]** first.
 
 **Full description**
 
-> Frenzy is the social app that gets you off the apps and out the door.
+> Frendzy is the social app that gets you off the apps and out the door.
 >
 > Set your light and your friends see it:
 > 🟢 Green: you're up for it. Let's go out.
@@ -39,7 +39,7 @@ Check anything marked **[confirm]** first.
 > • Block or report anyone, any time
 > • Women and non-binary only mode, if you want it
 >
-> Frenzy is for people aged 18 and over. Please drink responsibly.
+> Frendzy is for people aged 18 and over. Please drink responsibly.
 
 **Graphics**
 
@@ -77,7 +77,7 @@ Check anything marked **[confirm]** first.
 - Does the app collect or share user data? **Yes, collects. Does not share.**
 - Is data encrypted in transit? **Yes**
 - Can users ask for their data to be deleted? **Yes** (in app: You > Your account > Delete my account)
-- Account deletion URL: `https://skylark18756333.github.io/Seshhon/privacy.html` (the "How long we keep it" section explains it)
+- Account deletion URL: `https://frendzy.au/privacy.html` (the "How long we keep it" section explains it)
 
 | Data type | Collected | Why | Optional? |
 | --- | --- | --- | --- |

@@ -1,5 +1,5 @@
 // Draws the phone app's icon and splash images: node tools/live/phone-icons.mjs
-// Same Frenzy mark as the web app icon (tools/live/icon.html), at the sizes the App Store and Play Store want.
+// Same Frendzy mark as the web app icon (tools/live/icon.html), at the sizes the App Store and Play Store want.
 import { chromium } from 'playwright';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -39,7 +39,7 @@ const pictures = [
 const feature = `<style>@font-face { font-family: 'Permanent Marker'; src: url(${FONT}) format('woff2'); }</style>
 <body style="margin:0"><div id="p" style="width:1024px;height:500px;background:${BG};display:flex;align-items:center;gap:56px;padding:0 80px;box-sizing:border-box;font-family:'Permanent Marker',cursive;color:#fff">
 <div style="font-size:300px;line-height:1;transform:rotate(-6deg);position:relative">F<div style="position:absolute;left:-10%;right:-25%;bottom:6px;height:22px;border-radius:10px 30px 8px 24px;background:#F5C542;transform:skewX(-20deg)"></div></div>
-<div><div style="font-size:120px;line-height:1">Frenzy</div>
+<div><div style="font-size:120px;line-height:1">Frendzy</div>
 <div style="display:flex;gap:18px;margin:26px 0"><i style="width:34px;height:34px;border-radius:50%;background:#3DDC84"></i><i style="width:34px;height:34px;border-radius:50%;background:#F5C542"></i><i style="width:34px;height:34px;border-radius:50%;background:#F0524B"></i></div>
 <div style="font:700 34px/1.2 system-ui,sans-serif;color:#d8d8dc">Get off the apps. Get out.</div></div>
 </div></body>`;
