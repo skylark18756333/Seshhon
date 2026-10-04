@@ -1,4 +1,4 @@
--- Checks for profile photos (migration 0012). Runs after the earlier tests and reuses their helpers.
+-- Checks for profile photos (migration 0013). Runs after the earlier tests and reuses their helpers.
 \set ON_ERROR_STOP on
 \set QUIET on
 \pset tuples_only on

@@ -335,7 +335,7 @@ try {
   const gusLink = await inviteOf(gus);
   await signUp(hana, 'Hana', gusLink);
   await tab(gus, 'Home'); await has(gus, 'Hana wants to add you'); await tap(gus, 'Accept');
-  await tap(gus, 'Green'); await tap(hana, 'Green');
+  await tap(gus, 'Green'); await has(gus, 'Up for it now'); await tap(hana, 'Green');
   ok(await has(hana, 'Up for it now') && await hana.page.locator('.friend.face .pic').count() === 0, 'with no photo, a friend\'s circle shows their initial');
   await tab(gus, 'You');
   ok(await has(gus, 'Add a photo'), 'the You page offers to add a photo');

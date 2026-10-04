@@ -6,8 +6,9 @@
 -- friend_photos() hands out only:
 --   - your own photo,
 --   - photos of accepted friends you have not blocked and who have not blocked you,
---   - and, once women-only mode (migration 0011) is installed, not the photo of a woman in that
---     mode to someone who has not said they are a woman.
+--   - and, once women-only mode (migrations 0011 and 0012) is installed, not the photo of someone
+--     in that mode to a person that mode keeps out. It asks private.hidden_from_me(), the same
+--     check that hides their status, so the two can never disagree.
 -- A photo is removed with the account (on delete cascade) or when its owner removes it.
 
 create table if not exists public.profile_photos (
@@ -18,7 +19,7 @@ create table if not exists public.profile_photos (
 alter table public.profile_photos enable row level security;
 revoke all on public.profile_photos from public, anon, authenticated;
 
--- Women-only mode lives in migration 0011, which may be installed before or after this one.
+-- Women-only mode lives in migrations 0011 and 0012, which may be installed before or after this one.
 -- This asks it when it is there, and otherwise hides nothing.
 create or replace function public.photo_hidden_from_me(owner uuid) returns boolean
 language plpgsql stable security definer set search_path = public as $$
