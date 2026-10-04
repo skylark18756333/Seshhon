@@ -1,0 +1,108 @@
+# Builds the Seshhon phone app in the cloud (Expo EAS) and, if asked, sends it to the App Store / Play Store.
+# Start it from your phone: GitHub > Actions > "Phone app" > Run workflow.
+#
+# Secrets it reads (GitHub > Settings > Secrets and variables > Actions):
+#   EXPO_TOKEN          required. expo.dev > Account settings > Access tokens.
+#   For iPhone builds (from App Store Connect > Users and Access > Integrations > App Store Connect API):
+#   ASC_API_KEY_P8      the whole text of the downloaded .p8 key file
+#   ASC_KEY_ID          the key's ID
+#   ASC_ISSUER_ID       the Issuer ID shown above the keys list
+#   APPLE_TEAM_ID       developer.apple.com > Account > Membership details > Team ID
+#   ASC_APP_ID          only to send to TestFlight: App Store Connect > your app > App Information > Apple ID
+#   For sending Android builds to Play: upload a Google service account key on expo.dev
+#   (Project > Credentials > Android) once; nothing is needed here.
+name: Phone app
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Which phones
+        type: choice
+        options: [android, ios, all]
+        default: android
+      profile:
+        description: "preview = Android test file you install directly; production = store build"
+        type: choice
+        options: [preview, production]
+        default: preview
+      submit:
+        description: Send the finished production build to the store (TestFlight / Play internal testing)
+        type: boolean
+        default: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    env:
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+      EXPO_ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      EXPO_ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      EXPO_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      EXPO_APPLE_TEAM_TYPE: INDIVIDUAL
+      # Build from the files on this machine (including the project link that "eas init" adds), not the last commit.
+      EAS_NO_VCS: 1
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check the Expo token is set
+        run: |
+          if [ -z "$EXPO_TOKEN" ]; then
+            echo "::error::Add an EXPO_TOKEN secret first (expo.dev > Account settings > Access tokens)."
+            exit 1
+          fi
+      - name: Check the iPhone keys are set
+        if: inputs.platform != 'android'
+        env:
+          ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
+        run: |
+          if [ "${{ inputs.profile }}" = "preview" ]; then
+            echo "::error::iPhone test builds go through TestFlight. Choose the production profile for ios."
+            exit 1
+          fi
+          for v in ASC_API_KEY_P8 EXPO_ASC_KEY_ID EXPO_ASC_ISSUER_ID EXPO_APPLE_TEAM_ID; do
+            if [ -z "${!v}" ]; then echo "::error::Missing secret for $v (see the top of this file)."; exit 1; fi
+          done
+          echo "ASC_READY=1" >> "$GITHUB_ENV"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+      - run: npm ci
+
+      - name: Put the iPhone key where the build can read it
+        if: env.ASC_READY == '1'
+        env:
+          ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
+          ASC_APP_ID: ${{ secrets.ASC_APP_ID }}
+        run: |
+          export EXPO_ASC_API_KEY_PATH="$RUNNER_TEMP/asc-key.p8"
+          printf '%s\n' "$ASC_API_KEY_P8" > "$EXPO_ASC_API_KEY_PATH"
+          echo "EXPO_ASC_API_KEY_PATH=$EXPO_ASC_API_KEY_PATH" >> "$GITHUB_ENV"
+          if [ "${{ inputs.submit }}" = "true" ]; then
+            if [ -z "$ASC_APP_ID" ]; then echo "::error::Add an ASC_APP_ID secret to send iPhone builds to TestFlight."; exit 1; fi
+            # Tell the store upload which key and app to use. Only changed on this build machine, never committed.
+            node -e '
+              const fs = require("fs"), j = JSON.parse(fs.readFileSync("eas.json", "utf8"));
+              j.submit.production.ios = { ascApiKeyPath: process.env.EXPO_ASC_API_KEY_PATH, ascApiKeyId: process.env.EXPO_ASC_KEY_ID, ascApiKeyIssuerId: process.env.EXPO_ASC_ISSUER_ID, ascAppId: process.env.ASC_APP_ID };
+              fs.writeFileSync("eas.json", JSON.stringify(j, null, 2));
+            '
+          fi
+      - run: npx tsc --noEmit
+
+      # Creates the project on expo.dev the first time, links to it after that.
+      - run: eas init --non-interactive --force
+
+      - name: Build
+        run: |
+          SUBMIT=""
+          if [ "${{ inputs.submit }}" = "true" ] && [ "${{ inputs.profile }}" = "production" ]; then SUBMIT="--auto-submit"; fi
+          eas build --platform ${{ inputs.platform }} --profile ${{ inputs.profile }} --non-interactive --no-wait $SUBMIT
+          echo "Build started. Follow it, and download the result, at https://expo.dev"
