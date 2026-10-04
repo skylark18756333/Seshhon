@@ -251,6 +251,32 @@ try {
   await tab(ana, 'Home');
   ok(await gone(ana, 'Cam', 5000), 'Cam disappears from Ana\'s friends');
 
+  console.log('Women-only mode and blocking');
+  await tab(ana, 'You'); await tap(ana, 'Woman');
+  ok(await has(ana, 'Women-only mode'), 'Ana says she is a woman and is offered women-only mode');
+  await tap(ana, 'Turn on');
+  ok(await has(ana, 'Turn off') && await has(ana, 'Anyone else just sees you as red'), 'Ana turns on women-only mode');
+  if (process.env.SHOTS) await ana.page.screenshot({ path: process.env.SHOTS + '/women-only.png', fullPage: true });
+  await tab(ben, 'Home');
+  ok(await ben.page.waitForFunction(() => /Ana\s+Red/.test(document.body.innerText), null, { timeout: 5000 }).then(() => true, () => false), 'Ben (no gender given) now sees Ana as Red');
+  await tap(ana, 'Turn off');
+  ok(await ben.page.waitForFunction(() => /Ana\s+Green/.test(document.body.innerText), null, { timeout: 5000 }).then(() => true, () => false), 'with it off, Ben sees Ana is Green again');
+  await tap(ana, 'Rather not say');
+  ok(await gone(ana, 'Women-only mode'), 'Ana can take her gender back off');
+  const gus = await phone('Gus');
+  await signUp(gus, 'Gus', anaLink);
+  await tab(ana, 'Home');
+  ok(await has(ana, 'Gus wants to add you'), 'Gus sends Ana a request');
+  await tap(ana, 'Block'); await tap(ana, 'Block');
+  ok(await gone(ana, 'Gus wants to add you'), 'Ana blocks Gus straight from the request');
+  await tab(ana, 'You');
+  ok(await has(ana, 'Blocked people') && /Gus/.test(await text(ana)), 'Gus is on Ana\'s blocked list');
+  await ana.page.locator('.card', { hasText: 'Your friends' }).getByRole('button', { name: 'Block', exact: true }).click();
+  await tap(ana, 'Block');
+  ok(await has(ana, 'Blocked.'), 'Ana blocks Ben from her friends list');
+  await tab(ben, 'You');
+  ok(await gone(ben, 'Ana', 5000), 'Ana disappears from Ben\'s app');
+
   console.log('Deals switched off');
   dealsOn = false;
   const dan = await phone('Dan');
