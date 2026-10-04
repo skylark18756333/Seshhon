@@ -44,12 +44,16 @@
   // Returns { week: [7 lists of [start, end] minutes, Monday first], always: bool } or null.
   function parse(str) {
     if (!str || typeof str !== 'string') return null;
-    var text = str.replace(/"[^"]*"/g, '').trim();
+    var text = str.replace(/"[^"]*"/g, '').trim()
+      .replace(/(\d)\s*-\s*(\d)/g, '$1-$2')     // "12:00 - 00:00"
+      .replace(/(\d{2})-(\d{1,2}:\d{2})\+/g, '$1-$2')   // "11:00-18:00+" (open end): keep the listed close
+      // "Mo-Th 12:00-21:00, Fr 12:00-22:00": a comma before a new day list adds a rule (\u0001)
+      .replace(/([\d+])\s*,\s*(?=(?:Mo|Tu|We|Th|Fr|Sa|Su|PH|SH)\b)/g, '$1\u0001');
     if (/^24\/7$/.test(text)) return { week: DAYS.map(function () { return [[0, 1440]]; }), always: true };
     var week = DAYS.map(function () { return []; }), used = 0;
-    var rules = text.split(/;|\|\|/);
-    for (var i = 0; i < rules.length; i++) {
-      var rule = rules[i].trim();
+    var rules = text.split(/(;|\|\||\u0001)/);
+    for (var i = 0; i < rules.length; i += 2) {
+      var rule = rules[i].trim(), adds = rules[i - 1] === '\u0001';
       if (!rule) continue;
       if (SKIP.test(rule)) continue;
       var m = /^((?:(?:Mo|Tu|We|Th|Fr|Sa|Su|PH|SH)(?:-(?:Mo|Tu|We|Th|Fr|Sa|Su))?)(?:\s*,\s*(?:(?:Mo|Tu|We|Th|Fr|Sa|Su|PH|SH)(?:-(?:Mo|Tu|We|Th|Fr|Sa|Su))?))*)?\s*(.*)$/.exec(rule);
@@ -61,7 +65,7 @@
       else if (/^(off|closed)$/i.test(rest)) list = [];
       else if (rest === '24/7') list = [[0, 1440]];
       else { list = spans(rest); if (list === null) return null; }
-      days.forEach(function (d) { week[d] = list.slice(); });
+      days.forEach(function (d) { week[d] = adds ? week[d].concat(list).sort(function (a, b) { return a[0] - b[0]; }) : list.slice(); });
       used++;
     }
     if (!used) return null;

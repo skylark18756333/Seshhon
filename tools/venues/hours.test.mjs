@@ -43,3 +43,12 @@ test('the weekly table', () => {
   assert.deepEqual(t[4], { day: 'Fri', text: '4pm – 2am' });
   assert.deepEqual(t[6], { day: 'Sun', text: 'Closed' });
 });
+test('loosely written hours', () => {
+  assert.equal(at('12:00 - 00:00', MO, '13:00'), 'Open till midnight');
+  assert.equal(at('Su-Th 12:00-21:00, Fr-Sa 12:00-22:30', MO, '18:00'), 'Open till 9pm');
+  assert.equal(at('Su-Th 12:00-21:00, Fr-Sa 12:00-22:30', FR, '18:00'), 'Open till 10:30pm');
+  assert.equal(at('Mo-Su 11:00-22:00+', MO, '18:00'), 'Open till 10pm');
+  // a comma adds to the earlier rule instead of replacing it
+  const t = H.table(H.parse('Mo-Fr 17:00+, Mo-Fr 11:00-14:30'));
+  assert.deepEqual(t[0], { day: 'Mon', text: '11am – 2:30pm, 5pm – midnight' });
+});
