@@ -303,6 +303,11 @@
   function svg(name, size) {
     return '<svg width="' + size + '" height="' + size + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + ICON[name] + '</svg>';
   }
+  function hue(name) {   // a steady colour per person for their circle until faces can be added
+    var h = 0, t = String(name || '');
+    for (var i = 0; i < t.length; i++) h = (h * 31 + t.charCodeAt(i)) % 360;
+    return h;
+  }
   function avatar(name, colour, dashed) {
     return '<div class="avatar' + (dashed ? ' dashed' : '') + '" style="--c:' + (colour || 'var(--line)') + '">' + initials(name) + '</div>';
   }
@@ -423,11 +428,11 @@
       var on = friends.filter(function (f) { return f.colour === 'on'; }).length;
       var th = friends.filter(function (f) { return f.colour === 'thinking'; }).length;
       h += '<section class="stack" style="gap:4px"><div class="row between"><h2>Up for it now</h2><span class="muted small">' + on + ' green, ' + th + ' amber</span></div>' +
-        friends.map(function (f) {
-          return '<div class="friend">' + avatar(f.name, f.colour === 'off' ? 'var(--line)' : COLORS[f.colour], f.colour === 'thinking') +
-            '<div class="grow"><div style="font-weight:500' + (f.colour === 'off' ? ';color:var(--muted)' : '') + '">' + esc(f.name) + '</div></div>' +
-            '<div class="state" style="--c:' + (f.colour === 'off' ? 'var(--muted)' : COLORS[f.colour]) + '">' + LABELS[f.colour] + '</div></div>';
-        }).join('') + '</section>';
+        '<div class="faces">' + friends.slice().sort(function (x, y) { return STOPS.indexOf(x.colour) - STOPS.indexOf(y.colour); }).map(function (f) {
+          var c = f.colour === 'off' ? 'var(--line)' : COLORS[f.colour];
+          return '<div class="friend face' + (f.colour === 'off' ? ' away' : '') + '" style="--c:' + c + ';--h:' + hue(f.name) + '"><div class="face-pic">' + initials(f.name) + '</div>' +
+            '<div class="face-name">' + esc(first(f.name)) + '</div><div class="state" style="--c:' + (f.colour === 'off' ? 'var(--muted)' : COLORS[f.colour]) + '">' + LABELS[f.colour] + '</div></div>';
+        }).join('') + '</div></section>';
       var sesh = mySesh();
       if (s === 'on') h += '<button class="btn" data-act="go-sesh">' + (sesh ? 'Open tonight\'s sesh' : 'Start a sesh') + '</button>';
       else h += '<button class="btn" style="--c:var(--thinking);--cf:var(--ink)" data-act="tab" data-v="' + (DEALS_ON ? 'deals' : 'venues') + '">' + (DEALS_ON ? 'See tonight\'s deals' : 'See venues') + '</button>';

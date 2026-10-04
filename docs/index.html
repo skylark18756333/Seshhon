@@ -99,6 +99,15 @@ h2 { font-family: var(--display); font-weight: 700; font-size: 19px; letter-spac
 .friend { display: flex; align-items: center; gap: 12px; min-height: 58px; padding: 0 2px; border-bottom: 1px solid var(--line); }
 .friend:last-child { border-bottom: 0; }
 .friend .state { font-size: 13px; font-weight: 700; color: var(--c); }
+/* Friends under the status switch: a row of round faces, ringed in each friend's status colour. */
+.faces { display: grid; grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); gap: 14px 8px; padding-top: 8px; }
+.friend.face { flex-direction: column; gap: 4px; min-height: 0; border: 0; padding: 0; text-align: center; }
+.face-pic { width: 66px; height: 66px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-family: var(--display); font-weight: 800; font-size: 22px; color: #fff;
+  background: linear-gradient(140deg, hsl(var(--h) 70% 58%), hsl(calc(var(--h) + 40) 65% 38%)); box-shadow: 0 0 0 3px var(--bg), 0 0 0 6px var(--c); margin: 6px 0 4px; }
+.friend.face:not(.away) .face-pic { box-shadow: 0 0 0 3px var(--bg), 0 0 0 6px var(--c), 0 0 18px color-mix(in srgb, var(--c) 55%, transparent); }
+.friend.face.away .face-pic { filter: grayscale(1) brightness(0.6); }
+.face-name { font-weight: 700; font-size: 14px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.friend.face .state { font-size: 12px; }
 .deal-title { font-weight: 700; color: var(--zest); overflow-wrap: anywhere; }
 .bar { flex: 1; height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; }
 .bar i { display: block; height: 100%; background: var(--muted); border-radius: 4px; }
