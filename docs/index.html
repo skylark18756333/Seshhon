@@ -114,6 +114,17 @@ body[data-status="on"], body[data-status="thinking"], body[data-status="off"] {
 .eyebrow svg, .small svg, .btn svg { vertical-align: -2px; }
 .btn:disabled { background: var(--surface-2); color: var(--muted); cursor: default; border: 0; }
 .card { background: var(--surface); border: 0; border-radius: 18px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+/* Settings: drop-down sections. Tap a title to open it; the arrow turns. */
+.set-label { align-self: flex-start; margin-top: 4px; }
+details.set { display: block; padding: 0; }
+details.set > summary { list-style: none; display: flex; align-items: center; gap: 10px; min-height: 56px; padding: 0 16px; cursor: pointer; border-radius: 18px; }
+details.set > summary::-webkit-details-marker { display: none; }
+details.set > summary h2 { flex: 1; min-width: 0; font-size: 17px; }
+details.set > summary::after { content: ''; flex: none; width: 9px; height: 9px; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: rotate(45deg) translate(-2px, -2px); transition: transform 0.2s; }
+details.set[open] > summary::after { transform: rotate(-135deg) translate(-2px, -2px); }
+.set-hint { max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.set-body { display: flex; flex-direction: column; gap: 10px; padding: 0 16px 16px; }
+@media (prefers-reduced-motion: reduce) { details.set > summary::after { transition: none; } }
 .card.lead { border: 2px solid var(--accent); }
 .card.deal-active { border-color: var(--zest); }
 .avatar { width: 40px; height: 40px; flex: none; border-radius: 50%; border: 2px solid var(--c, var(--line)); background: var(--surface-2); display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; }

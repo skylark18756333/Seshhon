@@ -74,7 +74,10 @@ async function phone(name) {
 }
 const has = (p, s, t = 6000) => p.page.waitForFunction((x) => document.body.innerText.toLowerCase().includes(x.toLowerCase()), s, { timeout: t });
 const tap = (p, label) => p.page.getByRole('button', { name: label, exact: true }).first().click();
-const tab = (p, t) => (t === 'You' ? p.page.locator('button.profile-btn') : p.page.locator(`nav button:has-text("${t}")`)).click();
+const tab = async (p, t) => {
+  await (t === 'You' ? p.page.locator('button.profile-btn') : p.page.locator(`nav button:has-text("${t}")`)).click();
+  if (t === 'You') { await p.page.waitForSelector('details.set'); await p.page.evaluate(() => document.querySelectorAll('details.set:not([open]) > summary').forEach((s) => s.click())); }
+};
 const shot = async (p, file, scroll) => {
   await p.page.waitForTimeout(700);
   await p.page.evaluate(() => { document.getElementById('toast').hidden = true; });
@@ -158,6 +161,12 @@ try {
   await tab(ana, 'Events');
   await has(ana, 'Live music tonight');
   await shot(ana, '7-events.png');
+  await (ana.page.locator('button.profile-btn')).click(); await ana.page.waitForSelector('details.set');
+  await ana.page.evaluate(() => document.querySelectorAll('details.set[open] > summary').forEach((s) => s.click()));
+  await ana.page.evaluate(() => window.scrollTo(0, 0));
+  await shot(ana, '8-settings.png');
+  await ana.page.locator('details.set[data-set="login"] > summary').click();
+  await shot(ana, '8b-settings-open.png');
 } catch (e) {
   console.log('crashed: ' + e.message);
   process.exitCode = 1;

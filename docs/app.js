@@ -247,7 +247,7 @@
   var D = null;            // the latest answer from api_state()
   var lastKey = '';        // used to skip redraws when nothing changed
   var clockOffset = 0;     // server time minus this phone's time
-  var ui = { messages: [], tab: 'home', screen: null, confirm: null, staffError: '', offline: false, booted: false, linkShown: false, age: null, ageNote: '', ageBusy: false, auth: null, account: undefined, newCode: null, editAccount: false, twoStep: undefined, emailStep: null };
+  var ui = { messages: [], tab: 'home', screen: null, confirm: null, staffError: '', offline: false, booted: false, linkShown: false, age: null, ageNote: '', ageBusy: false, auth: null, account: undefined, newCode: null, editAccount: false, twoStep: undefined, emailStep: null, sets: {} };
   ui.radiusKm = Math.min(25, Math.max(1, Number(store(RADIUS_KEY)) || 5));
   var seen = null;         // friend id -> colour at the last look, for "just went on" notices
   var acting = false;
@@ -1304,15 +1304,16 @@
     var me = D.me;
     var h = '<div class="row">' + '<div class="avatar" style="width:56px;height:56px;font-size:18px;--c:' + COLORS[me.colour] + '">' + face(me.id, me.name) + '</div><div class="grow"><h1 style="font-size:28px">' + esc(me.name) + '</h1><p class="muted small">Status: ' + LABELS[me.colour] + '</p></div></div>';
 
-    h += '<div class="card"><h2>Your photo</h2><div class="row"><div class="face-pic me" style="--c:' + COLORS[me.colour] + ';--h:' + hue(me.name) + '">' + face(me.id, me.name) + '</div>' +
+    h += '<p class="pill set-label">Settings</p>';
+    h += sec('photo', '<div class="card"><h2>Your photo</h2><div class="row"><div class="face-pic me" style="--c:' + COLORS[me.colour] + ';--h:' + hue(me.name) + '">' + face(me.id, me.name) + '</div>' +
       '<p class="muted small grow">Only your friends see it on your circle, never strangers or anyone you block. Use a photo of you.</p></div>' +
       '<input type="file" id="photo-file" accept="image/*" hidden>' +
       '<div class="row"><button class="btn small-btn" data-act="pick-photo"' + (ui.photoBusy ? ' disabled' : '') + '>' + (ui.photoBusy ? 'Saving...' : photos[me.id] ? 'Change photo' : 'Add a photo') + '</button>' +
-      (photos[me.id] && !ui.photoBusy ? '<button class="btn small-btn ghost" data-act="remove-photo">Remove</button>' : '') + '</div></div>';
+      (photos[me.id] && !ui.photoBusy ? '<button class="btn small-btn ghost" data-act="remove-photo">Remove</button>' : '') + '</div></div>', ui.photoBusy, photos[me.id] ? 'Added' : 'None yet');
 
-    h += '<div class="card"><h2>Add a friend</h2>' + addFriendForm() +
+    h += sec('add', '<div class="card"><h2>Add a friend</h2>' + addFriendForm() +
       '<p class="muted small">Not on Frendzy yet? Send them your invite link. When they sign up you get a friend request to accept.</p>' +
-      '<button class="btn ghost" data-act="share">Send your invite link</button>' + linkBox() + '</div>';
+      '<button class="btn ghost" data-act="share">Send your invite link</button>' + linkBox() + '</div>', !D.friends.length);
 
     if (DEALS_ON && D.staff_venues.length) {
       h += '<div class="card" style="border-color:var(--thinking)"><h2>Staff: confirm a deal code</h2><p class="muted small">Type the code from the customer\'s phone. Each code works once.</p>' +
@@ -1322,7 +1323,7 @@
     }
 
     if (D.friends.length || D.requests_out.length) {
-      h += '<div class="card"><h2>Your friends</h2>' +
+      h += sec('friends', '<div class="card"><h2>Your friends</h2>' +
         D.friends.map(function (f) {
           var asking = ui.confirm === 'unfriend:' + f.friendship, blocking = ui.confirm === 'block:' + f.id;
           return '<div class="row between"><div class="grow">' + esc(f.name) + (blocking ? '<div class="muted small">They won\'t see you or be able to add you again.</div>' : '') + '</div>' +
@@ -1335,31 +1336,28 @@
         D.requests_out.map(function (r) {
           return '<div class="row between"><div class="grow">' + esc(r.name) + '<div class="muted small">Waiting for them to accept</div></div>' +
             '<button class="btn small-btn ghost" data-act="unfriend" data-v="' + esc(r.friendship) + '">Cancel</button></div>';
-        }).join('') + '</div>';
+        }).join('') + '</div>', /^(unfriend|block):/.test(ui.confirm || ''), String(D.friends.length));
     }
 
-    h += safetyCard();
+    h += sec('safety', safetyCard(), false, ui.safety && ui.safety.women_only ? 'Women only on' : '');
 
     if (D.blocked && D.blocked.length) {
-      h += '<div class="card"><h2>Blocked people</h2>' + D.blocked.map(function (b) {
+      h += sec('blocked', '<div class="card"><h2>Blocked people</h2>' + D.blocked.map(function (b) {
         return '<div class="row between"><div class="grow">' + esc(b.name) + '</div><button class="btn small-btn ghost" data-act="unblock" data-v="' + esc(b.id) + '">Unblock</button></div>';
-      }).join('') + '</div>';
+      }).join('') + '</div>', false, String(D.blocked.length));
     }
 
-    h += '<div class="card"><h2>Put Frendzy on your home screen</h2><p class="muted small">On iPhone, tap the Share button in Safari, then Add to Home Screen. On Android, open the browser menu and tap Add to Home screen.</p></div>';
-
-    h += '<div class="card"><h2>About</h2><p class="small"><a href="privacy.html">Privacy Policy</a></p><p class="small"><a href="terms.html">Terms of use</a></p></div>';
 
     if (ui.account !== 'off' && ui.account !== undefined) {
       var a = ui.account;
       if (ui.emailStep) h += '<div class="card" style="border-color:var(--on)">' + emailCard() + '</div>';
       else if (ui.newCode) h += '<div class="card" style="border-color:var(--on)">' + codeCard() + '</div>';
       else if (a && !ui.editAccount) {
-        h += '<div class="card"><h2>Username and password</h2><p class="muted small">You\'re logged in as <strong>' + esc(a.username) + '</strong>. Use it to log in on another phone.</p>' +
+        h += sec('login', '<div class="card"><h2>Username and password</h2><p class="muted small">You\'re logged in as <strong>' + esc(a.username) + '</strong>. Use it to log in on another phone.</p>' +
           (a.email ? '<p class="muted small">New logins also need a code sent to <strong>' + esc(a.email) + '</strong>.</p>'
             : emailsOn() ? '<form id="add-email" class="stack" style="gap:12px" novalidate><p class="muted small">Add an email so every new login needs a code from it as well as your password.</p>' + emailField('Email for login codes') +
               '<p id="save-error" class="error" hidden></p><button class="btn small-btn" type="submit" id="save-btn">Send me a code</button></form>' : '') +
-          '<div class="row"><button class="btn small-btn ghost" data-act="edit-account">Change password</button><button class="btn small-btn ghost" data-act="logout">Log out</button></div></div>';
+          '<div class="row"><button class="btn small-btn ghost" data-act="edit-account">Change password</button><button class="btn small-btn ghost" data-act="logout">Log out</button></div></div>', false, a.username);
       } else {
         h += '<div class="card"><h2>' + (a ? 'Change password' : 'Keep your account') + '</h2>' +
           (a ? '' : '<p class="muted small">Right now your account only lives in this browser. Add a username and password so you can log in on a new phone.' + (emailsOn() ? ' Each new login will also need a code we email you.' : '') + '</p>') +
@@ -1367,12 +1365,25 @@
       }
     }
 
-    h += '<div class="card"><h2>Your account</h2><p class="muted small">' + (ui.account && ui.account !== 'off' ? 'You can log in on any phone with your username and password.' : 'Your account lives in this browser on this phone.') + ' If you work at a venue, give the organiser this ID so they can set you up as staff:</p>' +
+    h += sec('account', '<div class="card"><h2>Your account</h2><p class="muted small">' + (ui.account && ui.account !== 'off' ? 'You can log in on any phone with your username and password.' : 'Your account lives in this browser on this phone.') + ' If you work at a venue, give the organiser this ID so they can set you up as staff:</p>' +
       '<div class="linkbox" id="my-id">' + esc(me.id) + '</div>' +
       (ui.confirm === 'delete'
         ? '<p class="error">This removes your name, friends, votes and ratings for good.</p><div class="row"><button class="btn small-btn" style="--c:var(--off);--cf:var(--ink)" data-act="delete-account">Delete for good</button><button class="btn small-btn ghost" data-act="cancel-confirm">Keep my account</button></div>'
-        : '<button class="btn ghost" data-act="ask" data-v="delete">Delete my account</button>') + '</div>';
+        : '<button class="btn ghost" data-act="ask" data-v="delete">Delete my account</button>') + '</div>', ui.confirm === 'delete');
+
+    h += sec('install', '<div class="card"><h2>Put Frendzy on your home screen</h2><p class="muted small">On iPhone, tap the Share button in Safari, then Add to Home Screen. On Android, open the browser menu and tap Add to Home screen.</p></div>');
+    h += sec('about', '<div class="card"><h2>About</h2><p class="small"><a href="privacy.html">Privacy Policy</a></p><p class="small"><a href="terms.html">Terms of use</a></p>' +
+      (document.lastModified ? '<p class="muted small">App version from ' + esc(new Date(document.lastModified).toLocaleString([], { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' })) + '</p>' : '') + '</div>');
     return h;
+  }
+
+  // Settings are drop-down sections: a card whose title you tap to open or close it. Each remembers whether it's open
+  // while the screen redraws, and one with something waiting for you (a form step, a question) is always open.
+  function sec(key, card, force, hint) {
+    var m = card && /^<div class="card"( style="[^"]*")?><h2>([\s\S]*?)<\/h2>([\s\S]*)<\/div>$/.exec(card);
+    if (!m) return card || '';
+    return '<details class="card set" data-set="' + key + '"' + (m[1] || '') + (force || ui.sets[key] ? ' open' : '') + '><summary><h2>' + m[2] + '</h2>' +
+      (hint ? '<span class="muted small set-hint">' + esc(hint) + '</span>' : '') + '</summary><div class="set-body">' + m[3] + '</div></details>';
   }
 
   // Gender is optional and private. Women and non-binary people can turn on the women and non-binary only mode. Hidden if the database is older.
@@ -1711,6 +1722,10 @@
     shrinkPhoto(file).then(savePhoto, function () { toast('That photo could not be opened. Try a different one.'); });
   });
   document.addEventListener('change', function (e) { if (e.target.id === 'radius' && M.map) { M.fit = true; drawMap(); } });   // zoom to the circle once the slider is let go
+  document.addEventListener('toggle', function (e) {   // remember which settings sections are open
+    var d = e.target;
+    if (d && d.classList && d.classList.contains('set')) ui.sets[d.getAttribute('data-set')] = d.open;
+  }, true);
   document.addEventListener('click', function (e) {
     if (swallowClick) return;
     var b = e.target.closest('[data-act]');
@@ -1946,7 +1961,7 @@
       fbtn.disabled = true;
       rpc('request_friend_by_username', { p_username: fname }).then(function (r) {
         if (!r || !r.ok) { ui.addFriendError = (r && r.message) || 'That didn\'t work. Try again.'; return; }
-        ui.addFriendError = ''; fu.value = '';
+        ui.addFriendError = ''; fu.value = ''; ui.sets.friends = true;   // open Your friends so the new request shows
         toast(r.state === 'accepted' ? 'You and ' + first(r.name) + ' are now friends.'
           : r.state === 'requested' ? 'Friend request sent to ' + first(r.name) + '.' : 'You and ' + first(r.name) + ' are already friends.');
         return load();
