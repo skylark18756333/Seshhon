@@ -123,6 +123,10 @@ The page's security policy uses `'self'`, so it needs no change for a new addres
 
 `supabase/migrations/0004_sesh_chat.sql` adds the self-erasing sesh chat with block and report. Run new migrations in the Supabase SQL editor in order.
 
+`supabase/migrations/0024_private_seshes.sql` adds private seshes: the person starting one picks which friends can see and
+join it, and can invite more later. Friends who weren't picked can't see it at all. Until it is run, starting a private
+sesh shows an error and ordinary seshes work as before.
+
 If your project was set up before the age gate and sign up says it cannot find `public.api_sign_up(p_birth_date, p_name)`,
 paste `supabase/update.sql` into the Supabase SQL editor and press Run once. It adds migrations 0003 onwards.
 

@@ -511,6 +511,34 @@ try {
   await tap(pim, 'Remove');
   ok(await pim.page.waitForSelector('button.profile-btn img.pic', { state: 'detached', timeout: 6000 }).then(() => true, () => false), 'Pim can remove his photo');
 
+  console.log('Private sesh');
+  const rex = await phone('Rex');
+  await signUp(rex, 'Rex', pmLink);
+  await tab(pim, 'Home'); await has(pim, 'Rex wants to add you'); await tap(pim, 'Accept');
+  await tap(rex, 'Green');
+  await tab(pim, 'Sesh');
+  await tap(pim, 'Start a private sesh');
+  ok(await has(pim, "Who's invited?") && await has(pim, 'Pick at least one friend'), 'Pim picks who comes to a private sesh');
+  await pim.page.locator('.pick-row', { hasText: 'Quin' }).click();
+  ok(await has(pim, 'Start private sesh with 1'), 'picking Quin counts one');
+  if (process.env.SHOTS) await pim.page.screenshot({ path: process.env.SHOTS + '/private-pick.png' });
+  await tap(pim, 'Start private sesh with 1');
+  ok(await has(pim, 'Only you and the 1 friend you picked can see it'), 'the sesh says it is private');
+  await tab(quin, 'Sesh');
+  ok(await has(quin, "Private, you're invited"), 'Quin, who was picked, sees it');
+  await tap(quin, 'Join');
+  ok(await has(quin, 'Only the friends Pim picked can see it'), 'and joins it');
+  await tab(rex, 'Sesh');
+  ok(await has(rex, 'Nobody has started one yet') && !(await has(rex, "Pim's sesh", 500)), 'Rex, a friend who was not picked, does not see it');
+  await tab(pim, 'Sesh'); await tap(pim, 'Invite');
+  await pim.page.locator('.pick-row', { hasText: 'Rex' }).click();
+  ok(await pim.page.locator('.pick-row', { hasText: 'Quin' }).count() === 0, 'people already in it are not offered again');
+  await tap(pim, 'Invite 1');
+  ok(await has(pim, 'Only you and the 2 friends you picked can see it'), 'Pim invites Rex later');
+  await rex.page.reload(); await tab(rex, 'Sesh');
+  ok(await has(rex, "Private, you're invited"), 'and now Rex sees it');
+  if (process.env.SHOTS) await pim.page.screenshot({ path: process.env.SHOTS + '/private-sesh.png' });
+
   ok(consoleErrors.length === 0, 'no script errors on any phone' + (consoleErrors.length ? ': ' + consoleErrors.join('; ') : ''));
   await ana.page.screenshot({ path: path.join(copy, 'ana.png') });
 } catch (e) {

@@ -454,6 +454,7 @@
     tick: '<path d="M4.5 12.5l5 5L19.5 7"/>',
     query: '<path d="M8.5 8.5a3.5 3.5 0 1 1 5.2 3c-1.1.7-1.7 1.4-1.7 2.7v.6"/><circle cx="12" cy="19" r=".6"/>',
     cross: '<path d="M6 6l12 12"/><path d="M18 6L6 18"/>',
+    lock: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
     eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
     star: '<path d="M12 3l2.7 5.6 6.1.8-4.5 4.3 1.1 6.1L12 16.9 6.6 19.8l1.1-6.1L3.2 9.4l6.1-.8z"/>'
   };
@@ -1083,8 +1084,37 @@
     }, 150);
   }
 
+  // Picking friends for a private sesh (migration 0024): when starting one, or inviting more to it.
+  function pickerHtml() {
+    var p = ui.picker, mine = mySesh(), skip = {};
+    if (p.mode === 'invite' && mine) {
+      (mine.invited || []).forEach(function (id) { skip[id] = true; });
+      mine.members.forEach(function (m) { skip[m.id] = true; });
+    }
+    var list = D.friends.filter(function (f) { return !skip[f.id]; });
+    var n = Object.keys(p.picked).length;
+    var h = '<div class="stack" style="gap:6px"><div class="eyebrow">' + svg('lock', 14) + ' Private sesh</div><h1>' + (p.mode === 'invite' ? 'Invite more friends' : 'Who\'s invited?') + '</h1>' +
+      '<p class="muted">Only the friends you pick can see this sesh and join it. Your other friends won\'t know it\'s on.</p></div>';
+    if (!list.length) {
+      h += '<p class="muted">' + (p.mode === 'invite' ? 'All your friends are already invited.' : 'Add some friends first, then you can pick who comes.') + '</p>';
+    } else {
+      h += '<div class="stack" style="gap:8px">' + list.map(function (f) {
+        var on = !!p.picked[f.id];
+        return '<button class="card pick-row' + (on ? ' picked' : '') + '" data-act="pick" data-v="' + esc(f.id) + '" aria-pressed="' + on + '">' +
+          avatar(f.name, COLORS[f.colour] || COLORS.off, false, f.id) +
+          '<span class="grow"><span style="font-weight:700">' + esc(f.name) + '</span><span class="muted small" style="display:block">' + esc(LABELS[f.colour] || 'Red') + '</span></span>' +
+          '<span class="pick-box">' + (on ? svg('tick', 18) : '') + '</span></button>';
+      }).join('') + '</div>' +
+      '<p class="muted small">Friends on red see it once they go green or amber.</p>';
+    }
+    h += '<button class="btn" data-act="picker-go"' + (n ? '' : ' disabled') + '>' +
+      (p.mode === 'invite' ? (n ? 'Invite ' + n : 'Pick friends to invite') : (n ? 'Start private sesh with ' + n : 'Pick at least one friend')) + '</button>' +
+      '<button class="btn ghost" data-act="picker-cancel">Cancel</button>';
+    return h;
+  }
   function sesh() {
     var me = D.me, mine = mySesh();
+    if (ui.picker) return pickerHtml();
     var h = (mine && mine.locked_venue && venueById(mine.locked_venue) ? '<div class="bleed">' + miniSlot('route', mine.locked_venue) + '</div>' : '') +
       '<div class="stack" style="gap:6px"><div class="eyebrow" style="color:var(--on)">' + (mine ? 'Live now' : 'Tonight') + '</div><h1>Tonight\'s sesh</h1></div>';
     if (!mine) {
@@ -1092,13 +1122,15 @@
       if (others.length) {
         h += '<div class="stack">' + others.map(function (s) {
           return '<div class="card"><div class="row between"><div class="grow"><div style="font-weight:700;font-size:17px">' + esc(first(s.creator_name)) + '\'s sesh</div>' +
+            (s.private ? '<div class="small" style="color:var(--accent)">' + svg('lock', 12) + ' Private, you\'re invited</div>' : '') +
             '<div class="muted small">' + s.members.length + ' in' + (s.locked_venue && venueById(s.locked_venue) ? ', going to ' + esc(venueById(s.locked_venue).name) : ', still choosing where') + '</div></div>' +
             '<button class="btn small-btn" data-act="join" data-v="' + esc(s.id) + '">Join</button></div></div>';
         }).join('') + '</div>';
       }
       if (me.colour === 'on') {
         h += '<p class="muted">' + (others.length ? 'Or start your own.' : 'Nobody has started one yet. Start a sesh and your friends on green or amber can join and vote on where to go.') + '</p>' +
-          '<button class="btn' + (others.length ? ' ghost' : '') + '" data-act="start-sesh">Start a sesh</button>';
+          '<button class="btn' + (others.length ? ' ghost' : '') + '" data-act="start-sesh">Start a sesh</button>' +
+          '<button class="btn ghost" data-act="private-sesh">' + svg('lock', 16) + ' Start a private sesh</button>';
       } else if (me.colour === 'thinking') {
         h += '<p class="muted">' + (others.length ? 'Go green to start your own.' : 'No sesh yet. Go green to start one.') + '</p><button class="btn" style="--c:var(--on);--cf:var(--ink)" data-act="status" data-v="on">Go green</button>';
       } else {
@@ -1110,6 +1142,12 @@
     h += '<div class="card"><div class="avatars">' + mine.members.map(function (m) { return avatar(m.name || '?', 'var(--on)', false, m.id); }).join('') + '</div>' +
       '<div><div style="font-weight:700">' + mine.members.length + ' in</div><div class="muted small">' +
       esc(mine.members.map(function (m) { return m.id === me.id ? 'You' : first(m.name); }).join(', ')) + '</div></div></div>';
+    if (mine.private) {
+      var asked = (mine.invited || []).length;
+      h += '<div class="card"><div class="row between"><div class="grow"><div style="font-weight:700">' + svg('lock', 14) + ' Private sesh</div><div class="muted small">' +
+        (mine.mine ? 'Only you and the ' + asked + ' friend' + (asked === 1 ? '' : 's') + ' you picked can see it.' : 'Only the friends ' + esc(first(mine.creator_name)) + ' picked can see it.') + '</div></div>' +
+        (mine.mine ? '<button class="btn small-btn ghost" data-act="invite-more">Invite</button>' : '') + '</div></div>';
+    }
 
     if (mine.locked_venue) {
       var lv = venueById(mine.locked_venue);
@@ -1442,7 +1480,7 @@
 
   var ACT = {
     tab: function (v) {
-      ui.tab = v; ui.screen = null; ui.confirm = null; ui.staffError = ''; go(true);
+      ui.tab = v; ui.screen = null; ui.confirm = null; ui.staffError = ''; ui.picker = null; go(true);
       if (v === 'map' || v === 'venues') freshVenues(5 * 60000);
       if (v === 'map' && Date.now() - buzzAt > 60000) loadBuzz();
       if (v === 'map' || v === 'sesh' || v === 'events') loadPins().then(function () { if (ui.tab === v && !ui.screen) { if (M.map) M.fit = true; render(); } });
@@ -1473,6 +1511,21 @@
     'go-sesh': function () {
       if (mySesh()) { ui.tab = 'sesh'; go(true); return; }
       ACT['start-sesh']();
+    },
+    'private-sesh': function () { ui.picker = { mode: 'start', picked: {} }; go(true); },
+    'invite-more': function () { ui.picker = { mode: 'invite', picked: {} }; go(true); },
+    pick: function (id) {
+      if (!ui.picker) return;
+      if (ui.picker.picked[id]) delete ui.picker.picked[id]; else ui.picker.picked[id] = true;
+      go(false);
+    },
+    'picker-cancel': function () { ui.picker = null; go(true); },
+    'picker-go': function () {
+      var p = ui.picker, ids = p ? Object.keys(p.picked) : [], s = mySesh();
+      if (!ids.length) return;
+      var done = function (r) { if (r) { ui.picker = null; ui.tab = 'sesh'; go(true); } };
+      if (p.mode === 'invite' && s) act('invite_to_sesh', { p_sesh: s.id, p_friends: ids }, 'Invited. They can see the sesh now.').then(done);
+      else act('start_private_sesh', { p_friends: ids }, 'Private sesh started. Only the friends you picked can see it.').then(done);
     },
     'start-sesh': function () { act('start_sesh', {}, 'Sesh started. Friends who are around can join.').then(function () { ui.tab = 'sesh'; go(true); }); },
     join: function (v) { act('join_sesh', { p_sesh: v }, 'You\'re in.'); },
