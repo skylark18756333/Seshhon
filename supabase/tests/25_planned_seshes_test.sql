@@ -56,6 +56,37 @@ select public.purge_chat() \g /dev/null
 select public.expect((select count(*) from public.messages where sesh_id = :'planned') = 1, 'a day-old message in a planned sesh is kept');
 set role authenticated;
 
+-- ---- a private pres address
+select set_config('request.jwt.claim.sub', :q, false) \g /dev/null
+select public.expect_error(format($$select public.set_sesh_pres(%L, '12 Secret St')$$, :'planned'), 'only the host can set the pres address');
+select set_config('request.jwt.claim.sub', :p, false) \g /dev/null
+select public.expect_error(format($$select public.set_sesh_pres(%L, '12 Secret St', now() + interval '3 days')$$, :'planned'), 'pres can''t be after the sesh starts');
+select public.set_sesh_pres(:'planned', '12 Secret St', now() + interval '2 days' - interval '2 hours') \g /dev/null
+select public.expect((public.api_state() -> 'seshes' -> 0 -> 'pres' ->> 'address') = '12 Secret St', 'Pia sees the address she added');
+select public.expect_error('select * from private.sesh_pres', 'nobody reads the pres table directly');
+select set_config('request.jwt.claim.sub', :q, false) \g /dev/null
+select public.expect((select x -> 'pres' from jsonb_array_elements(public.api_state() -> 'seshes') x where x ->> 'id' = :'planned') ? 'shows_at', 'Quentin, who is in, knows there is a pres');
+select public.expect(not ((select x -> 'pres' from jsonb_array_elements(public.api_state() -> 'seshes') x where x ->> 'id' = :'planned') ? 'address'), 'but not the address 2 days early');
+reset role;
+update public.seshes set created_at = now() + interval '3 hours' where id = :'planned';
+set role authenticated;
+select public.expect((select x -> 'pres' ->> 'address' from jsonb_array_elements(public.api_state() -> 'seshes') x where x ->> 'id' = :'planned') = '12 Secret St', 'he sees it from 4 hours before the start');
+reset role;
+insert into public.friendships (requester, addressee, state) values (:z, :p, 'accepted');
+set role authenticated;
+select set_config('request.jwt.claim.sub', :z, false) \g /dev/null
+select public.expect((select x -> 'pres' from jsonb_array_elements(public.api_state() -> 'seshes') x where x ->> 'id' = :'planned') = 'null'::jsonb, 'a friend who hasn''t said he''s in sees the sesh but no pres');
+reset role;
+delete from public.friendships where requester = :z and addressee = :p;
+insert into public.blocks (blocker, blocked) values (:p, :q);
+set role authenticated;
+select set_config('request.jwt.claim.sub', :q, false) \g /dev/null
+select public.expect(coalesce((select x -> 'pres' from jsonb_array_elements(public.api_state() -> 'seshes') x where x ->> 'id' = :'planned'), 'null'::jsonb) = 'null'::jsonb, 'someone the host blocked never sees it');
+reset role;
+delete from public.blocks where blocker = :p and blocked = :q;
+update public.seshes set created_at = now() + interval '2 days' where id = :'planned';
+set role authenticated;
+
 -- ---- a planned sesh doesn't stop you starting one now
 select set_config('request.jwt.claim.sub', :p, false) \g /dev/null
 select public.set_status('on') \g /dev/null
@@ -88,6 +119,7 @@ update public.seshes set created_at = now() - interval '8 hours 1 minute' where 
 select public.purge_old_data() \g /dev/null
 select public.expect(not exists (select 1 from public.seshes where id = :'secret'), 'deleted 8 hours after it was meant to start');
 select public.expect(not exists (select 1 from public.sesh_invites where sesh_id = :'secret'), 'with its invite list');
+select public.expect(not exists (select 1 from private.sesh_pres where sesh_id = :'planned'), 'and ending a sesh deleted its pres address');
 
 -- ---- no more than 5 planned at once
 set role authenticated;

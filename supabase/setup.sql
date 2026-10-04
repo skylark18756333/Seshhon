@@ -3143,7 +3143,10 @@ $$;
 -- with everything in it. Cancelling one deletes it straight away, like ending a sesh.
 --
 -- A planned sesh doesn't count as "on" until it starts: it never makes a venue glow busy, and it doesn't
--- stop anyone starting a sesh now. Needs 0024. Safe to run more than once.
+-- stop anyone starting a sesh now.
+--
+-- Also adds a private pres (pre-drinks) address the host can add to a sesh: see "pres address" below.
+-- Needs 0024. Safe to run more than once.
 
 create index if not exists seshes_creator_start on public.seshes (creator, created_at);
 
@@ -3296,8 +3299,67 @@ $$;
 revoke all on function public.api_buzz() from public, anon, authenticated;
 grant execute on function public.api_buzz() to authenticated;
 
+-- ---------------------------------------------------------------- pres address
+-- The person who started a sesh can add a private address for pres (pre-drinks), usually someone's home.
+-- It is kept in its own table that nobody can read directly, so friends who can see the sesh can't see it.
+-- Only people who have said they're in see it, and only from 4 hours before the sesh starts (the host always
+-- sees what they typed). Anyone blocked by or blocking the host never sees it. It never goes on the map or
+-- into venue glows, and it is deleted with the sesh.
+create table if not exists private.sesh_pres (
+  sesh_id uuid primary key references public.seshes (id) on delete cascade,
+  address text not null check (char_length(address) between 1 and 200),
+  pres_at timestamptz,
+  updated_at timestamptz not null default now()
+);
+alter table private.sesh_pres enable row level security;   -- no policies: only the functions below use it
+revoke all on private.sesh_pres from public, anon, authenticated;
+
+-- p_address empty or null removes it. p_at (optional) is when pres starts.
+create or replace function public.set_sesh_pres(p_sesh uuid, p_address text, p_at timestamptz default null) returns jsonb
+language plpgsql security definer set search_path = public, private as $$
+declare
+  addr text := btrim(coalesce(p_address, ''));
+  starts timestamptz;
+begin
+  select created_at into starts from public.seshes
+  where id = p_sesh and creator = auth.uid() and ended_at is null and created_at > now() - interval '8 hours';
+  if not found then raise exception 'Only the person who started the sesh can set the pres address.'; end if;
+  if addr = '' then
+    delete from private.sesh_pres where sesh_id = p_sesh;
+    return jsonb_build_object('ok', true, 'removed', true);
+  end if;
+  if char_length(addr) > 200 then raise exception 'Keep the address under 200 characters.'; end if;
+  if p_at is not null and (p_at > starts or p_at < starts - interval '12 hours') then
+    raise exception 'Pres has to be on the day, before the sesh starts.';
+  end if;
+  insert into private.sesh_pres (sesh_id, address, pres_at) values (p_sesh, addr, p_at)
+  on conflict (sesh_id) do update set address = excluded.address, pres_at = excluded.pres_at, updated_at = now();
+  return jsonb_build_object('ok', true);
+end;
+$$;
+revoke all on function public.set_sesh_pres(uuid, text, timestamptz) from public, anon, authenticated;
+grant execute on function public.set_sesh_pres(uuid, text, timestamptz) to authenticated;
+
+-- What the person asking may know about a sesh's pres: null if there is none or they aren't in the sesh,
+-- {"at", "shows_at"} without the address until 4 hours before the start, then the address too.
+create or replace function private.sesh_pres_for_me(p_sesh uuid) returns jsonb
+language sql stable security definer set search_path = public, private as $$
+  select case
+    when x.creator = auth.uid() then jsonb_build_object('address', p.address, 'at', p.pres_at, 'shows_at', x.created_at - interval '4 hours')
+    when public.is_sesh_member(x.id, auth.uid()) and not public.blocked_between(x.creator, auth.uid())
+         and not private.hidden_from_me(x.creator) then
+      case when now() >= x.created_at - interval '4 hours'
+        then jsonb_build_object('address', p.address, 'at', p.pres_at, 'shows_at', x.created_at - interval '4 hours')
+        else jsonb_build_object('at', p.pres_at, 'shows_at', x.created_at - interval '4 hours') end
+  end
+  from public.seshes x join private.sesh_pres p on p.sesh_id = x.id
+  where x.id = p_sesh;
+$$;
+revoke all on function private.sesh_pres_for_me(uuid) from public, anon;
+grant execute on function private.sesh_pres_for_me(uuid) to authenticated;
+
 -- ---------------------------------------------------------------- app state
--- Same as 0024, plus when each sesh starts and whether it is still only planned.
+-- Same as 0024, plus when each sesh starts, whether it is still only planned, and its pres (as above).
 create or replace function public.api_state() returns jsonb
 language sql stable security invoker set search_path = public as $$
   select jsonb_build_object(
@@ -3341,6 +3403,7 @@ language sql stable security invoker set search_path = public as $$
           'private', s.private,
           'starts_at', s.created_at,
           'planned', s.created_at > now(),
+          'pres', private.sesh_pres_for_me(s.id),
           'invited', private.sesh_invited(s.id),
           'am_member', public.is_sesh_member(s.id, auth.uid()),
           'members', coalesce((

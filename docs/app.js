@@ -1178,6 +1178,32 @@
     return h + '</section>';
   }
 
+  // The private pres (pre-drinks) address (migration 0025). The database only sends the address to people who
+  // are in the sesh, from 4 hours before it starts; the host always sees it. It is never put on the map.
+  function presHtml(s) {
+    var p = s.pres, h;
+    if (s.mine && ui.presEdit === s.id) {
+      var at = p && p.at ? new Date(p.at) : null, two = function (n) { return (n < 10 ? '0' : '') + n; };
+      return '<div class="card"><h2>Pres</h2><div class="field"><label for="pres-address">Address</label><input id="pres-address" data-keep type="text" maxlength="200" autocomplete="off" placeholder="e.g. 12 Smith St, Northbridge" value="' + esc(p && p.address || '') + '"></div>' +
+        '<div class="field"><label for="pres-time">Pres from (optional)</label><input id="pres-time" data-keep type="time" step="900" value="' + (at ? two(at.getHours()) + ':' + two(at.getMinutes()) : '') + '"></div>' +
+        '<p class="muted small">Only the people who have said they\'re in see it, from 4 hours before the sesh starts. It\'s never shown on the map, and it\'s deleted with the sesh.</p>' +
+        '<div class="row"><button class="btn small-btn" data-act="pres-save">Save</button><button class="btn small-btn ghost" data-act="pres-cancel">Cancel</button>' +
+        (p ? '<button class="btn small-btn ghost" data-act="pres-remove">Remove</button>' : '') + '</div></div>';
+    }
+    if (!p) return s.mine ? '<button class="btn ghost" data-act="pres-edit">' + svg('home', 16) + ' Add a private pres address</button>' : '';
+    var when = p.at ? 'From ' + fmtTime(p.at) : '';
+    if (p.address) {
+      h = '<div class="card"><div class="row between"><div class="grow"><div class="eyebrow">' + svg('lock', 12) + ' Pres</div><div style="font-weight:700;font-size:17px">' + esc(p.address) + '</div>' +
+        (when ? '<div class="muted small">' + when + '</div>' : '') + '</div>' +
+        (s.mine ? '<button class="btn small-btn ghost" data-act="pres-edit">Edit</button>' : '') + '</div>' +
+        '<a class="btn small-btn ghost" style="display:inline-flex;align-items:center;justify-content:center;text-decoration:none;align-self:flex-start" target="_blank" rel="noopener" href="https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(p.address) + '">Directions</a>' +
+        (s.mine && new Date(p.shows_at).getTime() > now() ? '<p class="muted small">The people who are in see it from ' + esc(fmtWhen(p.shows_at).replace(/^(Today|Tomorrow)/, function (w) { return w.toLowerCase(); })) + '.</p>' : '<p class="muted small">Private: only the people in this sesh can see it.</p>') + '</div>';
+      return h;
+    }
+    return '<div class="card"><div class="eyebrow">' + svg('lock', 12) + ' Pres</div><div class="muted small">' + (when ? when + '. ' : '') +
+      esc(first(s.creator_name)) + ' added a private pres address. You\'ll see it from ' + esc(fmtWhen(p.shows_at).replace(/^(Today|Tomorrow)/, function (w) { return w.toLowerCase(); })) + '.</div></div>';
+  }
+
   function sesh() {
     var me = D.me, mine = mySesh();
     if (ui.picker) return pickerHtml();
@@ -1216,6 +1242,7 @@
     h += '<div class="card"><div class="avatars">' + mine.members.map(function (m) { return avatar(m.name || '?', 'var(--on)', false, m.id); }).join('') + '</div>' +
       '<div><div style="font-weight:700">' + mine.members.length + ' in</div><div class="muted small">' +
       esc(mine.members.map(function (m) { return m.id === me.id ? 'You' : first(m.name); }).join(', ')) + '</div></div></div>';
+    h += presHtml(mine);
     if (mine.private) {
       var asked = (mine.invited || []).length;
       h += '<div class="card"><div class="row between"><div class="grow"><div style="font-weight:700">' + svg('lock', 14) + ' Private sesh</div><div class="muted small">' +
@@ -1629,6 +1656,25 @@
         p.pick ? 'Planned. Only the friends you picked can see it.' : 'Planned. Your friends can see it and say they\'re in.').then(function (r) {
         if (r) { ui.plan = null; ui.seshId = r.id; ui.tab = 'sesh'; go(true); }
       });
+    },
+    'pres-edit': function () { var s = mySesh(); if (s) { ui.presEdit = s.id; go(false); } },
+    'pres-cancel': function () { ui.presEdit = null; go(false); },
+    'pres-remove': function () {
+      var s = mySesh(); if (!s) return;
+      act('set_sesh_pres', { p_sesh: s.id, p_address: '', p_at: null }, 'Pres address removed.').then(function (r) { if (r) { ui.presEdit = null; go(false); } });
+    },
+    'pres-save': function () {
+      var s = mySesh(), a = document.getElementById('pres-address'), t = document.getElementById('pres-time');
+      if (!s || !a) return;
+      if (!a.value.trim()) { toast('Type the address first.'); return; }
+      var at = null;
+      if (t && t.value) {   // that time on the day of the sesh, or the evening before for a sesh after midnight
+        var start = new Date(s.starts_at), d = new Date(start), hm = t.value.split(':');
+        d.setHours(Number(hm[0]), Number(hm[1]), 0, 0);
+        if (d > start) d.setDate(d.getDate() - 1);
+        at = d.toISOString();
+      }
+      act('set_sesh_pres', { p_sesh: s.id, p_address: a.value.trim(), p_at: at }, 'Pres address saved. Only the people in the sesh can see it.').then(function (r) { if (r) { ui.presEdit = null; go(false); } });
     },
     'open-sesh': function (v) { ui.seshId = v; go(true); },
     'sesh-back': function () { ui.seshId = null; go(true); },
