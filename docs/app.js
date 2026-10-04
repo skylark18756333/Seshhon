@@ -161,7 +161,7 @@
         if (!res.ok && json && json.code === 'PGRST202') {
           // The database is missing a function this page calls: an update in supabase/ has not been run yet.
           console.error('Frenzy database is out of date. Run supabase/update.sql in the Supabase SQL editor.', json.message);
-          throw new Error('Frenzy is being updated. Try again soon.');
+          var old = new Error('Frenzy is being updated. Try again soon.'); old.missing = true; throw old;
         }
         if (!res.ok) throw new Error((json && json.message) || 'Something went wrong. Try again.');
         return json;
@@ -1518,7 +1518,7 @@
       btn.disabled = true; err.hidden = true;
       (session ? Promise.resolve() : signInAnonymously(useCaptcha()))
         // An older database without username_free() just skips this early check; save_account still refuses a taken name.
-        .then(function () { return rpc('username_free', { p_username: ju }).catch(function (x) { if (/schema cache|could not find/i.test(x.message)) return true; throw x; }); })
+        .then(function () { return rpc('username_free', { p_username: ju }).catch(function (x) { if (x.missing) return true; throw x; }); })
         .then(function (free) {
           if (free === false) throw new Error('That username is taken. Try another.');
           newLogin = { username: ju, password: jp };
@@ -1589,7 +1589,7 @@
           : r.state === 'requested' ? 'Friend request sent to ' + first(r.name) + '.' : 'You and ' + first(r.name) + ' are already friends.');
         return load();
       }).catch(function (x) {
-        ui.addFriendError = /request_friend_by_username/.test(x.message) ? 'Adding by username needs a database update. Send your invite link for now.' : x.message;
+        ui.addFriendError = x.missing ? 'Adding by username needs a database update. Send your invite link for now.' : x.message;
       }).then(function () { var b = document.getElementById('friend-btn'); if (b) b.disabled = false; go(false); });
       return;
     }
