@@ -88,6 +88,25 @@ functions in `supabase/migrations/0002_live_web_app.sql`.
 - `docs/app.js`: the app's code. It is a separate file, not inline in `index.html`, because the page's Content Security Policy
   forbids inline scripts. If the Supabase project URL changes, update `connect-src` in `docs/index.html` too (`check.mjs` fails if they differ).
 
+### Web address (custom domain)
+
+The site is served by GitHub Pages from `docs/`. `docs/CNAME` names the main address, `frendzy.com.au`; the old
+`skylark18756333.github.io/Seshhon/` address then redirects there on its own. GitHub Pages serves one domain per site, so
+`frendzy.au` is pointed at it with a redirect at the registrar or Cloudflare. When the address changes:
+
+1. DNS for `frendzy.com.au`: `A` records `185.199.108.153`, `185.199.109.153`, `185.199.110.153`, `185.199.111.153`,
+   `AAAA` records `2606:50c0:8000::153`, `2606:50c0:8001::153`, `2606:50c0:8002::153`, `2606:50c0:8003::153`, and
+   `www` as a `CNAME` to `skylark18756333.github.io`.
+2. `frendzy.au` (and `www.frendzy.au`): a permanent (301) redirect to `https://frendzy.com.au/`.
+3. GitHub, Settings, Pages: check the custom domain shows `frendzy.com.au` and DNS is OK, then tick **Enforce HTTPS**.
+4. Supabase, Authentication, URL Configuration: Site URL `https://frendzy.com.au/`, and add `https://frendzy.com.au/**`
+   to the redirect URLs (keep the old address until the move is done).
+5. Cloudflare Turnstile widget: add `frendzy.com.au` to its hostnames, or sign-up fails on the new address.
+6. Supabase Edge Functions secret `AGE_CHECK_RETURN_URLS`: add `https://frendzy.com.au/`.
+7. Phone app: `extra.webUrl` in `mobile/app.json` is the address it opens. Make a new build after the move.
+
+The page's security policy uses `'self'`, so it needs no change for a new address.
+
 ### Security
 
 - Every table has row level security, signed-out visitors can read or call nothing, and since `0006_security_hardening.sql`
@@ -135,7 +154,7 @@ To switch it on:
    function checks the sign-in itself). Or with the Supabase CLI:
    `supabase functions deploy age-check --no-verify-jwt`.
 4. In Edge Functions, Secrets, add:
-   - `AGE_CHECK_RETURN_URLS`: the web app address, e.g. `https://skylark18756333.github.io/Seshhon/`
+   - `AGE_CHECK_RETURN_URLS`: the web app address, e.g. `https://frendzy.com.au/` (during a domain move, list both old and new addresses, comma separated)
    - for Yoti: `YOTI_SDK_ID` and `YOTI_API_KEY`; for Didit: `DIDIT_API_KEY` and `DIDIT_WORKFLOW_ID`
    - optional `AGE_ESTIMATE_MIN` (default 25): the estimated age needed to pass without ID
 5. Switch it on in the SQL editor:
