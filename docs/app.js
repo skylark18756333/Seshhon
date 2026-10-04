@@ -242,6 +242,10 @@
   function loadAccount() {
     return rpc('my_account').then(function (a) { ui.account = a || null; }, function () { ui.account = 'off'; });
   }
+  var photos = {}, photosKey = '', photosAt = 0;
+  function loadPhotos() {
+    return rpc('friend_photos').then(function (p) { photos = p || {}; photosAt = Date.now(); }, function () { photosAt = Date.now(); });
+  }
   function load(quiet) {
     return (session && !ui.age ? loadAge() : Promise.resolve()).then(function () { return rpc('api_state'); }).then(function (data) {
       if (data && data.me && ui.account === undefined) return loadAccount().then(function () { return data; });
@@ -254,6 +258,13 @@
       D = data; ui.booted = true;
       if (data.me && !pins && !pinsAsked) { pinsAsked = true; loadPins().then(function () { render(); }); }   // venue distances for the sesh vote list
       if (!quiet || key !== lastKey) { lastKey = key; render(); }
+      // Photos change rarely: fetch them when the friend list changes, and otherwise once a minute.
+      var pk = data.me ? JSON.stringify([data.me.id].concat((data.friends || []).map(function (f) { return f.id; }))) : '';
+      if (pk && (pk !== photosKey || Date.now() - photosAt > 60000)) {
+        photosKey = pk; photosAt = Date.now();
+        var before = JSON.stringify(photos);
+        loadPhotos().then(function () { if (JSON.stringify(photos) !== before) render(); });
+      }
     }).catch(function (e) {
       if (e.signedOut || !session) { D = null; ui.booted = true; render(); return; }
       ui.offline = true; ui.booted = true;
@@ -308,8 +319,12 @@
     for (var i = 0; i < t.length; i++) h = (h * 31 + t.charCodeAt(i)) % 360;
     return h;
   }
-  function avatar(name, colour, dashed) {
-    return '<div class="avatar' + (dashed ? ' dashed' : '') + '" style="--c:' + (colour || 'var(--line)') + '">' + initials(name) + '</div>';
+  function avatar(name, colour, dashed, id) {
+    return '<div class="avatar' + (dashed ? ' dashed' : '') + '" style="--c:' + (colour || 'var(--line)') + '">' + face(id, name) + '</div>';
+  }
+  // A person's photo if they added one and you are allowed to see it, otherwise their initials.
+  function face(id, name) {
+    return id && photos[id] ? '<img class="pic" src="' + esc(photos[id]) + '" alt="">' : initials(name);
   }
 
   // The brush-script name with the three status dots beside it. With a status, only that dot is lit.
@@ -430,7 +445,7 @@
       h += '<section class="stack" style="gap:4px"><div class="row between"><h2>Up for it now</h2><span class="muted small">' + on + ' green, ' + th + ' amber</span></div>' +
         '<div class="faces">' + friends.slice().sort(function (x, y) { return STOPS.indexOf(x.colour) - STOPS.indexOf(y.colour); }).map(function (f) {
           var c = f.colour === 'off' ? 'var(--line)' : COLORS[f.colour];
-          return '<div class="friend face' + (f.colour === 'off' ? ' away' : '') + '" style="--c:' + c + ';--h:' + hue(f.name) + '"><div class="face-pic">' + initials(f.name) + '</div>' +
+          return '<div class="friend face' + (f.colour === 'off' ? ' away' : '') + '" style="--c:' + c + ';--h:' + hue(f.name) + '"><div class="face-pic">' + face(f.id, f.name) + '</div>' +
             '<div class="face-name">' + esc(first(f.name)) + '</div><div class="state" style="--c:' + (f.colour === 'off' ? 'var(--muted)' : COLORS[f.colour]) + '">' + LABELS[f.colour] + '</div></div>';
         }).join('') + '</div></section>';
       var sesh = mySesh();
@@ -464,7 +479,7 @@
     if (!ui.messages.length) return '<p class="muted small">No messages yet. Say where you\'re heading.</p>';
     return ui.messages.map(function (m) {
       var mineMsg = m.sender === D.me.id;
-      var h = '<div class="msg-row' + (mineMsg ? ' me' : '') + '">' + (mineMsg ? '' : avatar(m.name, 'var(--line)')) + '<div class="msg-wrap">' +
+      var h = '<div class="msg-row' + (mineMsg ? ' me' : '') + '">' + (mineMsg ? '' : avatar(m.name, 'var(--line)', false, m.sender)) + '<div class="msg-wrap">' +
         (mineMsg ? '' : '<div class="who">' + esc(first(m.name)) + '</div>') +
         '<div class="msg' + (mineMsg ? ' me' : '') + '"><div>' + esc(m.body) + '</div><span class="when">' + fmtTime(m.at) + '</span>';
       if (!mineMsg) {
@@ -709,7 +724,7 @@
       return h;
     }
 
-    h += '<div class="card"><div class="avatars">' + mine.members.map(function (m) { return avatar(m.name || '?', 'var(--on)'); }).join('') + '</div>' +
+    h += '<div class="card"><div class="avatars">' + mine.members.map(function (m) { return avatar(m.name || '?', 'var(--on)', false, m.id); }).join('') + '</div>' +
       '<div><div style="font-weight:700">' + mine.members.length + ' in</div><div class="muted small">' +
       esc(mine.members.map(function (m) { return m.id === me.id ? 'You' : first(m.name); }).join(', ')) + '</div></div></div>';
 
@@ -810,7 +825,7 @@
     var me = D.me;
     return '<div class="top"><div class="row" style="gap:6px">' + (back ? backBtn() : '') + logo(me.colour) + '</div><div class="row" style="gap:10px">' +
       (ui.offline ? '<span class="pill" style="border-color:var(--off);color:var(--off)">Offline</span>' : '') +
-      '<button class="avatar profile-btn" style="--c:' + COLORS[me.colour] + '" data-act="tab" data-v="you" aria-label="You"' + (ui.tab === 'you' ? ' aria-current="page"' : '') + '>' + initials(me.name) + '</button></div></div>';
+      '<button class="avatar profile-btn" style="--c:' + COLORS[me.colour] + '" data-act="tab" data-v="you" aria-label="You"' + (ui.tab === 'you' ? ' aria-current="page"' : '') + '>' + face(me.id, me.name) + '</button></div></div>';
   }
   function backBtn() { return '<button class="back" data-act="close" aria-label="Back">' + svg('back', 20) + '</button>'; }
 
@@ -840,7 +855,13 @@
 
   function you() {
     var me = D.me;
-    var h = '<div class="row">' + '<div class="avatar" style="width:56px;height:56px;font-size:18px;--c:' + COLORS[me.colour] + '">' + initials(me.name) + '</div><div class="grow"><h1 style="font-size:28px">' + esc(me.name) + '</h1><p class="muted small">Status: ' + LABELS[me.colour] + '</p></div></div>';
+    var h = '<div class="row">' + '<div class="avatar" style="width:56px;height:56px;font-size:18px;--c:' + COLORS[me.colour] + '">' + face(me.id, me.name) + '</div><div class="grow"><h1 style="font-size:28px">' + esc(me.name) + '</h1><p class="muted small">Status: ' + LABELS[me.colour] + '</p></div></div>';
+
+    h += '<div class="card"><h2>Your photo</h2><div class="row"><div class="face-pic me" style="--c:' + COLORS[me.colour] + ';--h:' + hue(me.name) + '">' + face(me.id, me.name) + '</div>' +
+      '<p class="muted small grow">Only your friends see it on your circle, never strangers or anyone you block. Use a photo of you.</p></div>' +
+      '<input type="file" id="photo-file" accept="image/*" hidden>' +
+      '<div class="row"><button class="btn small-btn" data-act="pick-photo"' + (ui.photoBusy ? ' disabled' : '') + '>' + (ui.photoBusy ? 'Saving...' : photos[me.id] ? 'Change photo' : 'Add a photo') + '</button>' +
+      (photos[me.id] && !ui.photoBusy ? '<button class="btn small-btn ghost" data-act="remove-photo">Remove</button>' : '') + '</div></div>';
 
     h += '<div class="card"><h2>Invite a friend</h2><p class="muted small">Send this link. When they sign up you get a friend request to accept.</p>' +
       '<button class="btn" data-act="share">Send your invite link</button>' + linkBox() + '</div>';
@@ -1035,6 +1056,8 @@
       act('rate_venue', { p_venue: ven.id, p_stars: ven.my_stars, p_tags: tags });
     },
     share: shareInvite,
+    'pick-photo': function () { var f = document.getElementById('photo-file'); if (f) f.click(); },
+    'remove-photo': function () { savePhoto(null); },
     'age-start': function () {
       ui.ageBusy = true; ui.ageNote = ''; render();
       ageCheckCall('start', { return_to: location.origin + location.pathname }).then(function (r) {
@@ -1121,6 +1144,12 @@
   document.addEventListener('pointercancel', function (e) { endDrag(e, true); });
 
   document.addEventListener('input', function (e) { if (e.target.id === 'radius') setRadius(e.target.value); });
+  document.addEventListener('change', function (e) {
+    if (e.target.id !== 'photo-file' || !e.target.files || !e.target.files[0]) return;
+    var file = e.target.files[0];
+    if (!/^image\//.test(file.type)) { toast('Pick a photo.'); return; }
+    shrinkPhoto(file).then(savePhoto, function () { toast('That photo could not be opened. Try a different one.'); });
+  });
   document.addEventListener('change', function (e) { if (e.target.id === 'radius' && M.map) { M.fit = true; drawMap(); } });   // zoom to the circle once the slider is let go
   document.addEventListener('click', function (e) {
     if (swallowClick) return;
@@ -1129,6 +1158,35 @@
     var fn = ACT[b.getAttribute('data-act')];
     if (fn) fn(b.getAttribute('data-v'));
   });
+
+  // Crops the middle square of a photo and shrinks it to 160 x 160 on this phone before it is sent.
+  function shrinkPhoto(file) {
+    return new Promise(function (resolve, reject) {
+      var reader = new FileReader();
+      reader.onerror = reject;
+      reader.onload = function () {
+        var img = new Image();
+        img.onerror = reject;
+        img.onload = function () {
+          var side = Math.min(img.naturalWidth, img.naturalHeight), c = document.createElement('canvas');
+          if (!side) return reject(new Error('empty'));
+          c.width = c.height = 160;
+          c.getContext('2d').drawImage(img, (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, 0, 0, 160, 160);
+          var out = c.toDataURL('image/jpeg', 0.82);
+          if (out.length > 60000) out = c.toDataURL('image/jpeg', 0.6);
+          resolve(out);
+        };
+        img.src = reader.result;
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+  function savePhoto(dataUrl) {
+    ui.photoBusy = true; render();
+    rpc('set_photo', { p_photo: dataUrl }).then(loadPhotos).then(function () { toast(dataUrl ? 'Photo saved.' : 'Photo removed.'); })
+      .catch(function (e) { toast(e.message); })
+      .then(function () { ui.photoBusy = false; render(); });
+  }
 
   function sendPendingInvite() {
     var code = store(INVITE_KEY);

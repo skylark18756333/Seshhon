@@ -320,6 +320,25 @@ try {
   await fay2.page.fill('#login-pass', 'brandnewpass'); await tap(fay2, 'Log in');
   ok(await has(fay2, 'Your status'), 'and the new password works');
 
+  console.log('Profile photos');
+  const gus = await phone('Gus'), hana = await phone('Hana');
+  await signUp(gus, 'Gus');
+  const gusLink = await inviteOf(gus);
+  await signUp(hana, 'Hana', gusLink);
+  await tab(gus, 'Home'); await has(gus, 'Hana wants to add you'); await tap(gus, 'Accept');
+  await tap(gus, 'Green'); await tap(hana, 'Green');
+  ok(await has(hana, 'Up for it now') && await hana.page.locator('.friend.face .pic').count() === 0, 'with no photo, a friend\'s circle shows their initial');
+  await tab(gus, 'You');
+  ok(await has(gus, 'Add a photo'), 'the You page offers to add a photo');
+  // a 40 x 30 red PNG, so the square crop is tried too
+  const png = await gus.page.evaluate(() => { const c = document.createElement('canvas'); c.width = 40; c.height = 30; const g = c.getContext('2d'); g.fillStyle = '#d33'; g.fillRect(0, 0, 40, 30); return c.toDataURL('image/png').split(',')[1]; });
+  await gus.page.locator('#photo-file').setInputFiles({ name: 'me.png', mimeType: 'image/png', buffer: Buffer.from(png, 'base64') });
+  ok(await gus.page.waitForSelector('button.profile-btn img.pic', { timeout: 6000 }).then(() => true, () => false), 'Gus adds a photo and his profile button shows it');
+  await hana.page.reload(); await has(hana, 'Up for it now');
+  ok(await hana.page.waitForFunction(() => document.querySelectorAll('.friend.face .pic').length === 1, null, { timeout: 4000 }).then(() => true, () => false), 'his friend Hana sees his photo on his circle');
+  await tap(gus, 'Remove');
+  ok(await gus.page.waitForSelector('button.profile-btn img.pic', { state: 'detached', timeout: 6000 }).then(() => true, () => false), 'Gus can remove his photo');
+
   ok(consoleErrors.length === 0, 'no script errors on any phone' + (consoleErrors.length ? ': ' + consoleErrors.join('; ') : ''));
   await ana.page.screenshot({ path: path.join(copy, 'ana.png') });
 } catch (e) {

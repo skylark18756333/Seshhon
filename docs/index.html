@@ -109,6 +109,10 @@ h2 { font-family: var(--display); font-weight: 700; font-size: 19px; letter-spac
 .friend.face.away .face-pic::before { display: none; }
 .face-name { font-weight: 700; font-size: 14px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .friend.face .state { font-size: 12px; }
+.pic { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; display: block; }
+.face-pic .pic { border-radius: 50%; }
+.face-pic.me { flex: none; margin: 4px 6px 4px 4px; box-shadow: 0 0 0 3px var(--bg), 0 0 0 5px var(--c); }
+.avatar:has(.pic) { overflow: hidden; }
 .deal-title { font-weight: 700; color: var(--zest); overflow-wrap: anywhere; }
 .bar { flex: 1; height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; }
 .bar i { display: block; height: 100%; background: var(--muted); border-radius: 4px; }
