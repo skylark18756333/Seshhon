@@ -397,8 +397,13 @@
     return id && photos[id] ? '<img class="pic" src="' + esc(photos[id]) + '" alt="">' : initials(name);
   }
 
-  // The brush-script name with the three status dots beside it. With a status, only that dot is lit.
-  function logo(status) {
+  // The brush-script name with the traffic light beside it. With a status, only that light is lit.
+  // Signed in (live), the traffic light is the status switch: tap a light to change it from any screen.
+  function logo(status, live) {
+    if (live) return '<div class="logo"><div class="wordmark">Frendzy</div><div class="dots switch" role="group" aria-label="Your status">' +
+      STOPS.map(function (k) {
+        return '<button data-act="status-here" data-v="' + k + '" aria-label="Switch to ' + LABELS[k] + '" aria-pressed="' + (k === status) + '"><i style="--c:' + COLORS[k] + '"' + (k === status ? ' class="lit"' : '') + '></i></button>';
+      }).join('') + '</div></div>';
     return '<div class="logo"><div class="wordmark">Frendzy</div><div class="dots' + (status ? '' : ' all') + '" aria-hidden="true">' +
       STOPS.map(function (k) { return '<i style="--c:' + COLORS[k] + '"' + (k === status ? ' class="lit"' : '') + '></i>'; }).join('') + '</div></div>';
   }
@@ -492,7 +497,7 @@
       '<p class="muted">' + copy[1] + (s !== 'off' && me.expires_at ? ' Back to red in <span data-until="' + new Date(me.expires_at).getTime() + '" data-kind="status">' + fmtLeft(new Date(me.expires_at).getTime() - now()) + '</span>.' : '') + '</p>' +
       '<div class="slide" id="status-slide" role="group" aria-label="Set your status" style="--c:' + COLORS[s] + ';--i:' + STOPS.indexOf(s) + '"><span class="knob"></span>' +
       STOPS.map(function (k) {
-        return '<button class="stop" data-act="status" data-v="' + k + '" aria-label="' + LABELS[k] + '" aria-pressed="' + (s === k) + '">' + LABELS[k].charAt(0) + '</button>';
+        return '<button class="stop" style="--l:' + COLORS[k] + '" data-act="status" data-v="' + k + '" aria-label="' + LABELS[k] + '" aria-pressed="' + (s === k) + '">' + LABELS[k].charAt(0) + '</button>';
       }).join('') + '</div></section>';
 
     if (D.requests_in.length) {
@@ -1093,7 +1098,7 @@
   // Shown above every tab: the name on the left, and your profile (the You page) at the top right.
   function topBar(back) {
     var me = D.me;
-    return '<div class="top"><div class="row" style="gap:6px">' + (back ? backBtn() : '') + logo(me.colour) + '</div><div class="row" style="gap:10px">' +
+    return '<div class="top"><div class="row" style="gap:6px">' + (back ? backBtn() : '') + logo(me.colour, true) + '</div><div class="row" style="gap:10px">' +
       (ui.offline ? '<span class="pill" style="border-color:var(--off);color:var(--off)">Offline</span>' : '') +
       '<button class="avatar profile-btn" style="--c:' + COLORS[me.colour] + '" data-act="tab" data-v="you" aria-label="You"' + (ui.tab === 'you' ? ' aria-current="page"' : '') + '>' + face(me.id, me.name) + '</button></div></div>';
   }
@@ -1213,8 +1218,11 @@
   }
 
   /* ---------- render ---------- */
+  // The whole screen glows in your status colour: green, amber or red.
+  function glow(v) { document.body.setAttribute('data-status', v || ''); }
   function render() {
     if (drag) return; // never rebuild the screen under a finger that is sliding the status switch
+    glow(D && D.me && session ? D.me.colour : '');
     var keep = document.getElementById('staff-code'), keepValue = keep ? keep.value : null, keepFocus = keep && document.activeElement === keep;
     var chatIn = document.getElementById('chat-input'), chatValue = chatIn ? chatIn.value : null, chatFocus = chatIn && document.activeElement === chatIn;
     var chatScroll = document.getElementById('chat-list'), chatTop = chatScroll ? chatScroll.scrollTop : null;
@@ -1302,10 +1310,15 @@
       }, { enableHighAccuracy: false, maximumAge: 300000, timeout: 10000 });
     },
     status: function (v) {
-      moveKnob(v);
+      moveKnob(v); glow(v);
       act('set_status', { new_colour: v }, v === 'on' ? 'You\'re green. Friends who are around can see it.' : null).then(function () {
         ui.tab = 'home'; ui.screen = null; go(false);
       });
+    },
+    'status-here': function (v) {   // the traffic light in the header: change status and stay on this screen
+      if (!D || !D.me || v === D.me.colour) return;
+      glow(v);
+      act('set_status', { new_colour: v }, { on: 'You\'re green. Friends who are around can see it.', thinking: 'You\'re amber.', off: 'You\'re red. You\'re hidden.' }[v]);
     },
     'go-sesh': function () {
       if (mySesh()) { ui.tab = 'sesh'; go(true); return; }

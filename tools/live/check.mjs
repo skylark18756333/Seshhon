@@ -212,6 +212,16 @@ try {
   ok(openPins === Number(/(\d+) open now venues? within/.exec(await ben.page.locator('#venue-count').innerText())[1]), 'and the map shows a bubble for each open one: ' + openPins);
   await mapChip(ben, 'Open now');
   ok(await has(ben, '23 venues within 25 km of you'), 'tapping the chip again shows every venue');
+  { // the traffic light in the header is the status switch, and the screen glows in that colour
+    const before = await ben.page.evaluate(() => document.body.dataset.status);
+    const other = before === 'thinking' ? 'Green' : 'Amber', otherKey = other === 'Green' ? 'on' : 'thinking';
+    await ben.page.getByRole('button', { name: 'Switch to ' + other }).click();
+    await ben.page.waitForFunction((k) => document.body.dataset.status === k && document.querySelector('.dots.switch [aria-pressed="true"]')?.getAttribute('data-v') === k, otherKey, { timeout: 6000 }).catch(() => {});
+    ok(await ben.page.evaluate(() => document.body.dataset.status) === otherKey && await ben.page.locator('#venue-search').count() === 1, 'tapping a light in the header changes your status and keeps you on the map');
+    await ben.page.getByRole('button', { name: 'Switch to ' + { on: 'Green', thinking: 'Amber', off: 'Red' }[before] }).click();
+    await ben.page.waitForFunction((k) => document.body.dataset.status === k, before, { timeout: 6000 }).catch(() => {});
+    ok(await ben.page.evaluate(() => document.body.dataset.status) === before, 'and back again');
+  }
   await ben.page.locator('#radius').fill('25');
   await ben.page.evaluate(() => { document.getElementById('view').scrollTop = 0; });
   await ben.page.screenshot({ path: path.join(copy, 'venue-map.png') });
