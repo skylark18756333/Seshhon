@@ -102,6 +102,8 @@ http.createServer(async (req, res) => {
     const r = await psql(sql);
     if (r.code !== 0) {
       const msg = (r.err.match(/ERROR:\s+(.*)/) || [, r.err])[1];
+      // Like PostgREST, a function the database doesn't have yet is a 404 with code PGRST202.
+      if (/^function public\.\w+\(.*\) does not exist/.test(msg)) return send(res, 404, { code: 'PGRST202', message: 'Could not find the function public.' + m[1] + ' in the schema cache' });
       return send(res, 400, { message: msg });
     }
     const lines = r.out.split('\n').filter((l) => l && l !== 'BEGIN' && l !== 'COMMIT' && l !== 'SET');
