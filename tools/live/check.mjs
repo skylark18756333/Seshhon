@@ -105,6 +105,8 @@ try {
   ok(await has(ana, '6-digit code'), 'a short code is explained');
   await ana.page.fill('#ec-code', (await lastEmail()).code); await tap(ana, 'Confirm email');
   ok(await has(ana, 'Save your recovery code') && await has(ana, 'ana_1'), 'after confirming the email, signing up shows the username and a recovery code');
+  ok(await has(ana, 'We also emailed it to a•••@example.com'), 'the recovery code is emailed to Ana as well');
+  ok(await ana.page.evaluate(async () => { const r = await (await fetch('http://127.0.0.1:54330/__fake/last-email', { method: 'POST', headers: { apikey: 'test-anon-key' } })).json(); return r.recovery === document.getElementById('recovery-code').innerText.trim(); }), 'and the email holds the same code that is on screen');
   ok(await ana.page.locator('.tour').count() === 0, 'the walkthrough waits until the recovery code is saved');
   await tap(ana, "I've saved it");
   ok(await has(ana, 'Welcome, Ana.'), 'the walkthrough opens straight after sign-up');
@@ -442,6 +444,7 @@ try {
   await fay.page.fill('#ec-code', (await lastEmail()).code); await tap(fay, 'Confirm email');
   ok(await has(fay, 'Save your recovery code'), 'signing up shows a recovery code');
   const code1 = (await fay.page.locator('#recovery-code').innerText()).trim();
+  ok(await has(fay, 'We also emailed it to f•••@example.com') && (await lastEmail()).recovery === code1, 'Fay\'s recovery code is emailed to her too');
   ok(/^[A-Z2-9]{4}(-[A-Z2-9]{4}){3}$/.test(code1), 'the recovery code looks like XXXX-XXXX-XXXX-XXXX');
   await tap(fay, "I've saved it");
   await skipTour(fay);
@@ -495,6 +498,7 @@ try {
   ok(await has(fay2, 'Save your recovery code'), 'the right recovery code sets a new password and gives a new code');
   const code2 = (await fay2.page.locator('#recovery-code').innerText()).trim();
   ok(code2 !== code1, 'the used code is replaced');
+  ok(await has(fay2, 'We also emailed it to f•••@example.com') && (await lastEmail()).recovery === code2, 'and the new code is emailed to her');
   await tap(fay2, "I've saved it");
   ok(await fay2.page.locator('#login-user').inputValue() === 'fay_99', 'then the log-in form has the username filled in');
   await fay2.page.fill('#login-pass', 'brandnewpass'); await tap(fay2, 'Log in');
