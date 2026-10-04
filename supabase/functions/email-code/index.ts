@@ -1,4 +1,4 @@
-// Frenzy email codes: a Supabase Edge Function that emails the 6-digit login codes (migration 0018).
+// Frendzy email codes: a Supabase Edge Function that emails the 6-digit login codes (migration 0018).
 //   POST { action: "setup", email: "you@example.com" } -> { sent: true, hint }   confirm a new login email
 //   POST { action: "login" }                           -> { sent: true, hint }   a code for this login
 // The person's own sign-in token must be sent as "Authorization: Bearer ...". The database makes the code
@@ -53,8 +53,8 @@ async function whoIs(req: Request): Promise<{ user: string; session: string | nu
 }
 
 function message(code: string, purpose: string) {
-  const subject = purpose === 'setup' ? 'Confirm your email for Frenzy' : 'Your Frenzy login code';
-  const intro = purpose === 'setup' ? 'Type this code in Frenzy to confirm your email:' : 'Type this code in Frenzy to finish logging in:';
+  const subject = purpose === 'setup' ? 'Confirm your email for Frendzy' : 'Your Frendzy login code';
+  const intro = purpose === 'setup' ? 'Type this code in Frendzy to confirm your email:' : 'Type this code in Frendzy to finish logging in:';
   const outro = 'It works for 10 minutes. If this wasn\'t you, ignore this email. Nobody can log in without this code.';
   return {
     subject,
@@ -70,13 +70,13 @@ async function send(to: string, code: string, purpose: string): Promise<void> {
     res = await fetch('https://api.brevo.com/v3/smtp/email', {
       method: 'POST',
       headers: { 'api-key': env('BREVO_API_KEY')!, 'Content-Type': 'application/json', accept: 'application/json' },
-      body: JSON.stringify({ sender: { name: 'Frenzy', email: from }, to: [{ email: to }], subject: m.subject, textContent: m.text, htmlContent: m.html })
+      body: JSON.stringify({ sender: { name: 'Frendzy', email: from }, to: [{ email: to }], subject: m.subject, textContent: m.text, htmlContent: m.html })
     });
   } else {
     res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: { Authorization: 'Bearer ' + env('RESEND_API_KEY'), 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from: 'Frenzy <' + from + '>', to: [to], subject: m.subject, text: m.text, html: m.html })
+      body: JSON.stringify({ from: 'Frendzy <' + from + '>', to: [to], subject: m.subject, text: m.text, html: m.html })
     });
   }
   if (!res.ok) throw new Error('Email service said ' + res.status + ': ' + (await res.text()).slice(0, 200));
