@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Frenzy",
+    "name": "Frendzy",
     "slug": "seshhon",
     "scheme": "seshhon",
     "version": "1.0.0",
@@ -20,7 +20,7 @@
         "usesNonExemptEncryption": false
       },
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "Frenzy uses your location to show venues near you and how far away they are."
+        "NSLocationWhenInUseUsageDescription": "Frendzy uses your location to show venues near you and how far away they are."
       }
     },
     "android": {
