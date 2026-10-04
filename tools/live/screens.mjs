@@ -84,23 +84,31 @@ const shot = async (p, file, scroll) => {
   console.log('  saved ' + file);
 };
 
+async function join(p, name, dob) {   // the sign up form, then skip the email code and save the recovery code
+  const u = name.toLowerCase();
+  await p.page.fill('#name', name); await p.page.fill('#dob', dob);
+  await p.page.fill('#join-user', u + '_shot'); await p.page.fill('#join-pass', 'longenough1'); await p.page.fill('#join-email', u + '@example.com');
+  await tap(p, 'Get started');
+  await has(p, 'Confirm your email'); await tap(p, 'Later');
+  await has(p, 'Save your recovery code'); await tap(p, "I've saved it");
+}
 try {
   const ana = await phone('Ana'), ben = await phone('Ben');
   await ana.page.goto(`http://127.0.0.1:${WEB_PORT}/`);
   await has(ana, 'Get started');
   await shot(ana, '1-welcome.png');
-  await ana.page.fill('#name', 'Ana'); await ana.page.fill('#dob', '1995-04-12'); await tap(ana, 'Get started');
+  await join(ana, 'Ana', '1995-04-12');
   await has(ana, 'Your status');
   await tab(ana, 'You'); await tap(ana, 'Send your invite link');
   const l = await ana.page.locator('#invite-link').innerText();
   await ben.page.goto(`http://127.0.0.1:${WEB_PORT}/` + l.slice(l.indexOf('?')));
-  await ben.page.fill('#name', 'Jack'); await ben.page.fill('#dob', '1994-02-03'); await tap(ben, 'Get started');
+  await join(ben, 'Jack', '1994-02-03');
   await has(ben, 'Your status');
   await tab(ana, 'Home'); await has(ana, 'wants to add you'); await tap(ana, 'Accept');
   for (const [name, colour] of [['Mia', 'Amber'], ['Tom', 'Green'], ['Zoe', 'Red']]) {   // more friends, so the home screen has a row of faces
     const f = await phone(name);
     await f.page.goto(`http://127.0.0.1:${WEB_PORT}/` + l.slice(l.indexOf('?')));
-    await f.page.fill('#name', name); await f.page.fill('#dob', '1996-05-06'); await tap(f, 'Get started');
+    await join(f, name, '1996-05-06');
     await has(f, 'Your status');
     await has(ana, 'wants to add you'); await tap(ana, 'Accept');
     if (colour !== 'Red') await tap(f, colour);
