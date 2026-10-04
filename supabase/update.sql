@@ -1030,5 +1030,975 @@ update public.venues set lat = -31.9512, lng = 115.8540 where id = 'a0000000-000
 alter table public.venues add column if not exists osm_id text;
 create unique index if not exists venues_osm_id_key on public.venues (osm_id);
 
+-- ======================= 0011_women_safety.sql
+-- Women-only mode and easier blocking.
+--
+-- Anyone can tell SeshOn their gender. It is optional, private, and never shown to anyone:
+-- not to friends, not in a sesh, not in the app state of anyone else. It lives in its own
+-- table in a "private" schema that the app's API cannot read at all.
+--
+-- A woman can switch on women-only mode. While it is on, people who have not told SeshOn they
+-- are a woman cannot:
+--   - see her green or amber status (to them she just looks red),
+--   - send her a friend request from her invite link,
+--   - see, join or chat in a sesh she started.
+-- Turning it on also drops pending friend requests to her from those people, and takes them
+-- out of a sesh she is running. Seshes started by someone else are that person's sesh: if she
+-- joins one, the people in it can see her name there.
+--
+-- Also adds block_request(), so a friend request can be blocked without accepting it first.
+
+create schema if not exists private;
+revoke all on schema private from public, anon;
+grant usage on schema private to authenticated;
+
+create table if not exists private.safety (
+  user_id uuid primary key references public.profiles (id) on delete cascade,
+  gender text check (gender in ('woman', 'man', 'nonbinary')),
+  women_only boolean not null default false,
+  updated_at timestamptz not null default now(),
+  check (not women_only or gender = 'woman')
+);
+alter table private.safety enable row level security;
+revoke all on private.safety from public, anon, authenticated;
+
+-- ---------------------------------------------------------------- helpers
+-- True when the person asking should not see "owner" because owner is in women-only mode and
+-- the person asking has not said they are a woman. It lives in the private schema, so the app
+-- cannot call it directly to test other people; only the access rules below use it.
+create or replace function private.hidden_from_me(owner uuid) returns boolean
+language sql stable security definer set search_path = public, private as $$
+  select coalesce(
+    owner <> auth.uid()
+    and exists (select 1 from private.safety s where s.user_id = owner and s.women_only)
+    and not exists (select 1 from private.safety s where s.user_id = auth.uid() and s.gender = 'woman'),
+    false);
+$$;
+revoke all on function private.hidden_from_me(uuid) from public, anon;
+grant execute on function private.hidden_from_me(uuid) to authenticated;
+
+-- ---------------------------------------------------------------- access rules
+-- Same rules as 0002, plus "not hidden from me".
+
+drop policy if exists statuses_read on public.statuses;
+create policy statuses_read on public.statuses for select to authenticated using (
+  user_id = auth.uid()
+  or (colour <> 'off' and expires_at > now() and public.are_friends(user_id, auth.uid()) and public.i_am_visible()
+      and not private.hidden_from_me(user_id))
+);
+
+drop policy if exists seshes_read on public.seshes;
+create policy seshes_read on public.seshes for select to authenticated using (
+  creator = auth.uid() or public.is_sesh_member(id, auth.uid())
+  or (public.are_friends(creator, auth.uid()) and public.i_am_visible() and not private.hidden_from_me(creator))
+);
+
+drop policy if exists members_read on public.sesh_members;
+create policy members_read on public.sesh_members for select to authenticated using (
+  user_id = auth.uid() or public.is_sesh_member(sesh_id, auth.uid())
+  or (public.are_friends(public.sesh_creator(sesh_id), auth.uid()) and public.i_am_visible()
+      and not private.hidden_from_me(public.sesh_creator(sesh_id)))
+);
+
+drop policy if exists members_join on public.sesh_members;
+create policy members_join on public.sesh_members for insert to authenticated with check (
+  user_id = auth.uid()
+  and (public.sesh_creator(sesh_id) = auth.uid()
+       or (public.are_friends(public.sesh_creator(sesh_id), auth.uid()) and not private.hidden_from_me(public.sesh_creator(sesh_id))))
+);
+
+-- ---------------------------------------------------------------- invite links
+-- Same as 0002, but a new request to someone in women-only mode from someone who has not said
+-- they are a woman gets the same answer as a bad link, so it does not give her gender away.
+create or replace function public.request_friend(p_code text) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  me uuid := auth.uid();
+  other public.profiles;
+  f public.friendships;
+begin
+  if me is null then raise exception 'Sign in first.'; end if;
+  if not exists (select 1 from public.profiles where id = me) then raise exception 'Finish signing up first.'; end if;
+  select * into other from public.profiles where invite_code = upper(btrim(coalesce(p_code, '')));
+  if not found then raise exception 'That invite link is not valid.'; end if;
+  if other.id = me then raise exception 'That is your own invite link.'; end if;
+
+  select * into f from public.friendships
+  where (requester = me and addressee = other.id) or (requester = other.id and addressee = me);
+  if found then
+    if f.state = 'blocked' then raise exception 'That invite link is not valid.'; end if;
+    if f.state = 'requested' and f.addressee = me then
+      update public.friendships set state = 'accepted' where id = f.id;
+      return jsonb_build_object('name', other.name, 'state', 'accepted');
+    end if;
+    return jsonb_build_object('name', other.name, 'state', f.state);
+  end if;
+
+  if private.hidden_from_me(other.id) then raise exception 'That invite link is not valid.'; end if;
+  insert into public.friendships (requester, addressee) values (me, other.id);
+  return jsonb_build_object('name', other.name, 'state', 'requested');
+end;
+$$;
+
+-- ---------------------------------------------------------------- your own settings
+
+-- Your gender (or null) and whether women-only mode is on. Only ever about the person asking.
+create or replace function public.my_safety() returns jsonb
+language sql stable security definer set search_path = public, private as $$
+  select coalesce(
+    (select jsonb_build_object('gender', s.gender, 'women_only', s.women_only) from private.safety s where s.user_id = auth.uid()),
+    jsonb_build_object('gender', null, 'women_only', false));
+$$;
+
+-- p_gender: 'woman', 'man', 'nonbinary', or null / '' to not say.
+create or replace function public.set_safety(p_gender text, p_women_only boolean) returns jsonb
+language plpgsql security definer set search_path = public, private as $$
+declare
+  me uuid := auth.uid();
+  g text := nullif(btrim(coalesce(p_gender, '')), '');
+  wo boolean := coalesce(p_women_only, false);
+begin
+  if me is null then raise exception 'Sign in first.'; end if;
+  if not exists (select 1 from public.profiles where id = me) then raise exception 'Finish signing up first.'; end if;
+  if g is not null and g not in ('woman', 'man', 'nonbinary') then raise exception 'Pick one of the options, or leave it blank.'; end if;
+  if wo and g is distinct from 'woman' then raise exception 'Women-only mode is for women.'; end if;
+
+  -- Keep nothing when there is nothing to keep.
+  if g is null and not wo then
+    delete from private.safety where user_id = me;
+    return public.my_safety();
+  end if;
+
+  insert into private.safety (user_id, gender, women_only, updated_at) values (me, g, wo, now())
+  on conflict (user_id) do update set gender = excluded.gender, women_only = excluded.women_only, updated_at = now();
+
+  if wo then
+    -- Pending requests to her from people who have not said they are a woman.
+    delete from public.friendships f
+    where f.addressee = me and f.state = 'requested'
+      and not exists (select 1 from private.safety s where s.user_id = f.requester and s.gender = 'woman');
+    -- The same people leave any sesh she is running.
+    delete from public.venue_votes v
+    using public.seshes x
+    where v.sesh_id = x.id and x.creator = me and x.ended_at is null and v.user_id <> me
+      and not exists (select 1 from private.safety s where s.user_id = v.user_id and s.gender = 'woman');
+    delete from public.sesh_members m
+    using public.seshes x
+    where m.sesh_id = x.id and x.creator = me and x.ended_at is null and m.user_id <> me
+      and not exists (select 1 from private.safety s where s.user_id = m.user_id and s.gender = 'woman');
+  end if;
+  return public.my_safety();
+end;
+$$;
+
+-- ---------------------------------------------------------------- block a request
+-- Block the other person in a friend request (to you or from you) or a friendship.
+create or replace function public.block_request(p_friendship uuid) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  me uuid := auth.uid();
+  other uuid;
+begin
+  if me is null then raise exception 'Sign in first.'; end if;
+  select case when requester = me then addressee else requester end into other
+  from public.friendships
+  where id = p_friendship and (requester = me or addressee = me) and state <> 'blocked';
+  if other is null then raise exception 'That request is no longer there.'; end if;
+  return public.block_user(other);
+end;
+$$;
+
+revoke all on function public.my_safety(), public.set_safety(text, boolean), public.block_request(uuid) from public, anon;
+grant execute on function public.my_safety(), public.set_safety(text, boolean), public.block_request(uuid) to authenticated;
+
+-- ======================= 0012_women_nonbinary_mode.sql
+-- Opens women-only mode (0011) to non-binary people.
+-- The mode can now be turned on by a woman or a non-binary person. While it is on, only people
+-- who have told SeshOn they are a woman or non-binary can see their status, add them, or see,
+-- join and chat in seshes they start. Gender stays private, as in 0011.
+
+do $$
+declare c text;
+begin
+  for c in
+    select conname from pg_constraint
+    where conrelid = 'private.safety'::regclass and contype = 'c' and pg_get_constraintdef(oid) like '%women_only%'
+  loop
+    execute format('alter table private.safety drop constraint %I', c);
+  end loop;
+end;
+$$;
+alter table private.safety add constraint safety_mode_needs_gender check (not women_only or gender in ('woman', 'nonbinary'));
+
+-- True when "u" has said they are a woman or non-binary. Private, like hidden_from_me.
+create or replace function private.in_safe_group(u uuid) returns boolean
+language sql stable security definer set search_path = public, private as $$
+  select exists (select 1 from private.safety s where s.user_id = u and s.gender in ('woman', 'nonbinary'));
+$$;
+revoke all on function private.in_safe_group(uuid) from public, anon, authenticated;
+
+create or replace function private.hidden_from_me(owner uuid) returns boolean
+language sql stable security definer set search_path = public, private as $$
+  select coalesce(
+    owner <> auth.uid()
+    and exists (select 1 from private.safety s where s.user_id = owner and s.women_only)
+    and not private.in_safe_group(auth.uid()),
+    false);
+$$;
+
+create or replace function public.set_safety(p_gender text, p_women_only boolean) returns jsonb
+language plpgsql security definer set search_path = public, private as $$
+declare
+  me uuid := auth.uid();
+  g text := nullif(btrim(coalesce(p_gender, '')), '');
+  wo boolean := coalesce(p_women_only, false);
+begin
+  if me is null then raise exception 'Sign in first.'; end if;
+  if not exists (select 1 from public.profiles where id = me) then raise exception 'Finish signing up first.'; end if;
+  if g is not null and g not in ('woman', 'man', 'nonbinary') then raise exception 'Pick one of the options, or leave it blank.'; end if;
+  if wo and (g is null or g not in ('woman', 'nonbinary')) then raise exception 'This mode is for women and non-binary people.'; end if;
+
+  -- Keep nothing when there is nothing to keep.
+  if g is null and not wo then
+    delete from private.safety where user_id = me;
+    return public.my_safety();
+  end if;
+
+  insert into private.safety (user_id, gender, women_only, updated_at) values (me, g, wo, now())
+  on conflict (user_id) do update set gender = excluded.gender, women_only = excluded.women_only, updated_at = now();
+
+  if wo then
+    -- Pending requests to them from people outside the group.
+    delete from public.friendships f
+    where f.addressee = me and f.state = 'requested' and not private.in_safe_group(f.requester);
+    -- The same people leave any sesh they are running.
+    delete from public.venue_votes v
+    using public.seshes x
+    where v.sesh_id = x.id and x.creator = me and x.ended_at is null and v.user_id <> me and not private.in_safe_group(v.user_id);
+    delete from public.sesh_members m
+    using public.seshes x
+    where m.sesh_id = x.id and x.creator = me and x.ended_at is null and m.user_id <> me and not private.in_safe_group(m.user_id);
+  end if;
+  return public.my_safety();
+end;
+$$;
+
+-- ======================= 0013_profile_photos.sql
+-- Profile photos: a small picture on each person's circle.
+--
+-- The app shrinks the photo on the phone to a 160 x 160 JPEG (about 10 KB) and saves it here as
+-- text in a column called "picture" (a column named photo would trip the check that age checks
+-- never store photos), so no file storage or new web address is needed. Nobody can read this table directly.
+-- friend_photos() hands out only:
+--   - your own photo,
+--   - photos of accepted friends you have not blocked and who have not blocked you,
+--   - and, once women-only mode (migrations 0011 and 0012) is installed, not the photo of someone
+--     in that mode to a person that mode keeps out. It asks private.hidden_from_me(), the same
+--     check that hides their status, so the two can never disagree.
+-- A photo is removed with the account (on delete cascade) or when its owner removes it.
+
+create table if not exists public.profile_photos (
+  user_id uuid primary key references public.profiles (id) on delete cascade,
+  picture text not null check (picture ~ '^data:image/jpeg;base64,[A-Za-z0-9+/]+=*$' and char_length(picture) <= 60000),
+  updated_at timestamptz not null default now()
+);
+alter table public.profile_photos enable row level security;
+revoke all on public.profile_photos from public, anon, authenticated;
+
+-- Women-only mode lives in migrations 0011 and 0012, which may be installed before or after this one.
+-- This asks it when it is there, and otherwise hides nothing.
+create or replace function public.photo_hidden_from_me(owner uuid) returns boolean
+language plpgsql stable security definer set search_path = public as $$
+declare hidden boolean;
+begin
+  if to_regprocedure('private.hidden_from_me(uuid)') is null then return false; end if;
+  execute 'select private.hidden_from_me($1)' into hidden using owner;
+  return coalesce(hidden, false);
+end $$;
+revoke all on function public.photo_hidden_from_me(uuid) from public, anon, authenticated;
+
+create or replace function public.friend_photos() returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare me uuid := auth.uid();
+begin
+  if me is null then raise exception 'Sign in first.'; end if;
+  return coalesce((
+    select jsonb_object_agg(p.user_id, p.picture)
+    from public.profile_photos p
+    where p.user_id = me
+       or (public.are_friends(p.user_id, me) and not public.blocked_between(p.user_id, me) and not public.photo_hidden_from_me(p.user_id))
+  ), '{}'::jsonb);
+end $$;
+revoke all on function public.friend_photos() from public, anon, authenticated;
+grant execute on function public.friend_photos() to authenticated;
+
+-- Saves your photo, or removes it when p_photo is null.
+create or replace function public.set_photo(p_photo text) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare me uuid := auth.uid();
+begin
+  if me is null or not exists (select 1 from public.profiles where id = me) then raise exception 'Sign in first.'; end if;
+  if p_photo is null then
+    delete from public.profile_photos where user_id = me;
+    return jsonb_build_object('ok', true);
+  end if;
+  if p_photo !~ '^data:image/jpeg;base64,[A-Za-z0-9+/]+=*$' or char_length(p_photo) > 60000 then
+    raise exception 'That photo could not be used. Try a different one.';
+  end if;
+  insert into public.profile_photos (user_id, picture) values (me, p_photo)
+  on conflict (user_id) do update set picture = excluded.picture, updated_at = now();
+  return jsonb_build_object('ok', true);
+end $$;
+revoke all on function public.set_photo(text) from public, anon, authenticated;
+grant execute on function public.set_photo(text) to authenticated;
+
+-- ======================= 0014_venues_load_once.sql
+-- Venues load once instead of on every refresh. With 1,500+ real venues, sending them inside
+-- api_state() (which every phone calls every few seconds) cost about 300 KB a time. api_state() now
+-- leaves venues out, and the app fetches them from api_venues() when it starts, when the Map or
+-- Venues tab opens, and after you rate a venue. Ratings are totalled once, not once per venue.
+
+create or replace function public.api_venues() returns jsonb
+language sql stable security invoker set search_path = public as $$
+  select coalesce(jsonb_agg(
+    jsonb_build_object(
+      'id', v.id, 'name', v.name, 'kind', v.kind, 'closes', v.closes, 'is_example', v.is_example,
+      'average', t.average,
+      'ratings', coalesce(t.ratings, 0),
+      'my_stars', coalesce(mine.stars, 0),
+      'my_tags', coalesce(to_jsonb(mine.tags), '[]'::jsonb)
+    )
+    order by v.name
+  ), '[]'::jsonb)
+  from public.venues v
+  left join public.venue_ratings t on t.venue_id = v.id
+  left join public.ratings mine on mine.venue_id = v.id and mine.user_id = auth.uid();
+$$;
+revoke all on function public.api_venues() from public, anon, authenticated;
+grant execute on function public.api_venues() to authenticated;
+
+-- The same as before (migration 0004), minus 'venues'.
+create or replace function public.api_state() returns jsonb
+language sql stable security invoker set search_path = public as $$
+  select jsonb_build_object(
+    'now', now(),
+    'night', public.night_of(),
+    'me', (
+      select jsonb_build_object(
+        'id', p.id, 'name', p.name, 'invite_code', p.invite_code,
+        'colour', coalesce((select s.colour::text from public.statuses s where s.user_id = p.id and s.colour <> 'off' and s.expires_at > now()), 'off'),
+        'expires_at', (select s.expires_at from public.statuses s where s.user_id = p.id and s.colour <> 'off' and s.expires_at > now())
+      )
+      from public.profiles p where p.id = auth.uid()
+    ),
+    'friends', coalesce((
+      select jsonb_agg(
+        jsonb_build_object('friendship', f.id, 'id', p.id, 'name', p.name, 'colour', coalesce(s.colour::text, 'off'), 'since', s.updated_at)
+        order by case coalesce(s.colour::text, 'off') when 'on' then 0 when 'thinking' then 1 else 2 end, p.name
+      )
+      from public.friendships f
+      join public.profiles p on p.id = case when f.requester = auth.uid() then f.addressee else f.requester end
+      left join public.statuses s on s.user_id = p.id
+      where f.state = 'accepted'
+    ), '[]'::jsonb),
+    'requests_in', coalesce((
+      select jsonb_agg(jsonb_build_object('friendship', f.id, 'name', p.name) order by f.created_at)
+      from public.friendships f join public.profiles p on p.id = f.requester
+      where f.state = 'requested' and f.addressee = auth.uid()
+    ), '[]'::jsonb),
+    'requests_out', coalesce((
+      select jsonb_agg(jsonb_build_object('friendship', f.id, 'name', p.name) order by f.created_at)
+      from public.friendships f join public.profiles p on p.id = f.addressee
+      where f.state = 'requested' and f.requester = auth.uid()
+    ), '[]'::jsonb),
+    'seshes', coalesce((
+      select jsonb_agg(
+        jsonb_build_object(
+          'id', s.id,
+          'mine', s.creator = auth.uid(),
+          'creator_name', (select p.name from public.profiles p where p.id = s.creator),
+          'locked_venue', s.locked_venue,
+          'am_member', public.is_sesh_member(s.id, auth.uid()),
+          'members', coalesce((
+            select jsonb_agg(jsonb_build_object('id', m.user_id, 'name', p.name) order by m.joined_at)
+            from public.sesh_members m left join public.profiles p on p.id = m.user_id
+            where m.sesh_id = s.id
+          ), '[]'::jsonb),
+          'votes', coalesce((
+            select jsonb_agg(jsonb_build_object('user_id', v.user_id, 'venue_id', v.venue_id, 'voted_at', v.voted_at))
+            from public.venue_votes v where v.sesh_id = s.id
+          ), '[]'::jsonb)
+        )
+        order by s.created_at desc
+      )
+      from public.seshes s
+      where s.ended_at is null and s.created_at > now() - interval '8 hours'
+    ), '[]'::jsonb),
+    'deals', coalesce((
+      select jsonb_agg(
+        jsonb_build_object(
+          'id', d.id, 'venue_id', d.venue_id, 'type', d.type, 'title', d.title, 'is_alcohol', d.is_alcohol,
+          'start_time', to_char(d.start_time, 'HH24:MI'), 'end_time', to_char(d.end_time, 'HH24:MI'),
+          'running', public.deal_is_running(d),
+          'used', coalesce(r.confirmed_at is not null, false),
+          'code', case when r.confirmed_at is null and r.expires_at > now() then r.code end,
+          'code_expires_at', case when r.confirmed_at is null and r.expires_at > now() then r.expires_at end
+        )
+        order by d.start_time, d.title
+      )
+      from public.deals d
+      left join public.redemptions r on r.deal_id = d.id and r.user_id = auth.uid() and r.night = public.night_of()
+      where d.active
+    ), '[]'::jsonb),
+    'staff_venues', coalesce((
+      select jsonb_agg(vs.venue_id) from public.venue_staff vs where vs.user_id = auth.uid()
+    ), '[]'::jsonb),
+    'blocked', public.blocked_list()
+  );
+$$;
+
+-- ======================= 0015_venue_hours.sql
+-- Opening hours. opening_hours uses OpenStreetMap's format, for example "Mo-Th 11:00-23:00; Fr,Sa 11:00-02:00".
+-- The venue import fills it in from OpenStreetMap, and venue staff can change it. Once staff have set
+-- the hours (hours_source = 'staff'), a later import leaves them alone.
+alter table public.venues add column if not exists opening_hours text;
+alter table public.venues add column if not exists hours_source text;
+alter table public.venues drop constraint if exists venues_opening_hours_check;
+alter table public.venues add constraint venues_opening_hours_check
+  check (opening_hours is null or (char_length(opening_hours) between 1 and 255 and opening_hours !~ '[<>]'));
+alter table public.venues drop constraint if exists venues_hours_source_check;
+alter table public.venues add constraint venues_hours_source_check check (hours_source is null or hours_source in ('osm', 'staff'));
+
+create or replace function public.api_venues() returns jsonb
+language sql stable security invoker set search_path = public as $$
+  select coalesce(jsonb_agg(
+    jsonb_build_object(
+      'id', v.id, 'name', v.name, 'kind', v.kind, 'closes', v.closes, 'is_example', v.is_example,
+      'hours', v.opening_hours,
+      'average', t.average,
+      'ratings', coalesce(t.ratings, 0),
+      'my_stars', coalesce(mine.stars, 0),
+      'my_tags', coalesce(to_jsonb(mine.tags), '[]'::jsonb)
+    )
+    order by v.name
+  ), '[]'::jsonb)
+  from public.venues v
+  left join public.venue_ratings t on t.venue_id = v.id
+  left join public.ratings mine on mine.venue_id = v.id and mine.user_id = auth.uid();
+$$;
+
+-- Venue staff set their venue's hours. An empty value clears them ("hours unknown").
+create or replace function public.set_venue_hours(p_venue uuid, p_hours text) returns void
+language plpgsql security definer set search_path = public as $$
+declare h text := nullif(btrim(regexp_replace(coalesce(p_hours, ''), '\s+', ' ', 'g')), '');
+begin
+  if auth.uid() is null then raise exception 'Sign in first.'; end if;
+  if not exists (select 1 from public.venue_staff s where s.venue_id = p_venue and s.user_id = auth.uid()) then
+    raise exception 'Only staff at this venue can change its hours.';
+  end if;
+  if h is not null and (char_length(h) > 255 or h !~ '^[A-Za-z0-9 :;,+./-]+$') then
+    raise exception 'Those hours could not be read. Use a format like: Mo-Fr 16:00-24:00; Sa,Su 12:00-02:00';
+  end if;
+  update public.venues set opening_hours = h, hours_source = 'staff' where id = p_venue;
+end;
+$$;
+revoke all on function public.set_venue_hours(uuid, text) from public, anon, authenticated;
+grant execute on function public.set_venue_hours(uuid, text) to authenticated;
+
+-- Example venue hours, so the app has something to show before a real import.
+update public.venues set opening_hours = 'Mo-Su 16:00-01:00', hours_source = 'osm' where id = 'a0000000-0000-4000-8000-000000000001' and opening_hours is null;
+update public.venues set opening_hours = 'Tu-Su 12:00-24:00; Mo off', hours_source = 'osm' where id = 'a0000000-0000-4000-8000-000000000002' and opening_hours is null;
+update public.venues set opening_hours = 'We-Sa 19:00-24:00', hours_source = 'osm' where id = 'a0000000-0000-4000-8000-000000000003' and opening_hours is null;
+
+-- ======================= 0016_google_ratings.sql
+-- Google ratings, shown next to SeshOn's own ratings once a Google Places key is set up.
+-- Google's terms allow keeping a venue's Google place ID (venues.places_id) but not its rating, so
+-- the google-rating Edge Function fetches the rating fresh each time and nothing else is stored.
+-- Each look-up costs money, so each person gets at most 100 a day.
+
+create table if not exists public.google_lookups (
+  user_id uuid not null references public.profiles (id) on delete cascade,
+  day date not null,
+  n integer not null default 0,
+  primary key (user_id, day)
+);
+alter table public.google_lookups enable row level security;   -- no policies: only the functions below touch it
+revoke all on public.google_lookups from public, anon, authenticated;
+
+-- Called by the Edge Function (service role only): counts the look-up and returns what Google needs.
+create or replace function public.google_lookup_start(p_user uuid, p_venue uuid) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare used integer; v public.venues;
+begin
+  select * into v from public.venues where id = p_venue;
+  if v.id is null then raise exception 'That venue is no longer listed.'; end if;
+  insert into public.google_lookups (user_id, day, n) values (p_user, (now() at time zone 'Australia/Perth')::date, 1)
+  on conflict (user_id, day) do update set n = google_lookups.n + 1
+  returning n into used;
+  if used > 100 then raise exception 'Google ratings are paused for you until tomorrow.'; end if;
+  return jsonb_build_object('name', v.name, 'lat', v.lat, 'lng', v.lng, 'place', v.places_id);
+end;
+$$;
+
+-- Called by the Edge Function (service role only) to remember a venue's Google place ID.
+create or replace function public.google_set_place(p_venue uuid, p_place text) returns void
+language sql security definer set search_path = public as $$
+  update public.venues set places_id = left(p_place, 300) where id = p_venue;
+$$;
+
+-- Old look-up counts are not needed.
+create or replace function public.purge_google_lookups() returns void
+language sql security definer set search_path = public as $$
+  delete from public.google_lookups where day < (now() at time zone 'Australia/Perth')::date - 1;
+$$;
+
+revoke all on function public.google_lookup_start(uuid, uuid), public.google_set_place(uuid, text), public.purge_google_lookups()
+  from public, anon, authenticated;
+do $$
+begin
+  if exists (select 1 from pg_roles where rolname = 'service_role') then
+    grant execute on function public.google_lookup_start(uuid, uuid), public.google_set_place(uuid, text) to service_role;
+  end if;
+  if exists (select 1 from pg_extension where extname = 'pg_cron') then
+    perform cron.schedule('seshon-purge-google-lookups', '17 4 * * *', 'select public.purge_google_lookups()');
+  end if;
+end;
+$$;
+
+-- ======================= 0018_email_two_step.sql
+-- Email two-step login. When someone saves a username and password, they also give an email address
+-- and confirm it with a 6-digit code. After that, every new login asks for a fresh code sent to that
+-- email, as well as the password.
+--
+-- The email address is private: it lives in the "private" schema, which the app's API cannot read,
+-- and nobody (not even the owner) gets it back in full, only a hint like s•••@gmail.com.
+-- The codes are sent by the email-code Edge Function (supabase/functions/email-code), which holds the
+-- email service key. Only a bcrypt hash of each code is stored.
+--
+-- How a login is held back until the code is typed: the Supabase "Customize Access Token" hook
+-- (Authentication > Hooks) runs two_step_token_hook() every time a sign-in token is made. If the account
+-- has email codes on and this sign-in hasn't had its code yet, the token gets the role "needs_code",
+-- which can only check a code and nothing else. After the code, the app fetches a fresh token and gets
+-- the normal "authenticated" role. If the hook ever fails, it lets the login through as before.
+--
+-- Accounts saved before this change keep logging in with just their password until they add an email.
+-- A recovery code still gets you back in if you lose your email.
+-- Safe to run more than once. Run it BEFORE switching on the hook.
+
+create schema if not exists private;
+create schema if not exists extensions;
+create extension if not exists pgcrypto with schema extensions;
+
+-- ---------------------------------------------------------------- the waiting role
+do $$
+begin
+  if not exists (select 1 from pg_roles where rolname = 'needs_code') then
+    create role needs_code nologin noinherit;
+  end if;
+  -- The API (PostgREST) signs in as "authenticator" and switches to the role in each token.
+  if exists (select 1 from pg_roles where rolname = 'authenticator') then
+    execute 'grant needs_code to authenticator';
+  end if;
+end $$;
+grant usage on schema public to needs_code;
+
+-- ---------------------------------------------------------------- tables (nobody reads these directly)
+create table if not exists private.two_step (
+  user_id uuid primary key references auth.users (id) on delete cascade,
+  email text,                       -- the confirmed address; null until the first code is typed
+  pending_email text,               -- an address waiting for its code
+  code_hash text,                   -- bcrypt hash of the latest code
+  code_purpose text check (code_purpose in ('setup', 'login')),
+  code_expires timestamptz,
+  code_tries integer not null default 0,
+  ticket_hash text,                 -- after a recovery code: lets the next login skip the email code once
+  ticket_expires timestamptz,
+  updated_at timestamptz not null default now()
+);
+alter table private.two_step enable row level security;
+revoke all on private.two_step from public, anon, authenticated;
+
+-- Sign-ins that have had their code. Rows go when the sign-in itself is gone.
+create table if not exists private.two_step_sessions (
+  session_id uuid primary key,
+  user_id uuid not null references auth.users (id) on delete cascade,
+  verified_at timestamptz not null default now()
+);
+create index if not exists two_step_sessions_user on private.two_step_sessions (user_id);
+alter table private.two_step_sessions enable row level security;
+revoke all on private.two_step_sessions from public, anon, authenticated;
+
+-- Codes sent, so each account gets at most 5 emails an hour and 20 a day. Kept for a day.
+create table if not exists private.two_step_sends (
+  user_id uuid not null references auth.users (id) on delete cascade,
+  at timestamptz not null default now()
+);
+create index if not exists two_step_sends_user on private.two_step_sends (user_id, at);
+alter table private.two_step_sends enable row level security;
+revoke all on private.two_step_sends from public, anon, authenticated;
+
+-- ---------------------------------------------------------------- helpers
+-- The sign-in (Supabase Auth session) the current request belongs to.
+create or replace function private.my_session() returns uuid
+language plpgsql stable set search_path = public as $$
+begin
+  return (nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'session_id')::uuid;
+exception when others then
+  return null;
+end;
+$$;
+
+-- s•••@gmail.com
+create or replace function private.email_hint(p_email text) returns text
+language sql immutable set search_path = public as $$
+  select case when p_email is null then null
+    else left(split_part(p_email, '@', 1), 1) || '•••@' || split_part(p_email, '@', 2) end;
+$$;
+
+create or replace function private.session_verified(p_user uuid, p_session uuid) returns boolean
+language sql stable security definer set search_path = public, private as $$
+  select p_session is not null
+     and exists (select 1 from private.two_step_sessions s where s.session_id = p_session and s.user_id = p_user);
+$$;
+
+create or replace function private.mark_verified(p_user uuid, p_session uuid) returns void
+language plpgsql security definer set search_path = public, private as $$
+begin
+  if p_session is null then return; end if;
+  insert into private.two_step_sessions (session_id, user_id) values (p_session, p_user)
+  on conflict (session_id) do nothing;
+  -- Tidy up sign-ins that no longer exist.
+  begin
+    delete from private.two_step_sessions s
+    where s.user_id = p_user and not exists (select 1 from auth.sessions a where a.id = s.session_id);
+  exception when undefined_table then null;
+  end;
+end;
+$$;
+
+-- ---------------------------------------------------------------- the token hook
+-- Supabase Auth calls this every time it makes a sign-in token (logging in and every refresh).
+create or replace function public.two_step_token_hook(event jsonb) returns jsonb
+language plpgsql stable security definer set search_path = public, private as $$
+declare
+  claims jsonb := event -> 'claims';
+  uid uuid;
+  sid uuid;
+begin
+  begin
+    uid := (event ->> 'user_id')::uuid;
+    sid := (claims ->> 'session_id')::uuid;
+    if claims ->> 'role' = 'authenticated'
+       and exists (select 1 from private.two_step t where t.user_id = uid and t.email is not null)
+       and not private.session_verified(uid, sid) then
+      claims := jsonb_set(claims, '{role}', '"needs_code"');
+    end if;
+  exception when others then
+    return event;   -- never block a login because of this check
+  end;
+  return jsonb_build_object('claims', claims);
+end;
+$$;
+
+-- ---------------------------------------------------------------- what the app calls
+
+-- Whether this sign-in still needs its email code.
+create or replace function public.two_step_state() returns jsonb
+language plpgsql stable security definer set search_path = public, private as $$
+declare
+  me uuid := auth.uid();
+  t private.two_step;
+begin
+  if me is null then return jsonb_build_object('on', false, 'needed', false); end if;
+  select * into t from private.two_step where user_id = me;
+  return jsonb_build_object(
+    'on', t.email is not null,
+    'needed', t.email is not null and not private.session_verified(me, private.my_session()),
+    'hint', private.email_hint(coalesce(t.email, t.pending_email))
+  );
+end;
+$$;
+
+-- Your username, and the hint for your login email.
+create or replace function public.my_account() returns jsonb
+language sql stable security definer set search_path = public, private as $$
+  select jsonb_build_object('username', l.username, 'email', private.email_hint(t.email), 'pending_email', private.email_hint(t.pending_email))
+  from public.account_logins l left join private.two_step t on t.user_id = l.user_id
+  where l.user_id = auth.uid();
+$$;
+
+-- Makes a code to email. Only the email-code Edge Function calls this (with the service key), after
+-- checking who is asking with Supabase Auth. Returns the address and the code to send.
+--   'setup': start using (or change to) p_email. Needs a saved username, and if codes are already on,
+--            a sign-in that has had its code.
+--   'login': a code for the sign-in p_session.
+create or replace function public.two_step_make_code(p_user uuid, p_session uuid, p_purpose text, p_email text default null)
+returns jsonb
+language plpgsql security definer set search_path = public, private as $$
+declare
+  t private.two_step;
+  mail text := lower(btrim(coalesce(p_email, '')));
+  code text := lpad((('x' || encode(extensions.gen_random_bytes(4), 'hex'))::bit(32)::bigint % 1000000)::text, 6, '0');
+begin
+  if p_user is null then raise exception 'Sign in first.'; end if;
+  select * into t from private.two_step where user_id = p_user;
+  if p_purpose = 'setup' then
+    if not exists (select 1 from public.account_logins where user_id = p_user) then raise exception 'Save a username and password first.'; end if;
+    if mail !~ '^[^@\s]+@[^@\s]+\.[a-z]{2,}$' or char_length(mail) > 254 then raise exception 'Enter a real email address.'; end if;
+    if t.email is not null and not private.session_verified(p_user, p_session) then raise exception 'Type the code from your email first.'; end if;
+  elsif p_purpose = 'login' then
+    if t.email is null then raise exception 'This account doesn''t use email codes.'; end if;
+    if private.session_verified(p_user, p_session) then raise exception 'You''re already logged in.'; end if;
+    mail := t.email;
+  else
+    raise exception 'Unknown code type.';
+  end if;
+
+  delete from private.two_step_sends where at < now() - interval '1 day';
+  if (select count(*) from private.two_step_sends where user_id = p_user and at > now() - interval '1 hour') >= 5
+     or (select count(*) from private.two_step_sends where user_id = p_user) >= 20 then
+    raise exception 'Too many codes sent. Wait a while, then try again.';
+  end if;
+  insert into private.two_step_sends (user_id) values (p_user);
+
+  insert into private.two_step (user_id, pending_email, code_hash, code_purpose, code_expires, code_tries, updated_at)
+  values (p_user, case when p_purpose = 'setup' then mail end, extensions.crypt(code, extensions.gen_salt('bf', 8)), p_purpose, now() + interval '10 minutes', 0, now())
+  on conflict (user_id) do update set
+    pending_email = case when p_purpose = 'setup' then mail else private.two_step.pending_email end,
+    code_hash = excluded.code_hash, code_purpose = excluded.code_purpose, code_expires = excluded.code_expires,
+    code_tries = 0, updated_at = now();
+  return jsonb_build_object('email', mail, 'code', code);
+end;
+$$;
+
+-- Check the code from the email. Right code: this sign-in is let in (and for 'setup', the email is saved).
+-- Wrong codes return a message, and after 5 the code stops working.
+create or replace function public.two_step_check(p_code text) returns jsonb
+language plpgsql security definer set search_path = public, private as $$
+declare
+  me uuid := auth.uid();
+  t private.two_step;
+  typed text := regexp_replace(coalesce(p_code, ''), '\D', '', 'g');
+begin
+  if me is null then raise exception 'Sign in first.'; end if;
+  select * into t from private.two_step where user_id = me for update;
+  if not found or t.code_hash is null or t.code_expires < now() or t.code_tries >= 5 then
+    return jsonb_build_object('ok', false, 'message', 'That code has run out. Send a new one.');
+  end if;
+  if t.code_hash <> extensions.crypt(typed, t.code_hash) then
+    update private.two_step set code_tries = code_tries + 1 where user_id = me;
+    return jsonb_build_object('ok', false, 'message', 'That code isn''t right. Check the email and try again.');
+  end if;
+  if t.code_purpose = 'setup' then
+    update private.two_step set email = pending_email, pending_email = null, code_hash = null, code_tries = 0, updated_at = now() where user_id = me;
+  else
+    update private.two_step set code_hash = null, code_tries = 0, updated_at = now() where user_id = me;
+  end if;
+  perform private.mark_verified(me, private.my_session());
+  return jsonb_build_object('ok', true, 'email', private.email_hint(coalesce(t.pending_email, t.email)));
+end;
+$$;
+
+-- After a recovery code, the first login skips the email code once (for when the email is lost too).
+create or replace function public.two_step_use_ticket(p_ticket text) returns boolean
+language plpgsql security definer set search_path = public, private as $$
+declare
+  me uuid := auth.uid();
+  t private.two_step;
+begin
+  if me is null or coalesce(p_ticket, '') = '' then return false; end if;
+  select * into t from private.two_step where user_id = me for update;
+  if not found or t.ticket_hash is null or t.ticket_expires < now()
+     or t.ticket_hash <> extensions.crypt(p_ticket, t.ticket_hash) then
+    return false;
+  end if;
+  update private.two_step set ticket_hash = null, ticket_expires = null where user_id = me;
+  perform private.mark_verified(me, private.my_session());
+  return true;
+end;
+$$;
+
+-- Same as 0008, plus a one-time ticket so the login straight after a recovery doesn't need the email.
+create or replace function public.recover_account(p_username text, p_code text, p_password text) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  uname text := lower(btrim(coalesce(p_username, '')));
+  l public.account_logins;
+  code text := public.new_recovery_code();
+  ticket text := encode(extensions.gen_random_bytes(18), 'hex');
+begin
+  if auth.uid() is null then raise exception 'Sign in first.'; end if;
+  perform public.check_new_password(p_password);
+  delete from public.recovery_attempts where at < now() - interval '1 day';
+  if (select count(*) from public.recovery_attempts where username = uname) >= 5 then
+    return jsonb_build_object('ok', false, 'message', 'Too many tries for that username. Try again tomorrow.');
+  end if;
+  select * into l from public.account_logins where username = uname;
+  if not found or l.recovery_hash <> extensions.crypt(public.recovery_code_key(p_code), l.recovery_hash) then
+    insert into public.recovery_attempts (username) values (uname);
+    return jsonb_build_object('ok', false, 'message', 'That username and recovery code don''t match.');
+  end if;
+
+  update auth.users set encrypted_password = extensions.crypt(p_password, extensions.gen_salt('bf', 10)), updated_at = now()
+  where id = l.user_id;
+  -- Sign the account out everywhere else, in case someone else had it.
+  begin
+    delete from auth.sessions where user_id = l.user_id;
+  exception when undefined_table then null;
+  end;
+  delete from private.two_step_sessions where user_id = l.user_id;
+  update private.two_step set ticket_hash = extensions.crypt(ticket, extensions.gen_salt('bf', 8)), ticket_expires = now() + interval '15 minutes'
+  where user_id = l.user_id;
+  update public.account_logins
+  set recovery_hash = extensions.crypt(public.recovery_code_key(code), extensions.gen_salt('bf', 8)), updated_at = now()
+  where user_id = l.user_id;
+  delete from public.recovery_attempts where username = uname;
+  return jsonb_build_object('ok', true, 'username', uname, 'recovery_code', code, 'ticket', ticket);
+end;
+$$;
+
+-- ---------------------------------------------------------------- permissions
+revoke all on function private.my_session(), private.email_hint(text), private.session_verified(uuid, uuid),
+  private.mark_verified(uuid, uuid), public.two_step_token_hook(jsonb), public.two_step_state(), public.my_account(),
+  public.two_step_make_code(uuid, uuid, text, text), public.two_step_check(text), public.two_step_use_ticket(text),
+  public.recover_account(text, text, text)
+  from public, anon, authenticated;
+grant execute on function public.two_step_state(), public.two_step_check(text), public.two_step_use_ticket(text)
+  to authenticated, needs_code;
+grant execute on function public.my_account(), public.recover_account(text, text, text) to authenticated;
+grant execute on function public.two_step_make_code(uuid, uuid, text, text) to service_role;
+do $$
+begin
+  if exists (select 1 from pg_roles where rolname = 'supabase_auth_admin') then
+    execute 'grant usage on schema public to supabase_auth_admin';
+    execute 'grant execute on function public.two_step_token_hook(jsonb) to supabase_auth_admin';
+  end if;
+end $$;
+
+-- ======================= 0020_venue_buzz.sql
+-- Busy and trending venues for the map's glows and tags.
+-- Counts only, never who: no names, no ids of people, no locations. A venue shows as busy only when at
+-- least 2 people in live seshes are heading there (voted for it, or in a sesh that locked it in), so a
+-- glow can't point at one person. Trending means at least 2 people rated it in the last 7 days.
+-- Seshes and votes are deleted when a sesh ends, so "busy" only ever reflects tonight.
+
+create or replace function public.api_buzz() returns jsonb
+language sql stable security definer set search_path = public as $$
+  with live as (
+    select s.id, s.locked_venue from public.seshes s
+    where s.ended_at is null and s.created_at > now() - interval '8 hours'
+  ),
+  heading as (
+    select l.locked_venue as venue_id, m.user_id from live l join public.sesh_members m on m.sesh_id = l.id
+    where l.locked_venue is not null
+    union
+    select v.venue_id, v.user_id from live l join public.venue_votes v on v.sesh_id = l.id
+    where l.locked_venue is null
+  ),
+  busy as (
+    select venue_id, count(distinct user_id) as people from heading group by venue_id having count(distinct user_id) >= 2
+  ),
+  trend as (
+    select venue_id, count(*) as recent from public.ratings
+    where updated_at > now() - interval '7 days' group by venue_id having count(*) >= 2
+    order by count(*) desc limit 10
+  )
+  select coalesce(jsonb_agg(jsonb_build_object(
+    'id', coalesce(b.venue_id, t.venue_id),
+    'busy', case when b.people >= 10 then 3 when b.people >= 5 then 2 when b.people >= 2 then 1 else 0 end,
+    'trending', t.venue_id is not null
+  )), '[]'::jsonb)
+  from busy b full join trend t on t.venue_id = b.venue_id
+  where auth.uid() is not null;
+$$;
+revoke all on function public.api_buzz() from public, anon, authenticated;
+grant execute on function public.api_buzz() to authenticated;
+
+-- ======================= 0021_add_friends_by_username.sql
+-- Add a friend by typing their username, and pick a username and password when you sign up.
+-- Same rules as an invite link: a request the other person accepts, nothing found for anyone who
+-- has blocked you or is hidden from you (women and non-binary only mode), and no list of usernames
+-- to browse. Only an exact username works, and each person gets 20 misses a day.
+-- Needs 0008 (usernames) and 0011 (private schema). Safe to run more than once.
+
+-- Misses, so nobody can guess usernames one after another. Kept for a day.
+create table if not exists private.username_misses (
+  user_id uuid not null references auth.users (id) on delete cascade,
+  at timestamptz not null default now()
+);
+create index if not exists username_misses_user on private.username_misses (user_id, at);
+alter table private.username_misses enable row level security;
+revoke all on private.username_misses from public, anon, authenticated;
+
+-- Whether a username is free, so sign up can say "taken" before making the account.
+-- Says nothing else about whoever has it.
+create or replace function public.username_free(p_username text) returns boolean
+language plpgsql stable security definer set search_path = public as $$
+declare uname text := lower(btrim(coalesce(p_username, '')));
+begin
+  if auth.uid() is null then raise exception 'Sign in first.'; end if;
+  if uname !~ '^[a-z0-9_]{3,20}$' then raise exception 'Pick a username of 3 to 20 letters, numbers or _.'; end if;
+  return not exists (select 1 from public.account_logins where username = uname and user_id <> auth.uid())
+     and not exists (select 1 from auth.users where lower(email) = public.login_email(uname) and id <> auth.uid());
+end;
+$$;
+
+-- Send a friend request to an exact username. A wrong username, someone who blocked you, and someone
+-- you can't see all get the same answer, so it never gives away who is on the app or why.
+-- Misses return a message instead of an error, so the miss is counted.
+create or replace function public.request_friend_by_username(p_username text) returns jsonb
+language plpgsql security definer set search_path = public, private as $$
+declare
+  me uuid := auth.uid();
+  uname text := lower(btrim(coalesce(p_username, '')));
+  other public.profiles;
+  f public.friendships;
+  nobody constant jsonb := jsonb_build_object('ok', false, 'message', 'No one with that username. Check the spelling with your friend.');
+begin
+  if me is null then raise exception 'Sign in first.'; end if;
+  if not exists (select 1 from public.profiles where id = me) then raise exception 'Finish signing up first.'; end if;
+  uname := ltrim(uname, '@');
+  if uname !~ '^[a-z0-9_]{3,20}$' then
+    return jsonb_build_object('ok', false, 'message', 'Usernames are 3 to 20 letters, numbers or _.');
+  end if;
+
+  delete from private.username_misses where at < now() - interval '1 day';
+  if (select count(*) from private.username_misses where user_id = me) >= 20 then
+    return jsonb_build_object('ok', false, 'message', 'Too many tries today. Send your friend your invite link instead.');
+  end if;
+
+  select p.* into other from public.account_logins l join public.profiles p on p.id = l.user_id where l.username = uname;
+  if not found then
+    insert into private.username_misses (user_id) values (me);
+    return nobody;
+  end if;
+  if other.id = me then return jsonb_build_object('ok', false, 'message', 'That''s your own username.'); end if;
+
+  select * into f from public.friendships
+  where (requester = me and addressee = other.id) or (requester = other.id and addressee = me);
+  if found then
+    if f.state = 'blocked' then
+      insert into private.username_misses (user_id) values (me);
+      return nobody;
+    end if;
+    if f.state = 'requested' and f.addressee = me then
+      update public.friendships set state = 'accepted' where id = f.id;
+      return jsonb_build_object('ok', true, 'name', other.name, 'state', 'accepted');
+    end if;
+    return jsonb_build_object('ok', true, 'name', other.name, 'state', f.state::text);
+  end if;
+
+  if private.hidden_from_me(other.id) then
+    insert into private.username_misses (user_id) values (me);
+    return nobody;
+  end if;
+  insert into public.friendships (requester, addressee) values (me, other.id);
+  return jsonb_build_object('ok', true, 'name', other.name, 'state', 'requested');
+end;
+$$;
+
+revoke all on function public.username_free(text), public.request_friend_by_username(text) from public, anon, authenticated;
+grant execute on function public.username_free(text), public.request_friend_by_username(text) to authenticated;
+
 -- Tell the API about the new functions straight away.
 notify pgrst, 'reload schema';

@@ -1,5 +1,6 @@
-// Builds supabase/venues/perth-osm.sql: every named bar, pub, nightclub, beer garden and live music venue
-// in greater Perth from OpenStreetMap, ready to paste into the Supabase SQL editor.
+// Builds supabase/venues/perth-osm.sql: every named going-out venue in greater Perth from OpenStreetMap
+// (bars, pubs, nightclubs, beer gardens, live music and event venues, clubs, breweries, wineries,
+// distilleries and restaurants), ready to paste into the Supabase SQL editor.
 // Run: node tools/venues/import-osm.mjs            (downloads from the Overpass API)
 //      node tools/venues/import-osm.mjs file.json  (uses an Overpass answer saved earlier)
 // Data © OpenStreetMap contributors, under the Open Database Licence. The map already shows the credit.
@@ -9,13 +10,29 @@ import { fileURLToPath } from 'node:url';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const OUT = path.join(root, 'supabase/venues/perth-osm.sql');
-// Greater Perth: Two Rocks in the north, Rockingham in the south, the coast in the west, the hills in the east.
-const BBOX = [-32.45, 115.6, -31.5, 116.15];   // south, west, north, east
-const KINDS = { bar: 'Bar', pub: 'Pub', nightclub: 'Nightclub', biergarten: 'Beer garden', music_venue: 'Live music venue' };
-const QUERY = `[out:json][timeout:120];nwr["amenity"~"^(${Object.keys(KINDS).join('|')})$"]["name"](${BBOX.join(',')});out center tags;`;
+// Greater Perth: Two Rocks in the north, Mandurah in the south, the coast in the west, the hills in the east.
+const BBOX = [-32.65, 115.6, -31.45, 116.25];   // south, west, north, east
+const KINDS = {
+  bar: 'Bar', pub: 'Pub', nightclub: 'Nightclub', biergarten: 'Beer garden', music_venue: 'Live music venue',
+  events_venue: 'Event venue', casino: 'Casino', karaoke_box: 'Karaoke', social_club: 'Club', restaurant: 'Restaurant'
+};
+const CRAFTS = { brewery: 'Brewery', winery: 'Winery', distillery: 'Distillery' };
+const QUERY = `[out:json][timeout:180];(` +
+  `nwr["amenity"~"^(${Object.keys(KINDS).join('|')})$"]["name"](${BBOX.join(',')});` +
+  `nwr["craft"~"^(${Object.keys(CRAFTS).join('|')})$"]["name"](${BBOX.join(',')});` +
+  `);out center tags;`;
 const SERVERS = ['https://overpass-api.de/api/interpreter', 'https://overpass.kumi.systems/api/interpreter'];
 
 async function download() {
+  // The public Overpass servers are often busy (504). Try each a few times, waiting longer each round.
+  for (let round = 0; round < 4; round++) {
+    if (round) { console.error('Waiting ' + 30 * round + 's before trying again...'); await new Promise((r) => setTimeout(r, 30000 * round)); }
+    const data = await tryServers();
+    if (data) return data;
+  }
+  throw new Error('Could not reach OpenStreetMap. Try again later.');
+}
+async function tryServers() {
   for (const url of SERVERS) {
     try {
       const res = await fetch(url, { method: 'POST', body: new URLSearchParams({ data: QUERY }), headers: { 'User-Agent': 'SeshOn venue import (github.com/skylark18756333/Seshhon)' } });
@@ -23,7 +40,7 @@ async function download() {
       console.error(url + ' answered ' + res.status);
     } catch (e) { console.error(url + ' failed: ' + e.message); }
   }
-  throw new Error('Could not reach OpenStreetMap. Try again later.');
+  return null;
 }
 
 const q = (s) => "'" + String(s).replace(/'/g, "''") + "'";
@@ -35,30 +52,38 @@ export function toRows(data) {
     const t = el.tags || {};
     const lat = el.lat ?? el.center?.lat, lng = el.lon ?? el.center?.lon;
     const name = clean(t.name, 80);
-    if (!name || !KINDS[t.amenity] || typeof lat !== 'number' || typeof lng !== 'number') continue;
+    let kind = KINDS[t.amenity] || CRAFTS[t.craft];
+    if (!name || !kind || typeof lat !== 'number' || typeof lng !== 'number') continue;
     if (lat < BBOX[0] || lat > BBOX[2] || lng < BBOX[1] || lng > BBOX[3]) continue;
-    const kind = t.amenity === 'bar' && t.cocktails === 'yes' ? 'Cocktail bar' : KINDS[t.amenity];
-    rows.set(el.type + '/' + el.id, { osm: el.type + '/' + el.id, name, kind, lat: +lat.toFixed(6), lng: +lng.toFixed(6) });
+    if (t.amenity === 'bar' && t.cocktails === 'yes') kind = 'Cocktail bar';
+    if (t.amenity === 'restaurant' && t.cuisine) { const c = clean(t.cuisine.split(';')[0].replace(/_/g, ' '), 30); kind = 'Restaurant (' + c.charAt(0).toUpperCase() + c.slice(1) + ')'; }
+    const hours = clean(t.opening_hours, 255).replace(/[<>]/g, '') || null;
+    rows.set(el.type + '/' + el.id, { osm: el.type + '/' + el.id, name, kind, lat: +lat.toFixed(6), lng: +lng.toFixed(6), hours });
   }
   return [...rows.values()].sort((a, b) => a.name.localeCompare(b.name) || a.osm.localeCompare(b.osm));
 }
 
 export function toSql(rows, when) {
   const lines = [
-    '-- Greater Perth venues from OpenStreetMap (' + rows.length + ' venues, downloaded ' + when + ').',
+    '-- Greater Perth going-out venues from OpenStreetMap (' + rows.length + ' venues, downloaded ' + when + ').',
     '-- Paste this whole file into the Supabase SQL editor and press Run. Running it again with a newer copy',
-    '-- updates names and positions; it never deletes venues and never touches venues added by hand.',
+    '-- updates names, positions and opening hours; it never deletes venues, never touches venues added by hand,',
+    '-- and never overwrites hours that venue staff have set.',
     '-- Data © OpenStreetMap contributors, Open Database Licence (openstreetmap.org/copyright).',
     '-- (Generated by tools/venues/import-osm.mjs. Do not edit by hand.)',
     '',
     'alter table public.venues add column if not exists osm_id text;',
     'create unique index if not exists venues_osm_id_key on public.venues (osm_id);',
+    'alter table public.venues add column if not exists opening_hours text;',
+    'alter table public.venues add column if not exists hours_source text;',
     ''
   ];
   if (rows.length) {
-    lines.push('insert into public.venues (osm_id, name, kind, lat, lng) values');
-    lines.push(rows.map((r) => '  (' + [q(r.osm), q(r.name), q(r.kind), r.lat, r.lng].join(', ') + ')').join(',\n'));
-    lines.push('on conflict (osm_id) do update set name = excluded.name, kind = excluded.kind, lat = excluded.lat, lng = excluded.lng;');
+    lines.push('insert into public.venues (osm_id, name, kind, lat, lng, opening_hours, hours_source) values');
+    lines.push(rows.map((r) => '  (' + [q(r.osm), q(r.name), q(r.kind), r.lat, r.lng, r.hours ? q(r.hours) : 'null', r.hours ? "'osm'" : 'null'].join(', ') + ')').join(',\n'));
+    lines.push('on conflict (osm_id) do update set name = excluded.name, kind = excluded.kind, lat = excluded.lat, lng = excluded.lng,');
+    lines.push("  opening_hours = case when venues.hours_source = 'staff' then venues.opening_hours else excluded.opening_hours end,");
+    lines.push("  hours_source = case when venues.hours_source = 'staff' then 'staff' else excluded.hours_source end;");
   }
   lines.push('', "notify pgrst, 'reload schema';", '');
   return lines.join('\n');
@@ -71,5 +96,8 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   if (!src && rows.length < 50) throw new Error('Only ' + rows.length + ' venues came back, which looks wrong. Nothing was written.');
   fs.mkdirSync(path.dirname(OUT), { recursive: true });
   fs.writeFileSync(OUT, toSql(rows, new Date().toISOString().slice(0, 10)));
-  console.log('Wrote ' + rows.length + ' venues to ' + path.relative(root, OUT));
+  const byKind = {};
+  rows.forEach((r) => { const k = r.kind.replace(/ \(.*\)$/, ''); byKind[k] = (byKind[k] || 0) + 1; });
+  console.log(rows.filter((r) => r.hours).length + ' of them have opening hours.');
+  console.log('Wrote ' + rows.length + ' venues to ' + path.relative(root, OUT) + ': ' + Object.entries(byKind).sort((a, b) => b[1] - a[1]).map(([k, n]) => n + ' ' + k).join(', '));
 }

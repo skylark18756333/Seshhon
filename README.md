@@ -15,7 +15,9 @@ Your status is a traffic light, set with a G / A / R switch you slide or flick a
 | Folder | What it is | State |
 | --- | --- | --- |
 | `web/` | The test version that runs in a web browser. Open `web/index.html`. | Works. Single player, example friends and venues. |
-| `app/` | The phone app code (React Native, for iPhone and Android). | Written and tested in a browser stand-in. **Not yet run on a phone.** |
+| `docs/` | The live, multi-friend web app. | Live on GitHub Pages. |
+| `mobile/` | The App Store / Google Play app: a native shell around the live web app, built in the cloud. See `mobile/README.md`. | Ready to build once the Expo, Apple and Google accounts exist. |
+| `app/` | An earlier phone app version (React Native, single player, sample data). | Kept for reference; `mobile/` replaces it for the stores. |
 | `app/src/core/` | The rules: status expiry, deal limits, deal codes, vote counting. | Covered by automated tests. |
 | `supabase/` | The database for the real, multi-phone version. | Tested on a local database. **Not yet connected to a Supabase project.** |
 | `tools/preview/` | Lets a developer run the phone app's code in a web browser. | Works. |
@@ -86,6 +88,25 @@ functions in `supabase/migrations/0002_live_web_app.sql`.
 - `docs/app.js`: the app's code. It is a separate file, not inline in `index.html`, because the page's Content Security Policy
   forbids inline scripts. If the Supabase project URL changes, update `connect-src` in `docs/index.html` too (`check.mjs` fails if they differ).
 
+### Web address (custom domain)
+
+The site is served by GitHub Pages from `docs/`. `docs/CNAME` names the main address, `frendzy.au`; the old
+`skylark18756333.github.io/Seshhon/` address then redirects there on its own. GitHub Pages serves one domain per site, so
+`frendzy.com.au`, if bought later, is pointed at it with a redirect at the registrar or Cloudflare. When the address changes:
+
+1. DNS for `frendzy.au`: `A` records `185.199.108.153`, `185.199.109.153`, `185.199.110.153`, `185.199.111.153`,
+   `AAAA` records `2606:50c0:8000::153`, `2606:50c0:8001::153`, `2606:50c0:8002::153`, `2606:50c0:8003::153`, and
+   `www` as a `CNAME` to `skylark18756333.github.io`.
+2. Optional, `frendzy.com.au` (and `www.frendzy.com.au`): a permanent (301) redirect to `https://frendzy.au/`.
+3. GitHub, Settings, Pages: check the custom domain shows `frendzy.au` and DNS is OK, then tick **Enforce HTTPS**.
+4. Supabase, Authentication, URL Configuration: Site URL `https://frendzy.au/`, and add `https://frendzy.au/**`
+   to the redirect URLs (keep the old address until the move is done).
+5. Cloudflare Turnstile widget: add `frendzy.au` to its hostnames, or sign-up fails on the new address.
+6. Supabase Edge Functions secret `AGE_CHECK_RETURN_URLS`: add `https://frendzy.au/`.
+7. Phone app: `extra.webUrl` in `mobile/app.json` is the address it opens. Make a new build after the move.
+
+The page's security policy uses `'self'`, so it needs no change for a new address.
+
 ### Security
 
 - Every table has row level security, signed-out visitors can read or call nothing, and since `0006_security_hardening.sql`
@@ -133,7 +154,7 @@ To switch it on:
    function checks the sign-in itself). Or with the Supabase CLI:
    `supabase functions deploy age-check --no-verify-jwt`.
 4. In Edge Functions, Secrets, add:
-   - `AGE_CHECK_RETURN_URLS`: the web app address, e.g. `https://skylark18756333.github.io/Seshhon/`
+   - `AGE_CHECK_RETURN_URLS`: the web app address, e.g. `https://frendzy.au/` (during a domain move, list both old and new addresses, comma separated)
    - for Yoti: `YOTI_SDK_ID` and `YOTI_API_KEY`; for Didit: `DIDIT_API_KEY` and `DIDIT_WORKFLOW_ID`
    - optional `AGE_ESTIMATE_MIN` (default 25): the estimated age needed to pass without ID
 5. Switch it on in the SQL editor:
@@ -142,3 +163,53 @@ To switch it on:
 
 People who signed up before the switch are asked to do the check the next time they open the app,
 and cannot go Green or Amber until they pass. Each person gets at most 5 attempts a day.
+
+## Email login codes (two-step login)
+
+When someone saves a username and password, they also give an email address and confirm it with a
+6-digit code. After that, logging in on a new phone needs the password and a fresh code from that email.
+The email is private: it is never shown to anyone (the owner only sees a hint like f•••@gmail.com).
+Accounts saved before this keep logging in with just their password until they add an email on the You
+page. A recovery code still gets someone back in if they lose their email too.
+
+- `supabase/migrations/0018_email_two_step.sql`: stores the email and hashed codes, and the login check.
+- `supabase/functions/email-code/`: the Edge Function that emails the codes. It holds the email service key.
+
+To switch it on, in this order:
+
+1. Run `supabase/migrations/0018_email_two_step.sql` in the Supabase SQL editor.
+2. Make a free account with an email service. Brevo works without owning a web domain: add and verify a
+   sender address under **Senders**, then create an API key under **SMTP & API**. (Resend also works,
+   but needs a domain of your own.)
+3. In Supabase, go to Edge Functions, create a function called `email-code` with
+   `supabase/functions/email-code/index.ts`, and turn **Verify JWT** off (it checks the sign-in itself).
+   Or: `supabase functions deploy email-code --no-verify-jwt`.
+4. In Edge Functions, Secrets, add `BREVO_API_KEY` (or `RESEND_API_KEY`) and `EMAIL_FROM` (the verified
+   sender address).
+5. Last, in Authentication, Hooks, add a **Customize Access Token (JWT) Claims** hook: type Postgres,
+   schema `public`, function `two_step_token_hook`. This is what makes the database refuse a login
+   until its code is typed. If logins ever break, switch the hook off: everyone can log in with just
+   their password again, and nothing else is lost.
+
+## Google ratings (optional, paid)
+
+Venue cards can show a venue's Google rating ("4.4 ★ on Google Maps (812)") next to Frendzy's own
+ratings. It is **off** until switched on, and each look-up is billed by Google to your Google Cloud
+account. Google's terms allow keeping a venue's Google place ID but not its rating, so the rating is
+fetched fresh each time someone opens a venue, and each person is limited to 100 look-ups a day.
+
+- `supabase/functions/google-rating/`: the Edge Function that holds the Google key, finds the venue on
+  Google (once, then remembers its place ID) and fetches the rating.
+- `supabase/migrations/0016_google_ratings.sql`: the daily limit and the place ID helpers.
+
+To switch it on:
+
+1. In Google Cloud Console, create a project, turn on billing, and enable **Places API (New)**.
+   Create an API key, restrict it to Places API (New), and set a monthly budget alert.
+2. Run `supabase/migrations/0016_google_ratings.sql` in the Supabase SQL editor.
+3. In Supabase, go to Edge Functions, create a function called `google-rating` with
+   `supabase/functions/google-rating/index.ts`, and turn **Verify JWT** off (it checks the sign-in itself).
+   Or: `supabase functions deploy google-rating --no-verify-jwt`.
+4. In Edge Functions, Secrets, add `GOOGLE_PLACES_KEY` with the key.
+5. In `docs/config.js`, set `googleRatings: true`.
+
