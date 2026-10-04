@@ -1,4 +1,4 @@
-# Frenzy phone app (iPhone and Android)
+# Frendzy phone app (iPhone and Android)
 
 This folder is the app that goes in the App Store and Google Play. It is a native shell around the live
 web app in `docs/`, so the phone app and the web link always show the same thing, and a fix to `docs/`
@@ -14,7 +14,7 @@ The shell adds the parts a web page can't do well on a phone:
 - "Near me" on the map, using the phone's location (it asks first)
 - proper icon, splash screen, and notch / home-bar spacing
 
-The page it loads is set in `app.json` under `extra.webUrl`. The name people see is "Frenzy" (`app.json` > `name`).
+The page it loads is set in `app.json` under `extra.webUrl`. The name people see is "Frendzy" (`app.json` > `name`).
 The hidden IDs (`com.seshhon.app`, the `seshhon://` link) keep the old name; they can't be changed once the app is in a store,
 and nobody sees them.
 
@@ -50,7 +50,7 @@ That is enough for Android test builds.
 
 1. Enrol in the Apple Developer Program, in the **Apple Developer** app on an iPhone (individual).
 2. When it's approved, in App Store Connect (appstoreconnect.apple.com):
-   - **Apps > + > New App**: name Frenzy, bundle ID `com.seshhon.app` (create it in the developer
+   - **Apps > + > New App**: name Frendzy, bundle ID `com.seshhon.app` (create it in the developer
      site first if it isn't listed), SKU `seshhon`.
    - Note the app's **Apple ID** (a number) under App Information. Secret `ASC_APP_ID`.
    - **Users and Access > Integrations > App Store Connect API > +**, access "App Manager". Download the
@@ -65,7 +65,7 @@ The first iPhone build creates the signing certificate and profile by itself usi
 ### 3. Google Play (US$25 once)
 
 1. Create a developer account at play.google.com/console (personal). Google checks your ID.
-2. **Create app**: Frenzy, app, free.
+2. **Create app**: Frendzy, app, free.
 3. The first upload has to be done by hand: run an android / production build, download the `.aab` from
    expo.dev, and upload it in Play Console > Testing > Internal testing.
 4. After that, for automatic uploads: create a Google Cloud service account with Play access and upload
@@ -95,5 +95,5 @@ npx tsc --noEmit       # typecheck
 npx expo start         # run in Expo Go on a phone
 ```
 
-Icons and splash are drawn by `node tools/live/phone-icons.mjs` from the repository root, using the same Frenzy
+Icons and splash are drawn by `node tools/live/phone-icons.mjs` from the repository root, using the same Frendzy
 mark as the web app icon.

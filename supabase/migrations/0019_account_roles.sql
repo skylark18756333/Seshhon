@@ -1,14 +1,14 @@
 -- Account types: user, venue and admin.
 --
---   user   Everyone. The normal Frenzy app: status, friends, seshes, map, events.
+--   user   Everyone. The normal Frendzy app: status, friends, seshes, map, events.
 --   venue  A business account that runs one or more venues' pages: hours, events and deals, and
 --          confirming deal codes. It is kept apart from the social side: a venue account cannot
 --          go green or amber, add friends, start or join a sesh, or rate venues.
---   admin  Frenzy staff only. Admins see the Admin page: venue requests to approve, venue
+--   admin  Frendzy staff only. Admins see the Admin page: venue requests to approve, venue
 --          accounts, live deals and events, and reported messages. Admins keep the normal app.
 --
 -- Roles live in private.roles, which the app cannot read or change at all. Nobody can make
--- themselves an admin from the app. Frenzy staff add an admin by hand in the Supabase SQL Editor:
+-- themselves an admin from the app. Frendzy staff add an admin by hand in the Supabase SQL Editor:
 --
 --   insert into private.roles (user_id, role) values ('<the person''s ID from their You page>', 'admin')
 --   on conflict (user_id) do update set role = 'admin';
@@ -56,13 +56,13 @@ create or replace function private.require_admin() returns void
 language plpgsql stable security definer set search_path = public, private as $$
 begin
   if auth.uid() is null or private.role_of(auth.uid()) <> 'admin' then
-    raise exception 'Only Frenzy staff can do that.';
+    raise exception 'Only Frendzy staff can do that.';
   end if;
 end;
 $$;
 revoke all on function private.require_admin() from public, anon, authenticated;
 
--- Cheap-drink promotions. WA liquor rules frown on them, so Frenzy never lists them, whoever posts
+-- Cheap-drink promotions. WA liquor rules frown on them, so Frendzy never lists them, whoever posts
 -- the deal. Some words are never allowed (bottomless, shots, all you can drink). Multi-buys, free
 -- drinks and "$5 drinks" pricing are refused on anything that is about drinks; "2-for-1 pizzas" is fine.
 create or replace function private.cheap_drink_promo(p_title text, p_alcohol boolean, p_type text) returns boolean
@@ -83,7 +83,7 @@ begin
   if new.title ~ '[<>]' then raise exception 'Leave out < and > in the title.'; end if;
   if new.type = 'Events' then new.is_alcohol := false; end if;
   if private.cheap_drink_promo(new.title, new.is_alcohol, new.type::text) then
-    raise exception 'Frenzy can''t list cheap-drink promotions such as 2-for-1 or free drinks, shots or bottomless drinks (WA liquor rules). Try food, entry or an event instead.';
+    raise exception 'Frendzy can''t list cheap-drink promotions such as 2-for-1 or free drinks, shots or bottomless drinks (WA liquor rules). Try food, entry or an event instead.';
   end if;
   return new;
 end;
@@ -142,7 +142,7 @@ $$;
 revoke all on function public.my_role() from public, anon, authenticated;
 grant execute on function public.my_role() to authenticated;
 
--- Ask Frenzy to make this account the venue account for a venue. One request at a time; a new
+-- Ask Frendzy to make this account the venue account for a venue. One request at a time; a new
 -- request replaces an old one.
 create or replace function public.claim_venue(p_venue uuid, p_contact text, p_phone text, p_abn text, p_message text) returns jsonb
 language plpgsql security definer set search_path = public, private as $$
@@ -263,7 +263,7 @@ $$;
 revoke all on function public.venue_delete_deal(uuid) from public, anon, authenticated;
 grant execute on function public.venue_delete_deal(uuid) to authenticated;
 
--- ---------------------------------------------------------------- admin (Frenzy staff)
+-- ---------------------------------------------------------------- admin (Frendzy staff)
 create or replace function public.admin_overview() returns jsonb
 language plpgsql stable security definer set search_path = public, private as $$
 begin

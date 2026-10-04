@@ -1,4 +1,4 @@
-// Frenzy phone app: a native shell around the live web app in docs/.
+// Frendzy phone app: a native shell around the live web app in docs/.
 // The shell adds what a web page can't do well on a phone: the native share sheet, the Android back
 // button, opening outside links in the browser, invite links, and a proper screen when there is no signal.
 // Everything else (sign-up, friends, status, sesh chat) is the live web app, so it stays in one place.
@@ -13,7 +13,7 @@ const BG = '#050506';
 const FG = '#F4F1EA';
 const GREEN = '#3DDC84';
 
-const WEB_URL: string = (Constants.expoConfig?.extra?.webUrl as string) || 'https://skylark18756333.github.io/Seshhon/';
+const WEB_URL: string = (Constants.expoConfig?.extra?.webUrl as string) || 'https://frendzy.au/';
 const WEB_ORIGIN = new URL(WEB_URL).origin;
 const WEB_PATH = new URL(WEB_URL).pathname;
 
@@ -90,7 +90,7 @@ function Shell() {
     return (
       <View style={styles.offline}>
         <Text style={styles.title}>No connection</Text>
-        <Text style={styles.body}>Frenzy needs the internet to see who's out. Check your signal and try again.</Text>
+        <Text style={styles.body}>Frendzy needs the internet to see who's out. Check your signal and try again.</Text>
         <Pressable style={styles.button} onPress={() => { setFailed(false); web.current?.reload(); }} accessibilityRole="button">
           <Text style={styles.buttonText}>Try again</Text>
         </Pressable>
