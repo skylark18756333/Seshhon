@@ -245,9 +245,12 @@
   function loadPhotos() {
     return rpc('friend_photos').then(function (p) { photos = p || {}; photosAt = Date.now(); }, function () { photosAt = Date.now(); });
   }
+  function loadSafety() {
+    return rpc('my_safety').then(function (sf) { ui.safety = sf || { gender: null, women_only: false }; }, function () { ui.safety = 'off'; });
+  }
   function load(quiet) {
     return (session && !ui.age ? loadAge() : Promise.resolve()).then(function () { return rpc('api_state'); }).then(function (data) {
-      if (data && data.me && ui.account === undefined) return loadAccount().then(function () { return data; });
+      if (data && data.me && ui.account === undefined) return Promise.all([loadAccount(), loadSafety()]).then(function () { return data; });
       return data;
     }).then(function (data) {
       ui.offline = false;
@@ -429,8 +432,11 @@
     if (D.requests_in.length) {
       h += '<section class="stack"><h2>Friend requests</h2>' + D.requests_in.map(function (r) {
         return '<div class="card"><div class="row">' + avatar(r.name) + '<div class="grow"><strong>' + esc(r.name) + '</strong> wants to add you</div></div>' +
-          '<div class="row"><button class="btn small-btn" data-act="accept" data-v="' + esc(r.friendship) + '">Accept</button>' +
-          '<button class="btn small-btn ghost" data-act="unfriend" data-v="' + esc(r.friendship) + '">Decline</button></div></div>';
+          (ui.confirm === 'blockreq:' + r.friendship
+            ? '<div class="row"><span class="small grow">Block ' + esc(first(r.name)) + '? They won\'t be able to add you again.</span><button class="btn small-btn" style="--c:var(--off);--cf:var(--ink)" data-act="block-request" data-v="' + esc(r.friendship) + '">Block</button><button class="btn small-btn ghost" data-act="cancel-confirm">Cancel</button></div></div>'
+            : '<div class="row"><button class="btn small-btn" data-act="accept" data-v="' + esc(r.friendship) + '">Accept</button>' +
+              '<button class="btn small-btn ghost" data-act="unfriend" data-v="' + esc(r.friendship) + '">Decline</button>' +
+              '<button class="linkbtn" data-act="ask" data-v="blockreq:' + esc(r.friendship) + '">Block</button></div></div>');
       }).join('') + '</section>';
     }
 
@@ -898,17 +904,21 @@
     if (D.friends.length || D.requests_out.length) {
       h += '<div class="card"><h2>Your friends</h2>' +
         D.friends.map(function (f) {
-          var asking = ui.confirm === 'unfriend:' + f.friendship;
-          return '<div class="row between"><div class="grow">' + esc(f.name) + '</div>' +
+          var asking = ui.confirm === 'unfriend:' + f.friendship, blocking = ui.confirm === 'block:' + f.id;
+          return '<div class="row between"><div class="grow">' + esc(f.name) + (blocking ? '<div class="muted small">They won\'t see you or be able to add you again.</div>' : '') + '</div>' +
             (asking
               ? '<button class="btn small-btn" style="--c:var(--off);--cf:var(--ink)" data-act="unfriend" data-v="' + esc(f.friendship) + '">Remove</button><button class="btn small-btn ghost" data-act="cancel-confirm">Keep</button>'
-              : '<button class="btn small-btn ghost" data-act="ask" data-v="unfriend:' + esc(f.friendship) + '">Remove</button>') + '</div>';
+              : blocking
+              ? '<button class="btn small-btn" style="--c:var(--off);--cf:var(--ink)" data-act="block-user" data-v="' + esc(f.id) + '">Block</button><button class="btn small-btn ghost" data-act="cancel-confirm">Cancel</button>'
+              : '<button class="btn small-btn ghost" data-act="ask" data-v="unfriend:' + esc(f.friendship) + '">Remove</button><button class="btn small-btn ghost" data-act="ask" data-v="block:' + esc(f.id) + '">Block</button>') + '</div>';
         }).join('') +
         D.requests_out.map(function (r) {
           return '<div class="row between"><div class="grow">' + esc(r.name) + '<div class="muted small">Waiting for them to accept</div></div>' +
             '<button class="btn small-btn ghost" data-act="unfriend" data-v="' + esc(r.friendship) + '">Cancel</button></div>';
         }).join('') + '</div>';
     }
+
+    h += safetyCard();
 
     if (D.blocked && D.blocked.length) {
       h += '<div class="card"><h2>Blocked people</h2>' + D.blocked.map(function (b) {
@@ -939,6 +949,25 @@
         ? '<p class="error">This removes your name, friends, votes and ratings for good.</p><div class="row"><button class="btn small-btn" style="--c:var(--off);--cf:var(--ink)" data-act="delete-account">Delete for good</button><button class="btn small-btn ghost" data-act="cancel-confirm">Keep my account</button></div>'
         : '<button class="btn ghost" data-act="ask" data-v="delete">Delete my account</button>') + '</div>';
     return h;
+  }
+
+  // Gender is optional and private. Women and non-binary people can turn on the women and non-binary only mode. Hidden if the database is older.
+  function safetyCard() {
+    var sf = ui.safety;
+    if (!sf || sf === 'off') return '';
+    var opts = [['woman', 'Woman'], ['man', 'Man'], ['nonbinary', 'Non-binary'], ['', 'Rather not say']];
+    var h = '<div class="card"><h2>Safety</h2><p class="muted small">Your gender is private. It is never shown to anyone, and you don\'t have to say.</p><div class="row" style="flex-wrap:wrap">' +
+      opts.map(function (o) {
+        var on = (sf.gender || '') === o[0];
+        return '<button class="btn small-btn' + (on ? '' : ' ghost') + '" data-act="gender" data-v="' + o[0] + '" aria-pressed="' + on + '">' + o[1] + '</button>';
+      }).join('') + '</div>';
+    if (sf.gender === 'woman' || sf.gender === 'nonbinary') {
+      h += '<h2 style="margin-top:8px">Women and non-binary only</h2><p class="muted small">' + (sf.women_only
+        ? 'On. Only women and non-binary people can see your status, add you, or join and chat in seshes you start. Anyone else just sees you as red. In someone else\'s sesh, the people in it can still see you.'
+        : 'When it\'s on, only women and non-binary people can see your status, add you, or join and chat in seshes you start.') + '</p>' +
+        '<button class="btn small-btn' + (sf.women_only ? ' ghost' : '') + '" data-act="women-only" data-v="' + (sf.women_only ? 'off' : 'on') + '" aria-pressed="' + !!sf.women_only + '">' + (sf.women_only ? 'Turn off' : 'Turn on') + '</button>';
+    }
+    return h + '</div>';
   }
 
   /* ---------- render ---------- */
@@ -1097,6 +1126,13 @@
       rpc('report_message', { p_message: v, p_reason: '' }).then(function () { toast('Reported. Thanks for telling us.'); paintChat(false); }).catch(function (e) { toast(e.message); });
     },
     'block-user': function (v) { ui.confirm = null; act('block_user', { p_user: v }, 'Blocked.'); },
+    'block-request': function (v) { ui.confirm = null; act('block_request', { p_friendship: v }, 'Blocked.'); },
+    gender: function (v) {
+      act('set_safety', { p_gender: v || null, p_women_only: (v === 'woman' || v === 'nonbinary') && !!ui.safety.women_only }).then(function (r) { if (r) { ui.safety = r; render(); } });
+    },
+    'women-only': function (v) {
+      act('set_safety', { p_gender: ui.safety.gender, p_women_only: v === 'on' }, v === 'on' ? 'Women and non-binary only is on.' : 'Women and non-binary only is off.').then(function (r) { if (r) { ui.safety = r; render(); } });
+    },
     unblock: function (v) { act('unblock_user', { p_user: v }, 'Unblocked. You can add each other again with an invite link.'); },
     accept: function (v) { act('answer_friend', { p_friendship: v, p_accept: true }, 'You\'re now friends.'); },
     unfriend: function (v) { ui.confirm = null; act('answer_friend', { p_friendship: v, p_accept: false }); },
@@ -1111,12 +1147,12 @@
     },
     logout: function () {
       session = null; store(SESSION_KEY, null); D = null; seen = null; lastKey = '';
-      ui.account = undefined; ui.age = null; ui.auth = null; ui.editAccount = false; ui.tab = 'home'; ui.screen = null; ui.confirm = null;
+      ui.account = undefined; ui.safety = undefined; ui.age = null; ui.auth = null; ui.editAccount = false; ui.tab = 'home'; ui.screen = null; ui.confirm = null;
       view.innerHTML = ''; render(); toast('Logged out. Log in again with your username and password.');
     },
     'delete-account': function () {
       act('delete_account', {}).then(function () {
-        session = null; store(SESSION_KEY, null); D = null; seen = null; ui.confirm = null; ui.tab = 'home'; ui.screen = null; ui.account = undefined; ui.age = null;
+        session = null; store(SESSION_KEY, null); D = null; seen = null; ui.confirm = null; ui.tab = 'home'; ui.screen = null; ui.account = undefined; ui.safety = undefined; ui.age = null;
         view.innerHTML = ''; render(); toast('Your account has been deleted.');
       });
     }
@@ -1277,7 +1313,7 @@
       if (CAPTCHA_KEY && !captchaToken) return lfail('Wait a moment for the check above to finish, then try again.');
       lbtn.disabled = true; lerr.hidden = true;
       signInWithPassword(lu, lp, useCaptcha()).then(function () {
-        D = null; lastKey = ''; ui.auth = null; ui.loginName = ''; ui.account = undefined; ui.age = null;
+        D = null; lastKey = ''; ui.auth = null; ui.loginName = ''; ui.account = undefined; ui.safety = undefined; ui.age = null;
         document.activeElement && document.activeElement.blur(); view.innerHTML = '';
         return load().then(function () { if (D && D.me) return sendPendingInvite(); });
       }).catch(function (x) { lfail(x.message); });

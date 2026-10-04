@@ -258,6 +258,32 @@ try {
   await tab(ana, 'Home');
   ok(await gone(ana, 'Cam', 5000), 'Cam disappears from Ana\'s friends');
 
+  console.log('Women and non-binary mode, and blocking');
+  await tab(ana, 'You'); await tap(ana, 'Woman');
+  ok(await has(ana, 'Women and non-binary only'), 'Ana says she is a woman and is offered the mode');
+  await tap(ana, 'Turn on');
+  ok(await has(ana, 'Turn off') && await has(ana, 'Anyone else just sees you as red'), 'Ana turns on women-only mode');
+  if (process.env.SHOTS) await ana.page.screenshot({ path: process.env.SHOTS + '/women-only.png', fullPage: true });
+  await tab(ben, 'Home');
+  ok(await ben.page.waitForFunction(() => /Ana\s+Red/.test(document.body.innerText), null, { timeout: 5000 }).then(() => true, () => false), 'Ben (no gender given) now sees Ana as Red');
+  await tap(ana, 'Turn off');
+  ok(await ben.page.waitForFunction(() => /Ana\s+Green/.test(document.body.innerText), null, { timeout: 5000 }).then(() => true, () => false), 'with it off, Ben sees Ana is Green again');
+  await tap(ana, 'Rather not say');
+  ok(await gone(ana, 'Women and non-binary only'), 'Ana can take her gender back off');
+  const gus = await phone('Gus');
+  await signUp(gus, 'Gus', anaLink);
+  await tab(ana, 'Home');
+  ok(await has(ana, 'Gus wants to add you'), 'Gus sends Ana a request');
+  await tap(ana, 'Block'); await tap(ana, 'Block');
+  ok(await gone(ana, 'Gus wants to add you'), 'Ana blocks Gus straight from the request');
+  await tab(ana, 'You');
+  ok(await has(ana, 'Blocked people') && /Gus/.test(await text(ana)), 'Gus is on Ana\'s blocked list');
+  await ana.page.locator('.card', { hasText: 'Your friends' }).getByRole('button', { name: 'Block', exact: true }).click();
+  await tap(ana, 'Block');
+  ok(await has(ana, 'Blocked.'), 'Ana blocks Ben from her friends list');
+  await tab(ben, 'You');
+  ok(await gone(ben, 'Ana', 5000), 'Ana disappears from Ben\'s app');
+
   console.log('Deals switched off');
   dealsOn = false;
   const dan = await phone('Dan');
@@ -330,23 +356,23 @@ try {
   ok(await has(fay2, 'Your status'), 'and the new password works');
 
   console.log('Profile photos');
-  const gus = await phone('Gus'), hana = await phone('Hana');
-  await signUp(gus, 'Gus');
-  const gusLink = await inviteOf(gus);
-  await signUp(hana, 'Hana', gusLink);
-  await tab(gus, 'Home'); await has(gus, 'Hana wants to add you'); await tap(gus, 'Accept');
-  await tap(gus, 'Green'); await has(gus, 'Up for it now'); await tap(hana, 'Green');
-  ok(await has(hana, 'Up for it now') && await hana.page.locator('.friend.face .pic').count() === 0, 'with no photo, a friend\'s circle shows their initial');
-  await tab(gus, 'You');
-  ok(await has(gus, 'Add a photo'), 'the You page offers to add a photo');
+  const pim = await phone('Pim'), quin = await phone('Quin');
+  await signUp(pim, 'Pim');
+  const pmLink = await inviteOf(pim);
+  await signUp(quin, 'Quin', pmLink);
+  await tab(pim, 'Home'); await has(pim, 'Quin wants to add you'); await tap(pim, 'Accept');
+  await tap(pim, 'Green'); await has(pim, 'Up for it now'); await tap(quin, 'Green');
+  ok(await has(quin, 'Up for it now') && await quin.page.locator('.friend.face .pic').count() === 0, 'with no photo, a friend\'s circle shows their initial');
+  await tab(pim, 'You');
+  ok(await has(pim, 'Add a photo'), 'the You page offers to add a photo');
   // a 40 x 30 red PNG, so the square crop is tried too
-  const png = await gus.page.evaluate(() => { const c = document.createElement('canvas'); c.width = 40; c.height = 30; const g = c.getContext('2d'); g.fillStyle = '#d33'; g.fillRect(0, 0, 40, 30); return c.toDataURL('image/png').split(',')[1]; });
-  await gus.page.locator('#photo-file').setInputFiles({ name: 'me.png', mimeType: 'image/png', buffer: Buffer.from(png, 'base64') });
-  ok(await gus.page.waitForSelector('button.profile-btn img.pic', { timeout: 6000 }).then(() => true, () => false), 'Gus adds a photo and his profile button shows it');
-  await hana.page.reload(); await has(hana, 'Up for it now');
-  ok(await hana.page.waitForFunction(() => document.querySelectorAll('.friend.face .pic').length === 1, null, { timeout: 4000 }).then(() => true, () => false), 'his friend Hana sees his photo on his circle');
-  await tap(gus, 'Remove');
-  ok(await gus.page.waitForSelector('button.profile-btn img.pic', { state: 'detached', timeout: 6000 }).then(() => true, () => false), 'Gus can remove his photo');
+  const png = await pim.page.evaluate(() => { const c = document.createElement('canvas'); c.width = 40; c.height = 30; const g = c.getContext('2d'); g.fillStyle = '#d33'; g.fillRect(0, 0, 40, 30); return c.toDataURL('image/png').split(',')[1]; });
+  await pim.page.locator('#photo-file').setInputFiles({ name: 'me.png', mimeType: 'image/png', buffer: Buffer.from(png, 'base64') });
+  ok(await pim.page.waitForSelector('button.profile-btn img.pic', { timeout: 6000 }).then(() => true, () => false), 'Pim adds a photo and his profile button shows it');
+  await quin.page.reload(); await has(quin, 'Up for it now');
+  ok(await quin.page.waitForFunction(() => document.querySelectorAll('.friend.face .pic').length === 1, null, { timeout: 4000 }).then(() => true, () => false), 'his friend Quin sees his photo on his circle');
+  await tap(pim, 'Remove');
+  ok(await pim.page.waitForSelector('button.profile-btn img.pic', { state: 'detached', timeout: 6000 }).then(() => true, () => false), 'Pim can remove his photo');
 
   ok(consoleErrors.length === 0, 'no script errors on any phone' + (consoleErrors.length ? ': ' + consoleErrors.join('; ') : ''));
   await ana.page.screenshot({ path: path.join(copy, 'ana.png') });

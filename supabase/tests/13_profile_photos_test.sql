@@ -4,10 +4,10 @@
 \pset tuples_only on
 \pset format unaligned
 set client_min_messages = warning;
-\set p1 '''00000000-0000-0000-0000-000000000c01'''
-\set p2 '''00000000-0000-0000-0000-000000000c02'''
-\set p3 '''00000000-0000-0000-0000-000000000c03'''
-\set p4 '''00000000-0000-0000-0000-000000000c04'''
+\set p1 '''00000000-0000-0000-0000-000000013a01'''
+\set p2 '''00000000-0000-0000-0000-000000013a02'''
+\set p3 '''00000000-0000-0000-0000-000000013a03'''
+\set p4 '''00000000-0000-0000-0000-000000013a04'''
 insert into auth.users (id) values (:p1), (:p2), (:p3), (:p4);
 insert into public.profiles (id, name, adult_confirmed_at) values (:p1, 'Pia', now()), (:p2, 'Quin', now()), (:p3, 'Rae', now()), (:p4, 'Stranger', now());
 -- Pia and Quin are friends, Pia and Rae are friends but Rae blocked Pia, Stranger is nobody's friend.
@@ -36,6 +36,17 @@ select public.set_photo(null) \g /dev/null
 select public.expect(not (public.friend_photos() ? :p1), 'Pia can remove her photo');
 select set_config('request.jwt.claim.sub', :p3, false) \g /dev/null
 select public.expect(not (public.friend_photos() ? :p1), 'Rae, who blocked Pia, does not get her photo either');
+reset role;
+-- Women and non-binary only mode (0011, 0012): Quin turns it on, and Pia has not said she is a woman or non-binary.
+insert into private.safety (user_id, gender, women_only) values (:p2, 'woman', true);
+set role authenticated;
+select set_config('request.jwt.claim.sub', :p1, false) \g /dev/null
+select public.expect(not (public.friend_photos() ? :p2), 'a friend in women and non-binary only mode keeps her photo from people it leaves out');
+reset role;
+insert into private.safety (user_id, gender) values (:p1, 'nonbinary');
+set role authenticated;
+select set_config('request.jwt.claim.sub', :p1, false) \g /dev/null
+select public.expect(public.friend_photos() ? :p2, 'once Pia says she is non-binary, she sees it again');
 reset role;
 set role anon;
 select public.expect_error($$select public.friend_photos()$$, 'signed-out visitors cannot read photos');
