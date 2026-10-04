@@ -1067,7 +1067,7 @@
       (photos[me.id] && !ui.photoBusy ? '<button class="btn small-btn ghost" data-act="remove-photo">Remove</button>' : '') + '</div></div>';
 
     h += '<div class="card"><h2>Add a friend</h2>' + addFriendForm() +
-      '<p class="muted small">Not on Frenzy yet? Send them your invite link. When they sign up you get a friend request to accept.</p>' +
+      '<p class="muted small">Not on Frendzy yet? Send them your invite link. When they sign up you get a friend request to accept.</p>' +
       '<button class="btn ghost" data-act="share">Send your invite link</button>' + linkBox() + '</div>';
 
     if (DEALS_ON && D.staff_venues.length) {
