@@ -548,6 +548,27 @@ try {
   ok(await has(rex, "Private, you're invited"), 'and now Rex sees it');
   if (process.env.SHOTS) await pim.page.screenshot({ path: process.env.SHOTS + '/private-sesh.png' });
 
+  console.log('Planned sesh');
+  await tab(quin, 'Sesh');
+  await tap(quin, 'Plan a sesh for later');
+  ok(await has(quin, "When's it on?"), 'Quin opens the planner');
+  const tomorrow8 = await quin.page.evaluate(() => { const d = new Date(); d.setDate(d.getDate() + 1); const t = (n) => String(n).padStart(2, '0'); return d.getFullYear() + '-' + t(d.getMonth() + 1) + '-' + t(d.getDate()) + 'T20:00'; });
+  await quin.page.fill('#plan-at', tomorrow8);
+  if (process.env.SHOTS) await quin.page.screenshot({ path: process.env.SHOTS + '/plan-sesh.png' });
+  await tap(quin, 'Plan it');
+  ok(await has(quin, 'Tomorrow, 8:00 pm') && await has(quin, 'Start it now'), 'Quin plans a sesh for 8 pm tomorrow');
+  if (process.env.SHOTS) await quin.page.screenshot({ path: process.env.SHOTS + '/planned-sesh.png' });
+  await tab(pim, 'Sesh');
+  ok(await has(pim, "Quin's sesh") && await has(pim, 'Only you and the 2 friends you picked can see it'), 'Pim sees it under Planned, below his sesh tonight');
+  if (process.env.SHOTS) await pim.page.screenshot({ path: process.env.SHOTS + '/planned-list.png', fullPage: true });
+  await tap(pim, "I'm in");
+  await tap(pim, 'Open');
+  ok(await has(pim, "Can't make it") && await has(pim, '2 in'), 'says he is in, and opens it');
+  await tap(pim, 'All seshes');
+  ok(await has(pim, 'Only you and the 2 friends you picked can see it'), 'and goes back to his sesh tonight');
+  await tap(quin, 'Start it now');
+  ok(await has(quin, 'Live now') && await gone(quin, 'Start it now'), 'Quin starts it early and it goes live');
+
   ok(consoleErrors.length === 0, 'no script errors on any phone' + (consoleErrors.length ? ': ' + consoleErrors.join('; ') : ''));
   await ana.page.screenshot({ path: path.join(copy, 'ana.png') });
 } catch (e) {

@@ -275,7 +275,31 @@
   }
   function venueById(id) { return (D.venues || []).filter(function (v) { return v.id === id; })[0]; }
   function dealById(id) { return (D.deals || []).filter(function (d) { return d.id === id; })[0]; }
-  function mySesh() { return (D.seshes || []).filter(function (s) { return s.am_member; })[0] || null; }
+  // Planned seshes (migration 0025) start later. Until then they only show under "Planned", and never as tonight's sesh.
+  function isPlanned(s) { return !!(s && s.planned && new Date(s.starts_at).getTime() > now()); }
+  function liveSesh() { return (D.seshes || []).filter(function (s) { return s.am_member && !isPlanned(s); })[0] || null; }
+  // The sesh the Sesh tab shows: one opened from the Planned list, or else the one you're in tonight.
+  function mySesh() {
+    var open = ui.seshId && (D.seshes || []).filter(function (s) { return s.am_member && s.id === ui.seshId; })[0];
+    return open || liveSesh();
+  }
+  function plannedSeshes() {
+    return (D.seshes || []).filter(isPlanned).sort(function (a, b) { return new Date(a.starts_at) - new Date(b.starts_at); });
+  }
+  // "Tonight, 8 pm", "Tomorrow, 7:30 pm" or "Sat 10 Oct, 8 pm", in this phone's time.
+  function fmtWhen(iso) {
+    var d = new Date(iso), t = new Date(now()), day = 86400000;
+    if (isNaN(d)) return '';
+    var midnight = new Date(t.getFullYear(), t.getMonth(), t.getDate()).getTime(), diff = Math.floor((d.getTime() - midnight) / day);
+    var dayText = diff === 0 ? 'Today' : diff === 1 ? 'Tomorrow'
+      : ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getDay()] + ' ' + d.getDate() + ' ' + ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getMonth()];
+    return dayText + ', ' + fmtTime(iso);
+  }
+  // A datetime-local value ("2026-10-10T20:00") in this phone's time.
+  function localInput(ms) {
+    var d = new Date(ms), two = function (n) { return (n < 10 ? '0' : '') + n; };
+    return d.getFullYear() + '-' + two(d.getMonth() + 1) + '-' + two(d.getDate()) + 'T' + two(d.getHours()) + ':' + two(d.getMinutes());
+  }
   function inviteLink() { return location.origin + location.pathname + '?invite=' + D.me.invite_code; }
 
   // Whether this person still needs the third-party age check. An older database without it means "no".
@@ -651,7 +675,7 @@
           return '<div class="friend face' + (f.colour === 'off' ? ' away' : '') + '" style="--c:' + c + ';--h:' + hue(f.name) + '"><div class="face-pic">' + face(f.id, f.name) + '</div>' +
             '<div class="face-name">' + esc(first(f.name)) + '</div><div class="state" style="--c:' + (f.colour === 'off' ? 'var(--muted)' : COLORS[f.colour]) + '">' + LABELS[f.colour] + '</div></div>';
         }).join('') + '</div></section>';
-      var sesh = mySesh();
+      var sesh = liveSesh();
       if (s === 'on') h += '<button class="btn" data-act="go-sesh">' + (sesh ? 'Open tonight\'s sesh' : 'Start a sesh') + '</button>';
       else h += '<button class="btn" style="--c:var(--thinking);--cf:var(--ink)" data-act="tab" data-v="events">See what\'s on tonight</button>';
     }
@@ -1098,27 +1122,77 @@
     if (!list.length) {
       h += '<p class="muted">' + (p.mode === 'invite' ? 'All your friends are already invited.' : 'Add some friends first, then you can pick who comes.') + '</p>';
     } else {
-      h += '<div class="stack" style="gap:8px">' + list.map(function (f) {
-        var on = !!p.picked[f.id];
-        return '<button class="card pick-row' + (on ? ' picked' : '') + '" data-act="pick" data-v="' + esc(f.id) + '" aria-pressed="' + on + '">' +
-          avatar(f.name, COLORS[f.colour] || COLORS.off, false, f.id) +
-          '<span class="grow"><span style="font-weight:700">' + esc(f.name) + '</span><span class="muted small" style="display:block">' + esc(LABELS[f.colour] || 'Red') + '</span></span>' +
-          '<span class="pick-box">' + (on ? svg('tick', 18) : '') + '</span></button>';
-      }).join('') + '</div>' +
-      '<p class="muted small">Friends on red see it once they go green or amber.</p>';
+      h += pickRows(list, p.picked) + '<p class="muted small">Friends on red see it once they go green or amber.</p>';
     }
     h += '<button class="btn" data-act="picker-go"' + (n ? '' : ' disabled') + '>' +
       (p.mode === 'invite' ? (n ? 'Invite ' + n : 'Pick friends to invite') : (n ? 'Start private sesh with ' + n : 'Pick at least one friend')) + '</button>' +
       '<button class="btn ghost" data-act="picker-cancel">Cancel</button>';
     return h;
   }
+  function pickRows(list, picked) {
+    return '<div class="stack" style="gap:8px">' + list.map(function (f) {
+      var on = !!picked[f.id];
+      return '<button class="card pick-row' + (on ? ' picked' : '') + '" data-act="pick" data-v="' + esc(f.id) + '" aria-pressed="' + on + '">' +
+        avatar(f.name, COLORS[f.colour] || COLORS.off, false, f.id) +
+        '<span class="grow"><span style="font-weight:700">' + esc(f.name) + '</span><span class="muted small" style="display:block">' + esc(LABELS[f.colour] || 'Red') + '</span></span>' +
+        '<span class="pick-box">' + (on ? svg('tick', 18) : '') + '</span></button>';
+    }).join('') + '</div>';
+  }
+
+  // Planning a sesh for later (migration 0025): when, and for all friends or only the ones picked.
+  function planHtml() {
+    var p = ui.plan, n = Object.keys(p.picked).length, t = now();
+    var h = '<div class="stack" style="gap:6px"><div class="eyebrow">' + svg('clock', 14) + ' Plan a sesh</div><h1>When\'s it on?</h1>' +
+      '<p class="muted">Up to 2 weeks ahead. Friends can say they\'re in, vote on where to go and chat about it before it starts. It goes live at this time.</p></div>' +
+      '<div class="field"><label for="plan-at">Date and time</label><input id="plan-at" data-keep type="datetime-local" step="900" value="' + esc(p.at) + '"' +
+      ' min="' + localInput(t + 10 * 60000) + '" max="' + localInput(t + 14 * 86400000) + '"></div>' +
+      '<div class="stack" style="gap:8px"><h2>Who\'s it for?</h2><div class="row">' +
+      '<button class="btn small-btn' + (p.pick ? ' ghost' : '') + '" data-act="plan-who" data-v="all" aria-pressed="' + !p.pick + '">All my friends</button>' +
+      '<button class="btn small-btn' + (p.pick ? '' : ' ghost') + '" data-act="plan-who" data-v="pick" aria-pressed="' + !!p.pick + '">' + svg('lock', 14) + ' Pick friends</button></div>';
+    if (p.pick) {
+      h += D.friends.length ? '<p class="muted small">Only the friends you pick can see it and join. Friends on red see it once they go green or amber.</p>' + pickRows(D.friends, p.picked)
+        : '<p class="muted small">Add some friends first, then you can pick who comes.</p>';
+    } else {
+      h += '<p class="muted small">Your friends on green or amber can see it and join.</p>';
+    }
+    h += '</div><button class="btn" data-act="plan-go"' + (p.pick && !n ? ' disabled' : '') + '>' + (p.pick ? (n ? 'Plan it with ' + n : 'Pick at least one friend') : 'Plan it') + '</button>' +
+      '<button class="btn ghost" data-act="plan-cancel">Cancel</button>';
+    return h;
+  }
+  // The Planned list under the Sesh tab: seshes still to come that you're in or can join.
+  function plannedHtml(skipId) {
+    var list = plannedSeshes().filter(function (s) { return s.id !== skipId; });
+    var canPlan = D.me.colour !== 'off';
+    if (!list.length && !canPlan) return '';
+    var h = '<section class="stack" style="gap:10px;padding-top:18px;border-top:1px solid var(--line)"><h2>Planned</h2>';
+    h += list.map(function (s) {
+      return '<div class="card"><div class="row between"><div class="grow"><div class="eyebrow" style="color:var(--thinking)">' + esc(fmtWhen(s.starts_at)) + '</div>' +
+        '<div style="font-weight:700;font-size:17px">' + (s.mine ? 'Your sesh' : esc(first(s.creator_name)) + '\'s sesh') + '</div>' +
+        (s.private ? '<div class="small" style="color:var(--accent)">' + svg('lock', 12) + (s.mine ? ' Private' : ' Private, you\'re invited') + '</div>' : '') +
+        '<div class="muted small">' + s.members.length + ' in' + (s.locked_venue && venueById(s.locked_venue) ? ', going to ' + esc(venueById(s.locked_venue).name) : '') + '</div></div>' +
+        (s.am_member ? '<button class="btn small-btn ghost" data-act="open-sesh" data-v="' + esc(s.id) + '">Open</button>'
+          : '<button class="btn small-btn" data-act="join-planned" data-v="' + esc(s.id) + '">I\'m in</button>') + '</div></div>';
+    }).join('');
+    if (!list.length) h += '<p class="muted small">Nothing planned yet. Plan a sesh for later and your friends can say they\'re in.</p>';
+    if (canPlan) h += '<button class="btn ghost" data-act="plan-sesh">' + svg('clock', 16) + ' Plan a sesh for later</button>';
+    return h + '</section>';
+  }
+
   function sesh() {
     var me = D.me, mine = mySesh();
     if (ui.picker) return pickerHtml();
-    var h = (mine && mine.locked_venue && venueById(mine.locked_venue) ? '<div class="bleed">' + miniSlot('route', mine.locked_venue) + '</div>' : '') +
-      '<div class="stack" style="gap:6px"><div class="eyebrow" style="color:var(--on)">' + (mine ? 'Live now' : 'Tonight') + '</div><h1>Tonight\'s sesh</h1></div>';
+    if (ui.plan) return planHtml();
+    var later = isPlanned(mine), startMs = later ? new Date(mine.starts_at).getTime() : 0;
+    var h = later
+      ? '<button class="linkbtn" style="align-self:flex-start" data-act="sesh-back">' + svg('back', 16) + ' All seshes</button>' +
+        '<div class="stack" style="gap:6px"><div class="eyebrow" style="color:var(--thinking)">' + svg('clock', 14) + ' Planned' +
+        (startMs - now() < 86400000 ? ', starts in <span data-until="' + startMs + '">' + fmtLeft(startMs - now()) + '</span>' : '') + '</div>' +
+        '<h1>' + esc(fmtWhen(mine.starts_at)) + '</h1><p class="muted small">' + (mine.mine ? 'Your sesh' : esc(first(mine.creator_name)) + '\'s sesh') +
+        '. It goes live at this time and is deleted 8 hours after, with the votes and chat.</p></div>'
+      : (mine && mine.locked_venue && venueById(mine.locked_venue) ? '<div class="bleed">' + miniSlot('route', mine.locked_venue) + '</div>' : '') +
+        '<div class="stack" style="gap:6px"><div class="eyebrow" style="color:var(--on)">' + (mine ? 'Live now' : 'Tonight') + '</div><h1>Tonight\'s sesh</h1></div>';
     if (!mine) {
-      var others = D.seshes.filter(function (s) { return !s.am_member; });
+      var others = D.seshes.filter(function (s) { return !s.am_member && !isPlanned(s); });
       if (others.length) {
         h += '<div class="stack">' + others.map(function (s) {
           return '<div class="card"><div class="row between"><div class="grow"><div style="font-weight:700;font-size:17px">' + esc(first(s.creator_name)) + '\'s sesh</div>' +
@@ -1136,7 +1210,7 @@
       } else {
         h += '<p class="muted">You\'re red, so seshes are hidden. Go green to start one or see your friends\' plans.</p><button class="btn" style="--c:var(--on);--cf:var(--ink)" data-act="status" data-v="on">Go green</button>';
       }
-      return h;
+      return h + plannedHtml();
     }
 
     h += '<div class="card"><div class="avatars">' + mine.members.map(function (m) { return avatar(m.name || '?', 'var(--on)', false, m.id); }).join('') + '</div>' +
@@ -1178,10 +1252,16 @@
       }
     }
     h += chatHtml(mine);
+    if (later) {
+      h += mine.mine
+        ? '<button class="btn" data-act="start-planned">Start it now</button><button class="btn ghost" data-act="end-sesh">Cancel the sesh</button>'
+        : '<button class="btn ghost" data-act="leave-sesh">Can\'t make it</button>';
+      return h;
+    }
     h += mine.mine
       ? '<button class="btn ghost" data-act="end-sesh">End the sesh</button>'
       : '<button class="btn ghost" data-act="leave-sesh">Leave the sesh</button>';
-    return h;
+    return h + plannedHtml(mine.id);
   }
 
   function dealLabel(d) {
@@ -1249,7 +1329,7 @@
         return '<button class="chip" data-act="tag" data-v="' + t + '" aria-pressed="' + (ven.my_tags.indexOf(t) >= 0) + '">' + t + '</button>';
       }).join('') + '</div></div>';
     var mine = mySesh();
-    if (mine && !mine.locked_venue) h += '<button class="btn" data-act="suggest" data-v="' + esc(id) + '">Vote for this in tonight\'s sesh</button>';
+    if (mine && !mine.locked_venue) h += '<button class="btn" data-act="suggest" data-v="' + esc(id) + '">Vote for this in ' + (isPlanned(mine) ? 'your planned sesh' : 'tonight\'s sesh') + '</button>';
     return h;
   }
   // The week's hours on a venue page, and for staff at that venue, a box to change them.
@@ -1491,7 +1571,8 @@
 
   var ACT = {
     tab: function (v) {
-      ui.tab = v; ui.screen = null; ui.confirm = null; ui.staffError = ''; ui.picker = null; go(true);
+      if (v === 'sesh' && ui.tab === 'sesh' && !ui.screen) ui.seshId = null;   // tapping Sesh again goes back from a planned sesh
+      ui.tab = v; ui.screen = null; ui.confirm = null; ui.staffError = ''; ui.picker = null; ui.plan = null; go(true);
       if (v === 'map' || v === 'venues') freshVenues(5 * 60000);
       if (v === 'map' && Date.now() - buzzAt > 60000) loadBuzz();
       if (v === 'map' || v === 'sesh' || v === 'events') loadPins().then(function () { if (ui.tab === v && !ui.screen) { if (M.map) M.fit = true; render(); } });
@@ -1520,15 +1601,41 @@
       act('set_status', { new_colour: v }, { on: 'You\'re green. Friends who are around can see it.', thinking: 'You\'re amber.', off: 'You\'re red. You\'re hidden.' }[v]);
     },
     'go-sesh': function () {
-      if (mySesh()) { ui.tab = 'sesh'; go(true); return; }
+      ui.seshId = null;
+      if (liveSesh()) { ui.tab = 'sesh'; go(true); return; }
       ACT['start-sesh']();
     },
     'private-sesh': function () { ui.picker = { mode: 'start', picked: {} }; go(true); },
     'invite-more': function () { ui.picker = { mode: 'invite', picked: {} }; go(true); },
     pick: function (id) {
-      if (!ui.picker) return;
-      if (ui.picker.picked[id]) delete ui.picker.picked[id]; else ui.picker.picked[id] = true;
+      var p = ui.picker || ui.plan;
+      if (!p) return;
+      if (p.picked[id]) delete p.picked[id]; else p.picked[id] = true;
       go(false);
+    },
+    'plan-sesh': function () {   // starts at the next half hour, at least an hour from now
+      var t = new Date(now() + 3600000); t.setMinutes(t.getMinutes() < 30 ? 30 : 60, 0, 0);
+      ui.plan = { at: localInput(t.getTime()), pick: false, picked: {} }; go(true);
+    },
+    'plan-who': function (v) { if (ui.plan) { ui.plan.pick = v === 'pick'; go(false); } },
+    'plan-cancel': function () { ui.plan = null; go(true); },
+    'plan-go': function () {
+      var p = ui.plan, el = document.getElementById('plan-at'), ids = p ? Object.keys(p.picked) : [];
+      if (!p || !el) return;
+      var at = new Date(el.value);
+      if (!el.value || isNaN(at)) { toast('Pick a date and time.'); return; }
+      if (p.pick && !ids.length) return;
+      act('plan_sesh', { p_at: at.toISOString(), p_friends: p.pick ? ids : null },
+        p.pick ? 'Planned. Only the friends you picked can see it.' : 'Planned. Your friends can see it and say they\'re in.').then(function (r) {
+        if (r) { ui.plan = null; ui.seshId = r.id; ui.tab = 'sesh'; go(true); }
+      });
+    },
+    'open-sesh': function (v) { ui.seshId = v; go(true); },
+    'sesh-back': function () { ui.seshId = null; go(true); },
+    'join-planned': function (v) { act('join_sesh', { p_sesh: v }, 'You\'re in. It goes live at the planned time.'); },
+    'start-planned': function () {
+      var s = mySesh(); if (!s) return;
+      act('start_planned_sesh', { p_sesh: s.id }, 'Sesh started. It\'s live now.').then(function (r) { if (r) { ui.seshId = null; go(true); } });
     },
     'picker-cancel': function () { ui.picker = null; go(true); },
     'picker-go': function () {
@@ -1540,8 +1647,8 @@
     },
     'start-sesh': function () { act('start_sesh', {}, 'Sesh started. Friends who are around can join.').then(function () { ui.tab = 'sesh'; go(true); }); },
     join: function (v) { act('join_sesh', { p_sesh: v }, 'You\'re in.'); },
-    'leave-sesh': function () { var s = mySesh(); if (s) act('leave_sesh', { p_sesh: s.id }); },
-    'end-sesh': function () { var s = mySesh(); if (s) act('end_sesh', { p_sesh: s.id }, 'Sesh ended.'); },
+    'leave-sesh': function () { var s = mySesh(); if (s) { ui.seshId = null; act('leave_sesh', { p_sesh: s.id }); } },
+    'end-sesh': function () { var s = mySesh(); if (s) { ui.seshId = null; act('end_sesh', { p_sesh: s.id }, isPlanned(s) ? 'Planned sesh cancelled.' : 'Sesh ended.'); } },
     vote: function (v) {
       var s = mySesh(); if (!s) return;
       var mine = (s.votes.filter(function (x) { return x.user_id === D.me.id; })[0] || {}).venue_id;
