@@ -56,6 +56,7 @@ async function phone(name) {
 const text = (p) => p.page.locator('body').innerText();
 const has = async (p, s, t = 4000) => { try { await p.page.waitForFunction((x) => document.body.innerText.toLowerCase().includes(x.toLowerCase()), s, { timeout: t }); return true; } catch { return false; } };
 const gone = async (p, s, t = 4000) => { try { await p.page.waitForFunction((x) => !document.body.innerText.toLowerCase().includes(x.toLowerCase()), s, { timeout: t }); return true; } catch { return false; } };
+const lastEmail = () => fetch('http://127.0.0.1:54330/__fake/last-email', { method: 'POST', headers: { apikey: 'test-anon-key' } }).then((r) => r.json());
 const tap = (p, label) => p.page.getByRole('button', { name: label, exact: true }).first().click();
 async function signUp(p, name, link) {
   await p.page.goto(`http://127.0.0.1:${WEB_PORT}/${link || ''}`);
@@ -368,11 +369,19 @@ try {
   await fay.page.fill('#save-user', 'x'); await fay.page.fill('#save-pass', 'longenough1'); await tap(fay, 'Save my account');
   ok(await has(fay, '3 to 20 letters'), 'a bad username is explained');
   await fay.page.fill('#save-user', 'Fay_99'); await tap(fay, 'Save my account');
-  ok(await has(fay, 'Save your recovery code'), 'saving shows a recovery code');
+  ok(await has(fay, 'Enter your email address'), 'an email is needed for login codes');
+  await fay.page.fill('#save-email', 'Fay@Example.com'); await tap(fay, 'Save my account');
+  ok(await has(fay, 'Confirm your email') && await has(fay, 'f•••@example.com'), 'saving sends a code to confirm the email, and only a hint of it is shown');
+  ok((await lastEmail()).email === 'fay@example.com', 'the code goes to Fay\'s email');
+  await fay.page.fill('#ec-code', '00000'); await tap(fay, 'Confirm email');
+  ok(await has(fay, '6-digit code'), 'a short code is explained');
+  await fay.page.fill('#ec-code', (await lastEmail()).code); await tap(fay, 'Confirm email');
+  ok(await has(fay, 'Save your recovery code'), 'after confirming the email, saving shows a recovery code');
   const code1 = (await fay.page.locator('#recovery-code').innerText()).trim();
   ok(/^[A-Z2-9]{4}(-[A-Z2-9]{4}){3}$/.test(code1), 'the recovery code looks like XXXX-XXXX-XXXX-XXXX');
   await tap(fay, "I've saved it");
   ok(await has(fay, 'logged in as fay_99'), 'Fay sees her username');
+  ok(await has(fay, 'need a code sent to f•••@example.com'), 'and that new logins need an email code');
   const fay2 = await phone('Fay on a new phone');
   await fay2.page.goto(`http://127.0.0.1:${WEB_PORT}/`);
   await tap(fay2, 'I already have an account');
@@ -380,7 +389,20 @@ try {
   await tap(fay2, 'Log in');
   ok(await has(fay2, "don't match"), 'a wrong password is turned away');
   await fay2.page.fill('#login-pass', 'longenough1'); await tap(fay2, 'Log in');
-  ok(await has(fay2, 'Your status'), 'Fay logs in on a new phone with her username and password');
+  ok(await has(fay2, 'Check your email') && await has(fay2, 'sent a 6-digit code to f•••@example.com'), 'the right password then asks for a code from her email');
+  await fay2.page.reload();
+  ok(await has(fay2, 'Check your email') && !(await has(fay2, 'Your status', 800)), 'reloading the page does not skip the code');
+  ok(await fay2.page.evaluate(async () => {   // and the database itself refuses this login until the code is typed
+    const s = JSON.parse(localStorage.getItem('seshhon-session-v1'));
+    const r = await fetch('http://127.0.0.1:54330/rest/v1/rpc/api_state', { method: 'POST', headers: { apikey: 'test-anon-key', Authorization: 'Bearer ' + s.access_token, 'Content-Type': 'application/json' }, body: '{}' });
+    return !r.ok;
+  }), 'the database gives nothing to a login still waiting for its code');
+  await fay2.page.waitForTimeout(500);
+  const loginCode = (await lastEmail()).code;
+  await fay2.page.fill('#ts-code', loginCode === '123456' ? '654321' : '123456'); await tap(fay2, 'Log in');
+  ok(await has(fay2, "isn't right"), 'a wrong code is turned away');
+  await fay2.page.fill('#ts-code', loginCode); await tap(fay2, 'Log in');
+  ok(await has(fay2, 'Your status'), 'Fay logs in on a new phone with her password and the emailed code');
   await tab(fay2, 'You');
   ok(await has(fay2, 'logged in as fay_99'), 'and it is the same account');
   await tap(fay2, 'Log out');
@@ -396,7 +418,7 @@ try {
   await tap(fay2, "I've saved it");
   ok(await fay2.page.locator('#login-user').inputValue() === 'fay_99', 'then the log-in form has the username filled in');
   await fay2.page.fill('#login-pass', 'brandnewpass'); await tap(fay2, 'Log in');
-  ok(await has(fay2, 'Your status'), 'and the new password works');
+  ok(await has(fay2, 'Your status'), 'and the new password works, without an email code straight after a recovery');
 
   console.log('Profile photos');
   const pim = await phone('Pim'), quin = await phone('Quin');
