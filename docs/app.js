@@ -11,6 +11,8 @@
   var CAPTCHA_KEY = String(CFG.captchaSiteKey || '');   // Cloudflare Turnstile site key; when set, sign-up asks for a quick human check   // deals are switched off for now; set deals: true in config.js to bring them back
   var SESSION_KEY = 'seshhon-session-v1';
   var INVITE_KEY = 'seshhon-pending-invite';
+  var DEVICE_KEY = 'seshhon-remembered-phone';   // per account: the secret that lets this phone skip the email code (migration 0023)
+  var LAST_USER_KEY = 'seshhon-last-username';   // filled in on the login screen next time
   var UNDERAGE_KEY = 'seshhon-under-18';
   var SIGNUP_KEY = 'seshhon-signup-waiting';   // name and date of birth, kept in this tab only while the age check runs
   var PROVIDER_NAMES = { yoti: 'Yoti', didit: 'Didit' };
@@ -63,7 +65,8 @@
     session = {
       access_token: body.access_token,
       refresh_token: body.refresh_token,
-      expires_at: body.expires_at || Math.floor(Date.now() / 1000) + (body.expires_in || 3600)
+      expires_at: body.expires_at || Math.floor(Date.now() / 1000) + (body.expires_in || 3600),
+      user_id: (body.user && body.user.id) || (session && session.user_id) || null
     };
     store(SESSION_KEY, session);
   }
@@ -333,11 +336,35 @@
       if (e) { e.textContent = x.message; e.hidden = false; }
     });
   }
+  // Remembered phones (migration 0023): after the email code, this phone keeps a secret for that account,
+  // and its next logins skip the code for 30 days. The password is still needed.
+  function rememberedPhones() { var all = store(DEVICE_KEY); return all && typeof all === 'object' ? all : {}; }
+  function forgetPhone(userId) { var all = rememberedPhones(); delete all[userId]; store(DEVICE_KEY, all); }
+  function rememberPhone() {
+    var uid = session && session.user_id;
+    if (!uid) return Promise.resolve();
+    return rpc('two_step_remember_device').then(function (token) {
+      var all = rememberedPhones();
+      if (token) all[uid] = token; else delete all[uid];
+      store(DEVICE_KEY, all);
+    }, function () {});   // an older database without 0023: the code is just asked for next time
+  }
+  function useRememberedPhone() {
+    var uid = session && session.user_id, token = uid && rememberedPhones()[uid];
+    if (!token) return Promise.resolve(false);
+    return rpc('two_step_use_device', { p_token: token }).then(function (ok) {
+      if (!ok) { forgetPhone(uid); return false; }
+      return refreshSession().then(function () { return true; });   // a fresh sign-in token, now with full access
+    }, function () { return false; });
+  }
   function load(quiet) {
     if (session && ui.twoStep === undefined) {
       return loadTwoStep().then(function () {
         if (!ui.twoStep.needed) return load(quiet);
-        ui.booted = true; render(); return sendLoginCode();
+        return useRememberedPhone().then(function (skipped) {
+          if (skipped) { ui.twoStep = { needed: false }; return load(quiet); }
+          ui.booted = true; render(); return sendLoginCode();
+        });
       });
     }
     if (session && ui.twoStep.needed) { render(); return Promise.resolve(); }
@@ -427,6 +454,7 @@
     tick: '<path d="M4.5 12.5l5 5L19.5 7"/>',
     query: '<path d="M8.5 8.5a3.5 3.5 0 1 1 5.2 3c-1.1.7-1.7 1.4-1.7 2.7v.6"/><circle cx="12" cy="19" r=".6"/>',
     cross: '<path d="M6 6l12 12"/><path d="M18 6L6 18"/>',
+    eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
     star: '<path d="M12 3l2.7 5.6 6.1.8-4.5 4.3 1.1 6.1L12 16.9 6.6 19.8l1.1-6.1L3.2 9.4l6.1-.8z"/>'
   };
   function svg(name, size) {
@@ -489,7 +517,7 @@
       '<div class="field"><label for="name">Your first name</label><input id="name" type="text" autocomplete="given-name" maxlength="24"></div>' +
       '<div class="field"><label for="dob">Date of birth</label><input id="dob" type="date" autocomplete="bday" min="1900-01-01"><span class="muted small">Frendzy is for people aged 18 and over. We only use this to check your age and do not keep it.</span></div>' +
       '<div class="field"><label for="join-user">Pick a username</label><input id="join-user" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="20"><span class="muted small">3 to 20 letters, numbers or _. Friends add you with it.</span></div>' +
-      '<div class="field"><label for="join-pass">Make a password</label><input id="join-pass" type="password" autocomplete="new-password" maxlength="72"><span class="muted small">At least 10 characters. You use it to log in on another phone.</span></div>' +
+      '<div class="field"><label for="join-pass">Make a password</label>' + passwordInput('join-pass', 'new-password') + '<span class="muted small">At least 10 characters. You use it to log in on another phone.</span></div>' +
       '<div class="field"><label for="join-email">Your email</label><input id="join-email" type="email" autocomplete="email" autocapitalize="none" spellcheck="false" maxlength="254"><span class="muted small">We email you a code to confirm it, and again whenever you log in on a new phone. Nobody else ever sees it.</span></div>' +
       (CAPTCHA_KEY ? '<div id="captcha"></div>' : '') +
       '<p id="join-error" class="error" hidden></p>' +
@@ -497,11 +525,16 @@
       '<p class="muted small">By continuing you agree to the <a href="terms.html">Terms</a> and <a href="privacy.html">Privacy Policy</a>.</p>' +
       '</form><button class="btn ghost" data-act="auth" data-v="login">I already have an account</button></div>';
   }
+  // A password box with an eye button that shows what was typed, so typos are easy to spot.
+  function passwordInput(id, autocomplete, keep) {
+    return '<div class="pw"><input id="' + id + '"' + (keep ? ' data-keep' : '') + ' type="password" autocomplete="' + autocomplete + '" maxlength="72">' +
+      '<button type="button" class="peek" data-act="peek" data-v="' + id + '" aria-label="Show password" aria-pressed="false">' + svg('eye', 20) + '</button></div>';
+  }
   function loginScreen() {
     return '<div class="stack" style="gap:24px;margin-block:auto">' + logo() + '<h1>Log in</h1>' +
       '<form id="login" class="stack" style="gap:16px" novalidate>' +
-      '<div class="field"><label for="login-user">Username</label><input id="login-user" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="20" value="' + esc(ui.loginName || '') + '"></div>' +
-      '<div class="field"><label for="login-pass">Password</label><input id="login-pass" type="password" autocomplete="current-password" maxlength="72"></div>' +
+      '<div class="field"><label for="login-user">Username</label><input id="login-user" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="20" value="' + esc(ui.loginName || store(LAST_USER_KEY) || '') + '"></div>' +
+      '<div class="field"><label for="login-pass">Password</label>' + passwordInput('login-pass', 'current-password') + '</div>' +
       (CAPTCHA_KEY ? '<div id="captcha"></div>' : '') +
       '<p id="login-error" class="error" hidden></p>' +
       '<button class="btn" type="submit" id="login-btn">Log in</button></form>' +
@@ -514,6 +547,7 @@
       '<p class="muted" id="ts-note">' + (ui.twoStep && ui.twoStep.hint ? 'We sent a 6-digit code to ' + esc(ui.twoStep.hint) + '.' : '') + '</p>' +
       '<form id="two-step" class="stack" style="gap:16px" novalidate>' +
       '<div class="field"><label for="ts-code">Code from the email</label><input id="ts-code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="7" spellcheck="false"></div>' +
+      '<label class="check"><input id="ts-remember" type="checkbox" checked> Remember this phone for 30 days</label>' +
       '<p id="ts-error" class="error" hidden></p>' +
       '<button class="btn" type="submit" id="ts-btn">Log in</button></form>' +
       '<button class="btn ghost" data-act="ts-resend">Send a new code</button>' +
@@ -551,7 +585,7 @@
       '<form id="recover" class="stack" style="gap:16px" novalidate>' +
       '<div class="field"><label for="rec-user">Username</label><input id="rec-user" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="20" value="' + esc(ui.loginName || '') + '"></div>' +
       '<div class="field"><label for="rec-code">Recovery code</label><input id="rec-code" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="24" placeholder="XXXX-XXXX-XXXX-XXXX"></div>' +
-      '<div class="field"><label for="rec-pass">New password</label><input id="rec-pass" type="password" autocomplete="new-password" maxlength="72"><span class="muted small">At least 10 characters.</span></div>' +
+      '<div class="field"><label for="rec-pass">New password</label>' + passwordInput('rec-pass', 'new-password') + '<span class="muted small">At least 10 characters.</span></div>' +
       (CAPTCHA_KEY && !session ? '<div id="captcha"></div>' : '') +
       '<p id="rec-error" class="error" hidden></p>' +
       '<button class="btn" type="submit" id="rec-btn">Set new password</button></form>' +
@@ -569,7 +603,7 @@
   function saveForm(username, askEmail) {
     return '<form id="save-account" class="stack" style="gap:12px" novalidate>' +
       '<div class="field"><label for="save-user">Username</label><input id="save-user" data-keep type="text" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="20" value="' + esc(username || '') + '"><span class="muted small">3 to 20 letters, numbers or _. Friends who know it can add you.</span></div>' +
-      '<div class="field"><label for="save-pass">' + (username ? 'New password' : 'Password') + '</label><input id="save-pass" data-keep type="password" autocomplete="new-password" maxlength="72"><span class="muted small">At least 10 characters.</span></div>' +
+      '<div class="field"><label for="save-pass">' + (username ? 'New password' : 'Password') + '</label>' + passwordInput('save-pass', 'new-password', true) + '<span class="muted small">At least 10 characters.</span></div>' +
       (askEmail ? emailField('Email') : '') +
       '<p id="save-error" class="error" hidden></p>' +
       '<button class="btn" type="submit" id="save-btn">' + (username ? 'Save and get a new recovery code' : 'Save my account') + '</button></form>';
@@ -1527,6 +1561,14 @@
     auth: function (v) { ui.auth = v || null; view.innerHTML = ''; render(); },
     'edit-account': function () { ui.editAccount = !ui.editAccount; go(false); },
     'ts-resend': function () { sendLoginCode(); },
+    peek: function (id) {
+      var input = document.getElementById(id), btn = input && input.parentNode.querySelector('.peek');
+      if (!input) return;
+      var show = input.type === 'password';
+      input.type = show ? 'text' : 'password';
+      btn.setAttribute('aria-pressed', String(show)); btn.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+      input.focus();
+    },
     'ts-recover': function () {
       session = null; store(SESSION_KEY, null); D = null; ui.twoStep = undefined; ui.auth = 'recover';
       view.innerHTML = ''; render();
@@ -1548,7 +1590,10 @@
       view.innerHTML = ''; render(); toast('Logged out. Log in again with your username and password.');
     },
     'delete-account': function () {
+      var goneId = session && session.user_id;
       act('delete_account', {}).then(function () {
+        if (goneId) forgetPhone(goneId);
+        store(LAST_USER_KEY, null);
         session = null; store(SESSION_KEY, null); D = null; VENUES = null; venuesAsked = false; seen = null; ui.confirm = null; ui.tab = 'home'; ui.screen = null; ui.account = undefined; ui.safety = undefined; ui.age = null; ui.twoStep = undefined; ui.emailStep = null;
         view.innerHTML = ''; render(); toast('Your account has been deleted.');
       });
@@ -1669,6 +1714,7 @@
     if (!l) return Promise.resolve();
     return rpc('save_account', { p_username: l.username, p_password: l.password }).then(function (r) {
       ui.newCode = { code: r.recovery_code, username: r.username, after: 'home' };   // load() then reads the account
+      store(LAST_USER_KEY, r.username);
       // Then a code to confirm the email. The account is saved either way; the email can be added later on the You page.
       if (l.email) return emailCode('setup', { email: l.email }).then(function (sent) { ui.emailStep = { email: l.email, hint: sent.hint }; }, function (x) { toast(x.message); });
     }, function (e) { ui.tab = 'you'; toast(e.message + ' Pick another username below.'); });
@@ -1746,6 +1792,7 @@
       if (CAPTCHA_KEY && !captchaToken) return lfail('Wait a moment for the check above to finish, then try again.');
       lbtn.disabled = true; lerr.hidden = true;
       signInWithPassword(lu, lp, useCaptcha()).then(function () {
+        store(LAST_USER_KEY, lu.toLowerCase());
         // Straight after a recovery code, this login doesn't need the email code.
         var ticket = ui.ticket; ui.ticket = null;
         return ticket ? rpc('two_step_use_ticket', { p_ticket: ticket }).then(function (ok) { if (ok) return refreshSession(); }, function () {}) : null;
@@ -1783,11 +1830,15 @@
       var terr = document.getElementById('ts-error'), tbtn = document.getElementById('ts-btn');
       var tfail = function (msg) { terr.textContent = msg; terr.hidden = false; tbtn.disabled = false; };
       if (tc.length !== 6) return tfail('Enter the 6-digit code from the email.');
+      var keepPhone = document.getElementById('ts-remember').checked;
       tbtn.disabled = true; terr.hidden = true;
       rpc('two_step_check', { p_code: tc }).then(function (r) {
         if (!r || !r.ok) return tfail((r && r.message) || 'That didn\'t work. Try again.');
         // A fresh sign-in token, now with full access.
         return refreshSession().then(function () {
+          if (keepPhone) return rememberPhone();
+          if (session && session.user_id) forgetPhone(session.user_id);
+        }).then(function () {
           ui.twoStep = { needed: false }; document.activeElement && document.activeElement.blur(); view.innerHTML = '';
           return load().then(function () { if (D && D.me) return sendPendingInvite(); });
         });
@@ -1806,6 +1857,7 @@
         ui.emailStep = null; toast('Email confirmed. New logins will ask for a code from it.');
         document.activeElement && document.activeElement.blur(); render();
         emailRecovery();
+        rememberPhone();   // the phone that confirmed the email doesn't need a code at its next login
       }).catch(function (x) { efail(x.message); });
       return;
     }
@@ -1821,7 +1873,7 @@
       sbtn.disabled = true; serr.hidden = true;
       (adding ? Promise.resolve(null) : rpc('save_account', { p_username: su, p_password: sp })).then(function (r) {
         if (r) {
-          ui.account = { username: r.username }; ui.editAccount = false;
+          ui.account = { username: r.username }; ui.editAccount = false; store(LAST_USER_KEY, r.username);
           ui.newCode = { code: r.recovery_code, username: r.username, after: 'you' };
         }
         if (!em) return;
