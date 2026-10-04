@@ -162,7 +162,7 @@
         if (!res.ok && json && json.code === 'PGRST202') {
           // The database is missing a function this page calls: an update in supabase/ has not been run yet.
           console.error('Frendzy database is out of date. Run supabase/update.sql in the Supabase SQL editor.', json.message);
-          throw new Error('Frendzy is being updated. Try again soon.');
+          var old = new Error('Frendzy is being updated. Try again soon.'); old.missing = true; throw old;
         }
         if (!res.ok) throw new Error((json && json.message) || 'Something went wrong. Try again.');
         return json;
@@ -187,6 +187,25 @@
         var json = null;
         try { json = text ? JSON.parse(text) : null; } catch (e) {}
         if (!res.ok) throw new Error((json && json.message) || 'The age check is not working right now. Try again soon.');
+        return json;
+      });
+    });
+  }
+  // Login codes are emailed by the email-code Edge Function, which holds the email service key.
+  function emailCode(action, extra) {
+    var body = { action: action };
+    for (var k in extra || {}) body[k] = extra[k];
+    var ready = session && session.expires_at - Date.now() / 1000 < 60 ? refreshSession() : Promise.resolve();
+    return ready.then(function () {
+      if (!session) throw new Error('You have been signed out.');
+      return fetch(API_URL + '/functions/v1/email-code', {
+        method: 'POST',
+        headers: { apikey: API_KEY, Authorization: 'Bearer ' + session.access_token, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+    }).then(function (res) {
+      return res.json().catch(function () { return null; }).then(function (json) {
+        if (!res.ok) throw new Error((json && json.message) || 'The email could not be sent. Try again soon.');
         return json;
       });
     });
@@ -225,7 +244,7 @@
   var D = null;            // the latest answer from api_state()
   var lastKey = '';        // used to skip redraws when nothing changed
   var clockOffset = 0;     // server time minus this phone's time
-  var ui = { messages: [], tab: 'home', screen: null, confirm: null, staffError: '', offline: false, booted: false, linkShown: false, age: null, ageNote: '', ageBusy: false, auth: null, account: undefined, newCode: null, editAccount: false };
+  var ui = { messages: [], tab: 'home', screen: null, confirm: null, staffError: '', offline: false, booted: false, linkShown: false, age: null, ageNote: '', ageBusy: false, auth: null, account: undefined, newCode: null, editAccount: false, twoStep: undefined, emailStep: null };
   ui.radiusKm = Math.min(25, Math.max(1, Number(store(RADIUS_KEY)) || 5));
   var seen = null;         // friend id -> colour at the last look, for "just went on" notices
   var acting = false;
@@ -297,7 +316,31 @@
     if (VENUES && Date.now() - venuesAt < maxAgeMs) return Promise.resolve();
     return loadVenues().then(function () { render(); });
   }
+  // Whether this login still needs its email code (migration 0018). An older database without it means "no".
+  function loadTwoStep() {
+    return rpc('two_step_state').then(function (t) { ui.twoStep = t || { needed: false }; }, function () { ui.twoStep = { needed: false, off: true }; });
+  }
+  function sendLoginCode() {
+    var note = document.getElementById('ts-note'), err = document.getElementById('ts-error');
+    if (note) note.textContent = 'Sending a code...';
+    if (err) err.hidden = true;
+    return emailCode('login').then(function (r) {
+      var n = document.getElementById('ts-note');
+      if (n) n.textContent = 'We sent a 6-digit code to ' + r.hint + '. It works for 10 minutes.';
+    }, function (x) {
+      var n = document.getElementById('ts-note'), e = document.getElementById('ts-error');
+      if (n) n.textContent = '';
+      if (e) { e.textContent = x.message; e.hidden = false; }
+    });
+  }
   function load(quiet) {
+    if (session && ui.twoStep === undefined) {
+      return loadTwoStep().then(function () {
+        if (!ui.twoStep.needed) return load(quiet);
+        ui.booted = true; render(); return sendLoginCode();
+      });
+    }
+    if (session && ui.twoStep.needed) { render(); return Promise.resolve(); }
     return (session && !ui.age ? loadAge() : Promise.resolve()).then(function () { return rpc('api_state'); }).then(function (data) {
       if (data && data.me && ui.account === undefined) return Promise.all([loadAccount(), loadSafety()]).then(function () { return data; });
       return data;
@@ -445,10 +488,13 @@
       '<form id="join" class="stack" style="gap:16px" novalidate>' +
       '<div class="field"><label for="name">Your first name</label><input id="name" type="text" autocomplete="given-name" maxlength="24"></div>' +
       '<div class="field"><label for="dob">Date of birth</label><input id="dob" type="date" autocomplete="bday" min="1900-01-01"><span class="muted small">Frendzy is for people aged 18 and over. We only use this to check your age and do not keep it.</span></div>' +
+      '<div class="field"><label for="join-user">Pick a username</label><input id="join-user" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="20"><span class="muted small">3 to 20 letters, numbers or _. Friends add you with it.</span></div>' +
+      '<div class="field"><label for="join-pass">Make a password</label><input id="join-pass" type="password" autocomplete="new-password" maxlength="72"><span class="muted small">At least 10 characters. You use it to log in on another phone.</span></div>' +
+      '<div class="field"><label for="join-email">Your email</label><input id="join-email" type="email" autocomplete="email" autocapitalize="none" spellcheck="false" maxlength="254"><span class="muted small">We email you a code to confirm it, and again whenever you log in on a new phone. Nobody else ever sees it.</span></div>' +
       (CAPTCHA_KEY ? '<div id="captcha"></div>' : '') +
       '<p id="join-error" class="error" hidden></p>' +
       '<button class="btn" type="submit" id="join-btn">Get started</button>' +
-      '<p class="muted small">By continuing you agree to the <a href="terms.html">Terms</a> and <a href="privacy.html">Privacy Policy</a>. Your account lives in this browser until you add a username and password.</p>' +
+      '<p class="muted small">By continuing you agree to the <a href="terms.html">Terms</a> and <a href="privacy.html">Privacy Policy</a>.</p>' +
       '</form><button class="btn ghost" data-act="auth" data-v="login">I already have an account</button></div>';
   }
   function loginScreen() {
@@ -462,6 +508,32 @@
       '<button class="btn ghost" data-act="auth" data-v="recover">Forgot your password?</button>' +
       '<button class="btn ghost" data-act="auth" data-v="">Back</button></div>';
   }
+  // After the password, a login on an account with email codes waits here for the code.
+  function twoStepScreen() {
+    return '<div class="stack" style="gap:24px;margin-block:auto" id="two-step-screen">' + logo() + '<h1>Check your email</h1>' +
+      '<p class="muted" id="ts-note">' + (ui.twoStep && ui.twoStep.hint ? 'We sent a 6-digit code to ' + esc(ui.twoStep.hint) + '.' : '') + '</p>' +
+      '<form id="two-step" class="stack" style="gap:16px" novalidate>' +
+      '<div class="field"><label for="ts-code">Code from the email</label><input id="ts-code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="7" spellcheck="false"></div>' +
+      '<p id="ts-error" class="error" hidden></p>' +
+      '<button class="btn" type="submit" id="ts-btn">Log in</button></form>' +
+      '<button class="btn ghost" data-act="ts-resend">Send a new code</button>' +
+      '<button class="btn ghost" data-act="ts-recover">Can\'t get the email? Use your recovery code</button>' +
+      '<button class="btn ghost" data-act="logout">Cancel</button></div>';
+  }
+  // Confirming the login email, right after saving a username and password (or adding an email later).
+  function emailCard() {
+    return '<div class="stack" style="gap:12px"><h2>Confirm your email</h2>' +
+      '<p class="muted small">We sent a 6-digit code to <strong>' + esc(ui.emailStep.hint) + '</strong>. Once it\'s confirmed, every new login asks for a code from this email as well as your password.</p>' +
+      '<form id="email-confirm" class="stack" style="gap:12px" novalidate>' +
+      '<div class="field"><label for="ec-code">Code from the email</label><input id="ec-code" data-keep type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="7" spellcheck="false"></div>' +
+      '<p id="ec-error" class="error" hidden></p>' +
+      '<button class="btn" type="submit" id="ec-btn">Confirm email</button></form>' +
+      '<div class="row"><button class="btn small-btn ghost" data-act="email-resend">Send again</button><button class="btn small-btn ghost" data-act="email-skip">Later</button></div></div>';
+  }
+  function emailField(label) {
+    return '<div class="field"><label for="save-email">' + label + '</label><input id="save-email" data-keep type="email" autocomplete="email" autocapitalize="none" spellcheck="false" maxlength="254"><span class="muted small">For login codes only. Nobody else ever sees it.</span></div>';
+  }
+  function emailsOn() { return !!(ui.twoStep && !ui.twoStep.off); }
   function recoverScreen() {
     return '<div class="stack" style="gap:24px;margin-block:auto">' + logo() + '<h1>Use your recovery code</h1>' +
       '<p class="muted">Enter the recovery code you saved when you made your password, and choose a new password.</p>' +
@@ -482,10 +554,11 @@
       '<p class="muted small">Your username is <strong>' + esc(ui.newCode.username) + '</strong>.</p>' +
       '<button class="btn" data-act="code-saved">I\'ve saved it</button></div>';
   }
-  function saveForm(username) {
+  function saveForm(username, askEmail) {
     return '<form id="save-account" class="stack" style="gap:12px" novalidate>' +
-      '<div class="field"><label for="save-user">Username</label><input id="save-user" data-keep type="text" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="20" value="' + esc(username || '') + '"><span class="muted small">3 to 20 letters, numbers or _. Friends never see it.</span></div>' +
+      '<div class="field"><label for="save-user">Username</label><input id="save-user" data-keep type="text" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="20" value="' + esc(username || '') + '"><span class="muted small">3 to 20 letters, numbers or _. Friends who know it can add you.</span></div>' +
       '<div class="field"><label for="save-pass">' + (username ? 'New password' : 'Password') + '</label><input id="save-pass" data-keep type="password" autocomplete="new-password" maxlength="72"><span class="muted small">At least 10 characters.</span></div>' +
+      (askEmail ? emailField('Email') : '') +
       '<p id="save-error" class="error" hidden></p>' +
       '<button class="btn" type="submit" id="save-btn">' + (username ? 'Save and get a new recovery code' : 'Save my account') + '</button></form>';
   }
@@ -518,8 +591,8 @@
 
     var friends = D.friends;
     if (!friends.length) {
-      h += '<div class="card"><h2>Add your friends</h2><p class="muted small">Frendzy only works with friends on it. Send them your invite link, then accept their request when it arrives.</p>' +
-        '<button class="btn" data-act="share">Send your invite link</button>' + linkBox() + '</div>';
+      h += '<div class="card"><h2>Add your friends</h2><p class="muted small">Frendzy only works with friends on it. Add them by username or send them your invite link, then accept their request when it arrives.</p>' +
+        addFriendForm() + '<button class="btn ghost" data-act="share">Send your invite link</button>' + linkBox() + '</div>';
     } else if (s === 'off') {
       h += '<div class="card"><h2>Friends are hidden while you\'re red</h2><p class="muted small">Slide to green or amber to see who\'s up for it tonight.</p></div>';
     } else {
@@ -538,6 +611,16 @@
     return h;
   }
 
+  // Add a friend by their exact username. Hidden if the database is older than usernames.
+  function addFriendForm() {
+    if (ui.account === 'off') return '';
+    var mine = ui.account && ui.account.username;
+    return '<form id="add-friend" class="stack" style="gap:8px" novalidate>' +
+      '<div class="field"><label for="friend-user">Add by username</label><div class="row"><input id="friend-user" data-keep class="grow" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="21" placeholder="their username">' +
+      '<button class="btn small-btn" type="submit" id="friend-btn">Add</button></div></div>' +
+      (ui.addFriendError ? '<p class="error" id="friend-error">' + esc(ui.addFriendError) + '</p>' : '') +
+      '<p class="muted small">' + (mine ? 'Your username is <strong>' + esc(mine) + '</strong>. Tell your friends so they can add you.' : 'Pick a username on the You page so friends can add you too.') + '</p></form>';
+  }
   function linkBox() {
     return ui.linkShown ? '<p class="muted small">Copy this link and send it to a friend:</p><div class="linkbox" id="invite-link">' + esc(inviteLink()) + '</div>' : '';
   }
@@ -1143,8 +1226,9 @@
       '<div class="row"><button class="btn small-btn" data-act="pick-photo"' + (ui.photoBusy ? ' disabled' : '') + '>' + (ui.photoBusy ? 'Saving...' : photos[me.id] ? 'Change photo' : 'Add a photo') + '</button>' +
       (photos[me.id] && !ui.photoBusy ? '<button class="btn small-btn ghost" data-act="remove-photo">Remove</button>' : '') + '</div></div>';
 
-    h += '<div class="card"><h2>Invite a friend</h2><p class="muted small">Send this link. When they sign up you get a friend request to accept.</p>' +
-      '<button class="btn" data-act="share">Send your invite link</button>' + linkBox() + '</div>';
+    h += '<div class="card"><h2>Add a friend</h2>' + addFriendForm() +
+      '<p class="muted small">Not on Frendzy yet? Send them your invite link. When they sign up you get a friend request to accept.</p>' +
+      '<button class="btn ghost" data-act="share">Send your invite link</button>' + linkBox() + '</div>';
 
     if (DEALS_ON && D.staff_venues.length) {
       h += '<div class="card" style="border-color:var(--thinking)"><h2>Staff: confirm a deal code</h2><p class="muted small">Type the code from the customer\'s phone. Each code works once.</p>' +
@@ -1184,14 +1268,18 @@
 
     if (ui.account !== 'off' && ui.account !== undefined) {
       var a = ui.account;
-      if (ui.newCode) h += '<div class="card" style="border-color:var(--on)">' + codeCard() + '</div>';
+      if (ui.emailStep) h += '<div class="card" style="border-color:var(--on)">' + emailCard() + '</div>';
+      else if (ui.newCode) h += '<div class="card" style="border-color:var(--on)">' + codeCard() + '</div>';
       else if (a && !ui.editAccount) {
         h += '<div class="card"><h2>Username and password</h2><p class="muted small">You\'re logged in as <strong>' + esc(a.username) + '</strong>. Use it to log in on another phone.</p>' +
+          (a.email ? '<p class="muted small">New logins also need a code sent to <strong>' + esc(a.email) + '</strong>.</p>'
+            : emailsOn() ? '<form id="add-email" class="stack" style="gap:12px" novalidate><p class="muted small">Add an email so every new login needs a code from it as well as your password.</p>' + emailField('Email for login codes') +
+              '<p id="save-error" class="error" hidden></p><button class="btn small-btn" type="submit" id="save-btn">Send me a code</button></form>' : '') +
           '<div class="row"><button class="btn small-btn ghost" data-act="edit-account">Change password</button><button class="btn small-btn ghost" data-act="logout">Log out</button></div></div>';
       } else {
         h += '<div class="card"><h2>' + (a ? 'Change password' : 'Keep your account') + '</h2>' +
-          (a ? '' : '<p class="muted small">Right now your account only lives in this browser. Add a username and password so you can log in on a new phone. No email needed.</p>') +
-          saveForm(a ? a.username : '') + (a ? '<button class="btn ghost" data-act="edit-account">Cancel</button>' : '') + '</div>';
+          (a ? '' : '<p class="muted small">Right now your account only lives in this browser. Add a username and password so you can log in on a new phone.' + (emailsOn() ? ' Each new login will also need a code we email you.' : '') + '</p>') +
+          saveForm(a ? a.username : '', !a && emailsOn()) + (a ? '<button class="btn ghost" data-act="edit-account">Cancel</button>' : '') + '</div>';
       }
     }
 
@@ -1238,6 +1326,11 @@
 
     if (!API_URL || !API_KEY) { tabs.hidden = true; view.innerHTML = notConnected(); return; }
     if (!ui.booted) { tabs.hidden = true; view.innerHTML = starting(); return; }
+    if (session && ui.twoStep && ui.twoStep.needed) {
+      tabs.hidden = true;
+      if (!document.getElementById('two-step-screen')) view.innerHTML = twoStepScreen();
+      return;
+    }
     if (needsAgeCheck() && (D && D.me || waiting())) {
       tabs.hidden = true;
       view.innerHTML = ageCheck();
@@ -1251,6 +1344,12 @@
           : want === 'login' ? loginScreen() : want === 'recover' ? recoverScreen() : welcome();
         mountCaptcha();
       }
+      return;
+    }
+    if (ui.newCode && ui.newCode.after === 'home') {   // straight after sign-up: confirm the email, then save the recovery code
+      tabs.hidden = true;
+      if (ui.emailStep) { if (!document.getElementById('email-confirm')) view.innerHTML = '<div class="stack" style="margin-block:auto">' + logo() + emailCard() + '</div>'; }
+      else if (!document.getElementById('newcode')) view.innerHTML = '<div class="stack" style="margin-block:auto">' + logo() + codeCard() + '</div>';
       return;
     }
     var html;
@@ -1408,26 +1507,37 @@
     'women-only': function (v) {
       act('set_safety', { p_gender: ui.safety.gender, p_women_only: v === 'on' }, v === 'on' ? 'Women and non-binary only is on.' : 'Women and non-binary only is off.').then(function (r) { if (r) { ui.safety = r; render(); } });
     },
-    unblock: function (v) { act('unblock_user', { p_user: v }, 'Unblocked. You can add each other again with an invite link.'); },
+    unblock: function (v) { act('unblock_user', { p_user: v }, 'Unblocked. You can add each other again.'); },
     accept: function (v) { act('answer_friend', { p_friendship: v, p_accept: true }, 'You\'re now friends.'); },
     unfriend: function (v) { ui.confirm = null; act('answer_friend', { p_friendship: v, p_accept: false }); },
     ask: function (v) { ui.confirm = v; go(false); },
     'cancel-confirm': function () { ui.confirm = null; go(false); },
     auth: function (v) { ui.auth = v || null; view.innerHTML = ''; render(); },
     'edit-account': function () { ui.editAccount = !ui.editAccount; go(false); },
+    'ts-resend': function () { sendLoginCode(); },
+    'ts-recover': function () {
+      session = null; store(SESSION_KEY, null); D = null; ui.twoStep = undefined; ui.auth = 'recover';
+      view.innerHTML = ''; render();
+    },
+    'email-resend': function () {
+      if (!ui.emailStep) return;
+      emailCode('setup', { email: ui.emailStep.email }).then(function () { toast('Code sent again.'); }, function (x) { toast(x.message); });
+    },
+    'email-skip': function () { ui.emailStep = null; go(false); },
     'code-saved': function () {
       var after = ui.newCode && ui.newCode.after;
       if (after === 'login') { ui.loginName = ui.newCode.username; ui.auth = 'login'; }
+      if (after === 'home') ui.tab = 'home';
       ui.newCode = null; view.innerHTML = ''; render();
     },
     logout: function () {
       session = null; store(SESSION_KEY, null); D = null; VENUES = null; venuesAsked = false; seen = null; lastKey = '';
-      ui.account = undefined; ui.safety = undefined; ui.age = null; ui.auth = null; ui.editAccount = false; ui.tab = 'home'; ui.screen = null; ui.confirm = null;
+      ui.account = undefined; ui.safety = undefined; ui.age = null; ui.auth = null; ui.editAccount = false; ui.tab = 'home'; ui.screen = null; ui.confirm = null; ui.twoStep = undefined; ui.emailStep = null;
       view.innerHTML = ''; render(); toast('Logged out. Log in again with your username and password.');
     },
     'delete-account': function () {
       act('delete_account', {}).then(function () {
-        session = null; store(SESSION_KEY, null); D = null; VENUES = null; venuesAsked = false; seen = null; ui.confirm = null; ui.tab = 'home'; ui.screen = null; ui.account = undefined; ui.safety = undefined; ui.age = null;
+        session = null; store(SESSION_KEY, null); D = null; VENUES = null; venuesAsked = false; seen = null; ui.confirm = null; ui.tab = 'home'; ui.screen = null; ui.account = undefined; ui.safety = undefined; ui.age = null; ui.twoStep = undefined; ui.emailStep = null;
         view.innerHTML = ''; render(); toast('Your account has been deleted.');
       });
     }
@@ -1538,9 +1648,23 @@
     }).catch(function (e) { toast(e.message); });
   }
 
+  // The username and password picked on the sign-up screen. Kept in memory only, never in storage,
+  // so they are lost if the age check leaves the page; then the You page asks for them again.
+  var newLogin = null;
+  function saveNewLogin() {
+    var l = newLogin;
+    newLogin = null;
+    if (!l) return Promise.resolve();
+    return rpc('save_account', { p_username: l.username, p_password: l.password }).then(function (r) {
+      ui.newCode = { code: r.recovery_code, username: r.username, after: 'home' };   // load() then reads the account
+      // Then a code to confirm the email. The account is saved either way; the email can be added later on the You page.
+      if (l.email) return emailCode('setup', { email: l.email }).then(function (sent) { ui.emailStep = { email: l.email, hint: sent.hint }; }, function (x) { toast(x.message); });
+    }, function (e) { ui.tab = 'you'; toast(e.message + ' Pick another username below.'); });
+  }
   function finishSignUp(name, dob) {
     return rpc('api_sign_up', { p_name: name, p_birth_date: dob })
       .then(function () { waiting(null); })
+      .then(saveNewLogin)
       .then(sendPendingInvite)
       .then(function () { document.activeElement && document.activeElement.blur(); view.innerHTML = ''; return load(); });
   }
@@ -1576,14 +1700,25 @@
     }
     if (e.target.id === 'join') {
       var name = document.getElementById('name').value.trim(), dob = document.getElementById('dob').value;
+      var ju = document.getElementById('join-user').value.trim().toLowerCase(), jp = document.getElementById('join-pass').value;
       var err = document.getElementById('join-error'), btn = document.getElementById('join-btn');
       var fail = function (msg) { err.textContent = msg; err.hidden = false; btn.disabled = false; };
       if (!name) return fail('Enter your first name to continue.');
       if (!/^\d{4}-\d{2}-\d{2}$/.test(dob) || dob < '1900-01-01' || dob > todayPerth()) return fail('Enter your date of birth.');
       if (dob > eighteenYearsAgo()) { store(UNDERAGE_KEY, true); view.innerHTML = tooYoung(); return; }
+      if (!/^[a-z0-9_]{3,20}$/.test(ju)) return fail('Pick a username of 3 to 20 letters, numbers or _.');
+      if (jp.length < 10) return fail('Use a password of at least 10 characters.');
+      var je = document.getElementById('join-email').value.trim();
+      if (!/^[^@\s]+@[^@\s]+\.[A-Za-z]{2,}$/.test(je)) return fail('Enter your email address. Login codes go there.');
       if (CAPTCHA_KEY && !session && !captchaToken) return fail('Wait a moment for the check above to finish, then try again.');
       btn.disabled = true; err.hidden = true;
       (session ? Promise.resolve() : signInAnonymously(useCaptcha()))
+        // An older database without username_free() just skips this early check; save_account still refuses a taken name.
+        .then(function () { return rpc('username_free', { p_username: ju }).catch(function (x) { if (x.missing) return true; throw x; }); })
+        .then(function (free) {
+          if (free === false) throw new Error('That username is taken. Try another.');
+          newLogin = { username: ju, password: jp, email: je };
+        })
         .then(loadAge)
         .then(function () {
           if (needsAgeCheck()) { waiting({ name: name, dob: dob }); ui.ageNote = ''; document.activeElement && document.activeElement.blur(); render(); return; }
@@ -1599,7 +1734,11 @@
       if (CAPTCHA_KEY && !captchaToken) return lfail('Wait a moment for the check above to finish, then try again.');
       lbtn.disabled = true; lerr.hidden = true;
       signInWithPassword(lu, lp, useCaptcha()).then(function () {
-        D = null; VENUES = null; venuesAsked = false; lastKey = ''; ui.auth = null; ui.loginName = ''; ui.account = undefined; ui.safety = undefined; ui.age = null;
+        // Straight after a recovery code, this login doesn't need the email code.
+        var ticket = ui.ticket; ui.ticket = null;
+        return ticket ? rpc('two_step_use_ticket', { p_ticket: ticket }).then(function (ok) { if (ok) return refreshSession(); }, function () {}) : null;
+      }).then(function () {
+        D = null; VENUES = null; venuesAsked = false; lastKey = ''; ui.auth = null; ui.loginName = ''; ui.account = undefined; ui.safety = undefined; ui.age = null; ui.twoStep = undefined; ui.emailStep = null;
         document.activeElement && document.activeElement.blur(); view.innerHTML = '';
         return load().then(function () { if (D && D.me) return sendPendingInvite(); });
       }).catch(function (x) { lfail(x.message); });
@@ -1618,25 +1757,81 @@
         .then(function (r) {
           if (!r || !r.ok) return rfail((r && r.message) || 'That didn\'t work. Try again.');
           // This phone's temporary sign-in was only for the recovery; log in with the new password next.
-          session = null; store(SESSION_KEY, null);
+          session = null; store(SESSION_KEY, null); ui.twoStep = undefined; ui.ticket = r.ticket || null;
           ui.newCode = { code: r.recovery_code, username: r.username, after: 'login' };
           document.activeElement && document.activeElement.blur(); view.innerHTML = ''; render();
         })
         .catch(function (x) { rfail(x.message); });
       return;
     }
-    if (e.target.id === 'save-account') {
-      var su = document.getElementById('save-user').value.trim().toLowerCase(), sp = document.getElementById('save-pass').value;
+    if (e.target.id === 'two-step') {
+      var tc = document.getElementById('ts-code').value.replace(/\D/g, '');
+      var terr = document.getElementById('ts-error'), tbtn = document.getElementById('ts-btn');
+      var tfail = function (msg) { terr.textContent = msg; terr.hidden = false; tbtn.disabled = false; };
+      if (tc.length !== 6) return tfail('Enter the 6-digit code from the email.');
+      tbtn.disabled = true; terr.hidden = true;
+      rpc('two_step_check', { p_code: tc }).then(function (r) {
+        if (!r || !r.ok) return tfail((r && r.message) || 'That didn\'t work. Try again.');
+        // A fresh sign-in token, now with full access.
+        return refreshSession().then(function () {
+          ui.twoStep = { needed: false }; document.activeElement && document.activeElement.blur(); view.innerHTML = '';
+          return load().then(function () { if (D && D.me) return sendPendingInvite(); });
+        });
+      }).catch(function (x) { tfail(x.message); });
+      return;
+    }
+    if (e.target.id === 'email-confirm') {
+      var ec = document.getElementById('ec-code').value.replace(/\D/g, '');
+      var eerr = document.getElementById('ec-error'), ebtn = document.getElementById('ec-btn');
+      var efail = function (msg) { eerr.textContent = msg; eerr.hidden = false; ebtn.disabled = false; };
+      if (ec.length !== 6) return efail('Enter the 6-digit code from the email.');
+      ebtn.disabled = true; eerr.hidden = true;
+      rpc('two_step_check', { p_code: ec }).then(function (r) {
+        if (!r || !r.ok) return efail((r && r.message) || 'That didn\'t work. Try again.');
+        if (ui.account && ui.account !== 'off') ui.account.email = r.email;
+        ui.emailStep = null; toast('Email confirmed. New logins will ask for a code from it.');
+        document.activeElement && document.activeElement.blur(); render();
+      }).catch(function (x) { efail(x.message); });
+      return;
+    }
+    if (e.target.id === 'save-account' || e.target.id === 'add-email') {
+      var adding = e.target.id === 'add-email';
+      var su = adding ? '' : document.getElementById('save-user').value.trim().toLowerCase(), sp = adding ? '' : document.getElementById('save-pass').value;
+      var emailIn = document.getElementById('save-email'), em = emailIn ? emailIn.value.trim() : '';
       var serr = document.getElementById('save-error'), sbtn = document.getElementById('save-btn');
       var sfail = function (msg) { serr.textContent = msg; serr.hidden = false; sbtn.disabled = false; };
-      if (!/^[a-z0-9_]{3,20}$/.test(su)) return sfail('Pick a username of 3 to 20 letters, numbers or _.');
-      if (sp.length < 10) return sfail('Use a password of at least 10 characters.');
+      if (!adding && !/^[a-z0-9_]{3,20}$/.test(su)) return sfail('Pick a username of 3 to 20 letters, numbers or _.');
+      if (!adding && sp.length < 10) return sfail('Use a password of at least 10 characters.');
+      if (emailIn && !/^[^@\s]+@[^@\s]+\.[A-Za-z]{2,}$/.test(em)) return sfail('Enter your email address. Login codes go there.');
       sbtn.disabled = true; serr.hidden = true;
-      rpc('save_account', { p_username: su, p_password: sp }).then(function (r) {
-        ui.account = { username: r.username }; ui.editAccount = false;
-        ui.newCode = { code: r.recovery_code, username: r.username, after: 'you' };
+      (adding ? Promise.resolve(null) : rpc('save_account', { p_username: su, p_password: sp })).then(function (r) {
+        if (r) {
+          ui.account = { username: r.username }; ui.editAccount = false;
+          ui.newCode = { code: r.recovery_code, username: r.username, after: 'you' };
+        }
+        if (!em) return;
+        // The account is saved either way; if the email can't be sent, it can be added again from here.
+        return emailCode('setup', { email: em }).then(function (s) {
+          ui.emailStep = { email: em, hint: s.hint };
+        }, function (x) { if (adding) throw x; toast(x.message); });
+      }).then(function () {
         document.activeElement && document.activeElement.blur(); render();
       }).catch(function (x) { sfail(x.message); });
+      return;
+    }
+    if (e.target.id === 'add-friend') {
+      var fu = document.getElementById('friend-user'), fname = fu.value.trim(), fbtn = document.getElementById('friend-btn');
+      if (!fname) { ui.addFriendError = 'Type your friend\'s username.'; go(false); return; }
+      fbtn.disabled = true;
+      rpc('request_friend_by_username', { p_username: fname }).then(function (r) {
+        if (!r || !r.ok) { ui.addFriendError = (r && r.message) || 'That didn\'t work. Try again.'; return; }
+        ui.addFriendError = ''; fu.value = '';
+        toast(r.state === 'accepted' ? 'You and ' + first(r.name) + ' are now friends.'
+          : r.state === 'requested' ? 'Friend request sent to ' + first(r.name) + '.' : 'You and ' + first(r.name) + ' are already friends.');
+        return load();
+      }).catch(function (x) {
+        ui.addFriendError = x.missing ? 'Adding by username needs a database update. Send your invite link for now.' : x.message;
+      }).then(function () { var b = document.getElementById('friend-btn'); if (b) b.disabled = false; go(false); });
       return;
     }
     if (e.target.id === 'chat-form') {
