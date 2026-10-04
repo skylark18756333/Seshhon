@@ -165,23 +165,23 @@ a { color: var(--fg); }
 .send { width: 50px; height: 50px; flex: none; border-radius: 50%; border: 0; background: var(--accent); color: #fff; display: flex; align-items: center; justify-content: center; }
 .send:disabled { background: var(--surface-2); color: var(--muted); }
 .error { color: var(--off); font-size: 14px; font-weight: 500; }
-/* Maps: bright, soft and friendly like Snap Map: OpenStreetMap tiles made a little more colourful, with white bubbles for
-   labels and controls, and chunky pins with a white outline. */
-.map { height: 260px; border-radius: 22px; overflow: hidden; border: 0; background: #E9EEF2; z-index: 0; }
+/* Maps: a dark night map like a phone's dark-mode maps. OpenStreetMap tiles are recoloured by the #night filter at the
+   end of the page (dark navy land, light grey streets, light labels); pins, labels and controls sit on top in dark bubbles. */
+.map { height: 260px; border-radius: 18px; overflow: hidden; border: 1px solid var(--line); background: #141B2A; z-index: 0; }
 .map.big { height: min(52vh, 420px); min-height: 280px; }
 .bleed { margin-inline: -18px; }
 .map.route { height: 230px; border-radius: 0; }
 .map.hero { height: 240px; border-radius: 0; border: 0; }
 .map.hero .leaflet-control-zoom { display: none; }
 .map-box { position: relative; }
-.leaflet-container { background: #E9EEF2; font-family: var(--body); }
-.map .leaflet-tile-pane { filter: saturate(1.4) brightness(1.04) contrast(0.96); }
-.map .leaflet-control-attribution { background: rgba(255, 255, 255, 0.8); color: #555A66; font-size: 10px; border-radius: 8px 0 0 0; }
-.map .leaflet-control-attribution a { color: #22252C; }
-.map .leaflet-bar { border: 0; border-radius: 16px; overflow: hidden; box-shadow: 0 3px 12px rgba(20, 30, 50, 0.25); }
-.map .leaflet-bar a { width: 42px; height: 42px; line-height: 42px; background: #fff; color: #16181D; border-color: #E6E8EC; font-size: 22px; }
-.map .leaflet-bar a:hover { background: #F2F4F7; }
-.pin { position: relative; display: block; width: 30px; height: 40px; filter: drop-shadow(0 3px 4px rgba(20, 30, 50, 0.35)); transition: transform 0.15s; }
+.leaflet-container { background: #141B2A; font-family: var(--body); }
+.map .leaflet-tile-pane { filter: url(#night); }
+.map .leaflet-control-attribution { background: rgba(5, 5, 6, 0.7); color: var(--muted); font-size: 10px; border-radius: 8px 0 0 0; }
+.map .leaflet-control-attribution a { color: var(--fg); }
+.map .leaflet-bar { border: 1px solid #3A3F4D; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45); }
+.map .leaflet-bar a { width: 42px; height: 42px; line-height: 42px; background: rgba(16, 17, 21, 0.92); color: var(--fg); border-color: #3A3F4D; font-size: 22px; }
+.map .leaflet-bar a:hover { background: var(--surface-2); }
+.pin { position: relative; display: block; width: 30px; height: 40px; filter: drop-shadow(0 3px 5px rgba(0, 0, 0, 0.6)); transition: transform 0.15s; }
 .leaflet-marker-icon:hover .pin { transform: scale(1.12); transform-origin: 50% 100%; }
 .pin svg { display: block; }
 .pin-badge { position: absolute; top: -2px; right: -3px; z-index: 1; width: 12px; height: 12px; border-radius: 50%; border: 2px solid #fff; }
@@ -191,12 +191,12 @@ a { color: var(--fg); }
 .hours .today { font-weight: 700; }
 .pin.far { opacity: 0.55; transform: scale(0.75); transform-origin: 50% 100%; }
 .you-dot { display: block; width: 44px; height: 44px; border-radius: 50%; background: rgba(31, 123, 255, 0.25); position: relative; }
-.you-dot::after { content: ''; position: absolute; inset: 12px; border-radius: 50%; background: var(--accent); border: 4px solid #fff; box-shadow: 0 2px 8px rgba(20, 30, 50, 0.35); }
-.leaflet-tooltip.tag { background: #fff; color: #16181D; border: 0; border-radius: 14px; padding: 6px 11px; font-size: 13px; font-weight: 700; box-shadow: 0 3px 12px rgba(20, 30, 50, 0.25); line-height: 1.25; }
+.you-dot::after { content: ''; position: absolute; inset: 12px; border-radius: 50%; background: #fff; border: 4px solid var(--accent); box-shadow: 0 0 10px rgba(31, 123, 255, 0.8); }
+.leaflet-tooltip.tag { background: rgba(16, 17, 21, 0.9); color: var(--fg); border: 0; border-radius: 10px; padding: 5px 10px; font-size: 14px; font-weight: 500; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5); line-height: 1.25; }
 .leaflet-tooltip.tag::before { display: none; }
-.leaflet-tooltip.tag small { display: block; color: #5E6370; font-size: 12px; font-weight: 500; }
+.leaflet-tooltip.tag small { display: block; color: #C9CCD3; font-size: 13px; font-weight: 400; }
 .leaflet-tooltip.tag.you { background: var(--accent); border-color: var(--accent); color: #fff; }
-.map-fab { position: absolute; top: 12px; right: 12px; z-index: 500; width: 46px; height: 46px; border-radius: 50%; border: 0; background: #fff; color: #16181D; display: flex; align-items: center; justify-content: center; box-shadow: 0 3px 12px rgba(20, 30, 50, 0.25); }
+.map-fab { position: absolute; top: 12px; right: 12px; z-index: 500; width: 46px; height: 46px; border-radius: 50%; border: 0; background: rgba(16, 17, 21, 0.92); color: var(--fg); display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5); }
 .map-pick { border-color: var(--accent); gap: 12px; }
 .map-pick .back { width: 36px; height: 36px; }
 .map-pick .deal-banner .big { font-size: 24px; }
@@ -232,6 +232,13 @@ input[type="range"]::-moz-range-thumb { width: 28px; height: 28px; border-radius
   <nav id="tabs" aria-label="Sections" hidden></nav>
 </div>
 <div id="toast" role="status" aria-live="polite" hidden></div>
+<!-- The night map colours: each colour channel of the light map tiles is remapped, so pale land turns dark navy, white
+     streets turn light grey-blue and dark labels turn light. 21 points from darkest (0) to lightest (1). -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><filter id="night" color-interpolation-filters="sRGB"><feComponentTransfer>
+  <feFuncR type="table" tableValues="0.78 0.732 0.683 0.635 0.587 0.538 0.49 0.442 0.393 0.345 0.297 0.248 0.2 0.179 0.158 0.138 0.117 0.096 0.075 0.075 0.27"/>
+  <feFuncG type="table" tableValues="0.8 0.75 0.7 0.65 0.6 0.55 0.5 0.45 0.4 0.35 0.3 0.25 0.2 0.182 0.163 0.145 0.127 0.108 0.09 0.09 0.31"/>
+  <feFuncB type="table" tableValues="0.86 0.805 0.75 0.695 0.64 0.585 0.53 0.475 0.42 0.365 0.31 0.255 0.2 0.189 0.178 0.168 0.157 0.146 0.135 0.135 0.4"/>
+</feComponentTransfer></filter></svg>
 
 <script src="vendor/leaflet/leaflet.js"></script>
 <script src="hours.js"></script>
