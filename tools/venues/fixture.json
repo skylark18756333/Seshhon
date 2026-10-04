@@ -3,5 +3,8 @@
  {"type":"way","id":2,"center":{"lat":-32.05,"lon":115.75},"tags":{"amenity":"pub","name":"  Freo   Pub "}},
  {"type":"node","id":3,"lat":-31.95,"lon":115.86,"tags":{"amenity":"nightclub"}},
  {"type":"node","id":4,"lat":-33.9,"lon":151.2,"tags":{"amenity":"pub","name":"Sydney Pub"}},
- {"type":"node","id":5,"lat":-31.94,"lon":115.85,"tags":{"amenity":"cafe","name":"Cafe"}}
+ {"type":"node","id":5,"lat":-31.94,"lon":115.85,"tags":{"amenity":"cafe","name":"Cafe"}},
+ {"type":"node","id":6,"lat":-31.94,"lon":115.85,"tags":{"amenity":"restaurant","name":"Pasta Place","cuisine":"italian;pizza"}},
+ {"type":"way","id":7,"center":{"lat":-31.75,"lon":116.05},"tags":{"craft":"winery","name":"Swan Valley Wines"}},
+ {"type":"node","id":8,"lat":-32.53,"lon":115.72,"tags":{"amenity":"pub","name":"Mandurah Pub"}}
 ]}
