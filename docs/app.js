@@ -73,7 +73,9 @@
           var code = (json && (json.error_code || json.error)) || '';
           // Supabase answers "captcha protection: request disallowed (...)" when the human check is missing, used or expired.
           var captcha = code === 'captcha_failed' || /captcha/i.test(msg);
-          var err = new Error(captcha ? 'The "are you human" check didn\'t go through. Wait for it to finish, then try again.' : msg);
+          // Keep Supabase's reason in brackets (e.g. "invalid-input-secret" means the secret key in Supabase is wrong).
+          var why = (msg.match(/\(([^)]*)\)\s*$/) || [])[1];
+          var err = new Error(captcha ? 'The "are you human" check didn\'t go through. Wait for it to finish, then try again.' + (why ? ' (' + why + ')' : '') : msg);
           err.status = res.status; err.code = captcha ? 'captcha_failed' : code;
           throw err;
         }
@@ -126,7 +128,9 @@
       sitekey: CAPTCHA_KEY,
       callback: function (t) { captchaToken = t; },
       'expired-callback': function () { captchaToken = ''; },
-      'error-callback': function () { captchaToken = ''; }   // Turnstile shows its own message and tries again
+      // Turnstile shows its own message and tries again. The code (e.g. 110200 = this web address isn't on the
+      // widget's hostname list in Cloudflare) goes in the browser console to help find the problem.
+      'error-callback': function (code) { captchaToken = ''; if (window.console) console.warn('Turnstile error ' + code); }
     });
   }
   // Waits for the human check to finish (it can take a few seconds, or ask for a tap) instead of turning the person away.
