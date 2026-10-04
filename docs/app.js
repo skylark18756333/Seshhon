@@ -1284,10 +1284,15 @@
       else if (ui.newCode) h += '<div class="card" style="border-color:var(--on)">' + codeCard() + '</div>';
       else if (a && !ui.editAccount) {
         h += '<div class="card"><h2>Username and password</h2><p class="muted small">You\'re logged in as <strong>' + esc(a.username) + '</strong>. Use it to log in on another phone.</p>' +
-          (a.email ? '<p class="muted small">New logins also need a code sent to <strong>' + esc(a.email) + '</strong>.</p>'
-            : emailsOn() ? '<form id="add-email" class="stack" style="gap:12px" novalidate><p class="muted small">Add an email so every new login needs a code from it as well as your password.</p>' + emailField('Email for login codes') +
-              '<p id="save-error" class="error" hidden></p><button class="btn small-btn" type="submit" id="save-btn">Send me a code</button></form>' : '') +
-          '<div class="row"><button class="btn small-btn ghost" data-act="edit-account">Change password</button><button class="btn small-btn ghost" data-act="logout">Log out</button></div></div>';
+          (a.email && !ui.changeEmail ? '<p class="muted small">New logins also need a code sent to <strong>' + esc(a.email) + '</strong>.</p>'
+            : emailsOn() ? '<form id="add-email" class="stack" style="gap:12px" novalidate><p class="muted small">' +
+              (a.email ? 'We\'ll send a code to the new email. Until you type it, codes keep going to <strong>' + esc(a.email) + '</strong>.'
+                : 'Add an email so every new login needs a code from it as well as your password.') + '</p>' +
+              emailField(a.email ? 'New email' : 'Email for login codes') +
+              '<p id="save-error" class="error" hidden></p><div class="row"><button class="btn small-btn" type="submit" id="save-btn">Send me a code</button>' +
+              (a.email ? '<button class="btn small-btn ghost" type="button" data-act="change-email">Cancel</button>' : '') + '</div></form>' : '') +
+          '<div class="row">' + (a.email && !ui.changeEmail && emailsOn() ? '<button class="btn small-btn ghost" data-act="change-email">Change email</button>' : '') +
+          '<button class="btn small-btn ghost" data-act="edit-account">Change password</button><button class="btn small-btn ghost" data-act="logout">Log out</button></div></div>';
       } else {
         h += '<div class="card"><h2>' + (a ? 'Change password' : 'Keep your account') + '</h2>' +
           (a ? '' : '<p class="muted small">Right now your account only lives in this browser. Add a username and password so you can log in on a new phone.' + (emailsOn() ? ' Each new login will also need a code we email you.' : '') + '</p>') +
@@ -1536,6 +1541,7 @@
       emailCode('setup', { email: ui.emailStep.email }).then(function () { toast('Code sent again.'); }, function (x) { toast(x.message); });
     },
     'email-skip': function () { ui.emailStep = null; go(false); },
+    'change-email': function () { ui.changeEmail = !ui.changeEmail; go(false); },
     'code-saved': function () {
       var after = ui.newCode && ui.newCode.after;
       if (after === 'login') { ui.loginName = ui.newCode.username; ui.auth = 'login'; }
@@ -1544,12 +1550,12 @@
     },
     logout: function () {
       session = null; store(SESSION_KEY, null); D = null; VENUES = null; venuesAsked = false; seen = null; lastKey = '';
-      ui.account = undefined; ui.safety = undefined; ui.age = null; ui.auth = null; ui.editAccount = false; ui.tab = 'home'; ui.screen = null; ui.confirm = null; ui.twoStep = undefined; ui.emailStep = null;
+      ui.account = undefined; ui.safety = undefined; ui.age = null; ui.auth = null; ui.editAccount = false; ui.tab = 'home'; ui.screen = null; ui.confirm = null; ui.twoStep = undefined; ui.emailStep = null; ui.changeEmail = false;
       view.innerHTML = ''; render(); toast('Logged out. Log in again with your username and password.');
     },
     'delete-account': function () {
       act('delete_account', {}).then(function () {
-        session = null; store(SESSION_KEY, null); D = null; VENUES = null; venuesAsked = false; seen = null; ui.confirm = null; ui.tab = 'home'; ui.screen = null; ui.account = undefined; ui.safety = undefined; ui.age = null; ui.twoStep = undefined; ui.emailStep = null;
+        session = null; store(SESSION_KEY, null); D = null; VENUES = null; venuesAsked = false; seen = null; ui.confirm = null; ui.tab = 'home'; ui.screen = null; ui.account = undefined; ui.safety = undefined; ui.age = null; ui.twoStep = undefined; ui.emailStep = null; ui.changeEmail = false;
         view.innerHTML = ''; render(); toast('Your account has been deleted.');
       });
     }
@@ -1750,7 +1756,7 @@
         var ticket = ui.ticket; ui.ticket = null;
         return ticket ? rpc('two_step_use_ticket', { p_ticket: ticket }).then(function (ok) { if (ok) return refreshSession(); }, function () {}) : null;
       }).then(function () {
-        D = null; VENUES = null; venuesAsked = false; lastKey = ''; ui.auth = null; ui.loginName = ''; ui.account = undefined; ui.safety = undefined; ui.age = null; ui.twoStep = undefined; ui.emailStep = null;
+        D = null; VENUES = null; venuesAsked = false; lastKey = ''; ui.auth = null; ui.loginName = ''; ui.account = undefined; ui.safety = undefined; ui.age = null; ui.twoStep = undefined; ui.emailStep = null; ui.changeEmail = false;
         document.activeElement && document.activeElement.blur(); view.innerHTML = '';
         return load().then(function () { if (D && D.me) return sendPendingInvite(); });
       }).catch(function (x) { lfail(x.message); });
@@ -1802,10 +1808,18 @@
       ebtn.disabled = true; eerr.hidden = true;
       rpc('two_step_check', { p_code: ec }).then(function (r) {
         if (!r || !r.ok) return efail((r && r.message) || 'That didn\'t work. Try again.');
+        var changed = ui.account && ui.account !== 'off' && ui.account.email;
         if (ui.account && ui.account !== 'off') ui.account.email = r.email;
-        ui.emailStep = null; toast('Email confirmed. New logins will ask for a code from it.');
-        document.activeElement && document.activeElement.blur(); render();
-        emailRecovery();
+        var renew = ui.emailStep.renew && !ui.newCode;
+        ui.emailStep = null; ui.changeEmail = false;
+        toast(changed ? 'Email changed. Login codes now go to ' + r.email + '.' : 'Email confirmed. New logins will ask for a code from it.');
+        // From the You page, a fresh recovery code goes to the (new) email too. The old one only exists as a hash.
+        return (renew ? rpc('renew_recovery_code').then(function (c) {
+          ui.newCode = { code: c.recovery_code, username: c.username, after: 'you' };
+        }, function () {}) : Promise.resolve()).then(function () {
+          document.activeElement && document.activeElement.blur(); render();
+          emailRecovery();
+        });
       }).catch(function (x) { efail(x.message); });
       return;
     }
@@ -1827,7 +1841,7 @@
         if (!em) return;
         // The account is saved either way; if the email can't be sent, it can be added again from here.
         return emailCode('setup', { email: em }).then(function (s) {
-          ui.emailStep = { email: em, hint: s.hint };
+          ui.emailStep = { email: em, hint: s.hint, renew: adding };
         }, function (x) { if (adding) throw x; toast(x.message); });
       }).then(function () {
         document.activeElement && document.activeElement.blur(); render();
