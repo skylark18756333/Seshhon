@@ -1,4 +1,4 @@
-// SeshOn web app. Loaded by index.html; kept in its own file so the page can forbid inline scripts.
+// Frenzy web app. Loaded by index.html; kept in its own file so the page can forbid inline scripts.
 (function () {
   'use strict';
   var CFG = window.SESHHON_CONFIG || window.SESSHON_CONFIG || {};
@@ -18,7 +18,6 @@
   var LABELS = { on: 'Green', thinking: 'Amber', off: 'Red' };
   var STOPS = ['on', 'thinking', 'off'];   // left to right on the status switch: G, A, R
   var TAGS = ['Good vibe', 'Good value', 'Fast service'];
-  var DEAL_TYPES = ['All', 'Food', 'Drinks', 'Entry', 'Events'];
   var RADIUS_KEY = 'seshon-radius-km';
   var MAP_CENTRE = Array.isArray(CFG.mapCentre) ? CFG.mapCentre : [-31.9523, 115.8613];   // where the venue map starts: Perth CBD unless config.js says otherwise
 
@@ -44,6 +43,13 @@
     if (h === 23 && m === 59) return 'midnight';
     var suffix = h >= 12 ? 'pm' : 'am', twelve = h % 12 || 12;
     return twelve + (m ? ':' + (m < 10 ? '0' : '') + m : '') + suffix;
+  }
+
+  function fmtTime(iso) {
+    var d = new Date(iso);
+    if (isNaN(d)) return '';
+    var h = d.getHours(), m = d.getMinutes();
+    return (h % 12 || 12) + ':' + (m < 10 ? '0' : '') + m + (h >= 12 ? ' pm' : ' am');
   }
 
   /* ---------- talking to the database ---------- */
@@ -153,8 +159,8 @@
         try { json = text ? JSON.parse(text) : null; } catch (e) {}
         if (!res.ok && json && json.code === 'PGRST202') {
           // The database is missing a function this page calls: an update in supabase/ has not been run yet.
-          console.error('SeshOn database is out of date. Run supabase/update.sql in the Supabase SQL editor.', json.message);
-          throw new Error('SeshOn is being updated. Try again soon.');
+          console.error('Frenzy database is out of date. Run supabase/update.sql in the Supabase SQL editor.', json.message);
+          throw new Error('Frenzy is being updated. Try again soon.');
         }
         if (!res.ok) throw new Error((json && json.message) || 'Something went wrong. Try again.');
         return json;
@@ -195,7 +201,7 @@
   var D = null;            // the latest answer from api_state()
   var lastKey = '';        // used to skip redraws when nothing changed
   var clockOffset = 0;     // server time minus this phone's time
-  var ui = { messages: [], tab: 'home', screen: null, filter: 'All', confirm: null, staffError: '', offline: false, booted: false, linkShown: false, age: null, ageNote: '', ageBusy: false, auth: null, account: undefined, newCode: null, editAccount: false };
+  var ui = { messages: [], tab: 'home', screen: null, confirm: null, staffError: '', offline: false, booted: false, linkShown: false, age: null, ageNote: '', ageBusy: false, auth: null, account: undefined, newCode: null, editAccount: false };
   ui.radiusKm = Math.min(25, Math.max(1, Number(store(RADIUS_KEY)) || 5));
   var seen = null;         // friend id -> colour at the last look, for "just went on" notices
   var acting = false;
@@ -235,6 +241,10 @@
   function loadAccount() {
     return rpc('my_account').then(function (a) { ui.account = a || null; }, function () { ui.account = 'off'; });
   }
+  var photos = {}, photosKey = '', photosAt = 0;
+  function loadPhotos() {
+    return rpc('friend_photos').then(function (p) { photos = p || {}; photosAt = Date.now(); }, function () { photosAt = Date.now(); });
+  }
   function loadSafety() {
     return rpc('my_safety').then(function (sf) { ui.safety = sf || { gender: null, women_only: false }; }, function () { ui.safety = 'off'; });
   }
@@ -250,6 +260,13 @@
       D = data; ui.booted = true;
       if (data.me && !pins && !pinsAsked) { pinsAsked = true; loadPins().then(function () { render(); }); }   // venue distances for the sesh vote list
       if (!quiet || key !== lastKey) { lastKey = key; render(); }
+      // Photos change rarely: fetch them when the friend list changes, and otherwise once a minute.
+      var pk = data.me ? JSON.stringify([data.me.id].concat((data.friends || []).map(function (f) { return f.id; }))) : '';
+      if (pk && (pk !== photosKey || Date.now() - photosAt > 60000)) {
+        photosKey = pk; photosAt = Date.now();
+        var before = JSON.stringify(photos);
+        loadPhotos().then(function () { if (JSON.stringify(photos) !== before) render(); });
+      }
     }).catch(function (e) {
       if (e.signedOut || !session) { D = null; ui.booted = true; render(); return; }
       ui.offline = true; ui.booted = true;
@@ -286,36 +303,57 @@
     home: '<path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/>',
     sesh: '<circle cx="9" cy="8" r="4"/><path d="M2 21c0-4 3-6 7-6s7 2 7 6"/><path d="M17 4a4 4 0 0 1 0 8"/><path d="M22 21c0-3-1-5-4-6"/>',
     deals: '<path d="M3 12V3h9l9 9-9 9z"/><circle cx="8" cy="8" r="1.5"/>',
+    events: '<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>',
     map: '<path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/>',
     venues: '<path d="M5 3h14l-7 9z"/><path d="M12 12v8"/><path d="M8 21h8"/>',
     you: '<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/>',
     back: '<path d="M15 5l-7 7 7 7"/>',
+    close: '<path d="M6 6l12 12"/><path d="M18 6L6 18"/>',
+    send: '<path d="M21 3L10 14"/><path d="M21 3l-7 18-4-7-7-4z"/>',
+    place: '<path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/>',
+    arrow: '<path d="M21 3L3 10.5l7.5 3 3 7.5z"/>',
+    clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
     star: '<path d="M12 3l2.7 5.6 6.1.8-4.5 4.3 1.1 6.1L12 16.9 6.6 19.8l1.1-6.1L3.2 9.4l6.1-.8z"/>'
   };
   function svg(name, size) {
     return '<svg width="' + size + '" height="' + size + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + ICON[name] + '</svg>';
   }
-  function avatar(name, colour, dashed) {
-    return '<div class="avatar' + (dashed ? ' dashed' : '') + '" style="--c:' + (colour || 'var(--line)') + '">' + initials(name) + '</div>';
+  function hue(name) {   // a steady colour per person for their circle until faces can be added
+    var h = 0, t = String(name || '');
+    for (var i = 0; i < t.length; i++) h = (h * 31 + t.charCodeAt(i)) % 360;
+    return h;
+  }
+  function avatar(name, colour, dashed, id) {
+    return '<div class="avatar' + (dashed ? ' dashed' : '') + '" style="--c:' + (colour || 'var(--line)') + '">' + face(id, name) + '</div>';
+  }
+  // A person's photo if they added one and you are allowed to see it, otherwise their initials.
+  function face(id, name) {
+    return id && photos[id] ? '<img class="pic" src="' + esc(photos[id]) + '" alt="">' : initials(name);
+  }
+
+  // The brush-script name with the three status dots beside it. With a status, only that dot is lit.
+  function logo(status) {
+    return '<div class="logo"><div class="wordmark">Frenzy</div><div class="dots' + (status ? '' : ' all') + '" aria-hidden="true">' +
+      STOPS.map(function (k) { return '<i style="--c:' + COLORS[k] + '"' + (k === status ? ' class="lit"' : '') + '></i>'; }).join('') + '</div></div>';
   }
 
   /* ---------- screens ---------- */
   function notConnected() {
-    return '<div class="stack" style="gap:20px;margin-block:auto"><div class="wordmark">SeshOn</div><h1>Not connected yet</h1>' +
-      '<p class="muted">This copy of SeshOn has not been pointed at its database. Add the project address and public key to config.js.</p></div>';
+    return '<div class="stack" style="gap:20px;margin-block:auto">' + logo() + '<h1>Not connected yet</h1>' +
+      '<p class="muted">This copy of Frenzy has not been pointed at its database. Add the project address and public key to config.js.</p></div>';
   }
   function starting() {
-    return '<div class="stack" style="gap:20px;margin-block:auto"><div class="wordmark">SeshOn</div><p class="muted">Loading…</p></div>';
+    return '<div class="stack" style="gap:20px;margin-block:auto">' + logo() + '<p class="muted">Loading…</p></div>';
   }
   function tooYoung() {
-    return '<div class="stack" style="gap:20px;margin-block:auto"><div class="wordmark">SeshOn</div><h1>SeshOn is for people aged 18 and over.</h1>' +
+    return '<div class="stack" style="gap:20px;margin-block:auto">' + logo() + '<h1>Frenzy is for people aged 18 and over.</h1>' +
       '<p class="muted">We can\'t set up an account for you. If you entered your date of birth wrongly, contact us through the Privacy Policy page.</p></div>';
   }
   function ageCheck() {
     var who = PROVIDER_NAMES[ui.age && ui.age.provider] || 'Our age check partner';
-    var h = '<div class="stack" style="gap:20px;margin-block:auto"><div class="wordmark">SeshOn</div><h1>Quick age check</h1>' +
-      '<p class="muted">SeshOn is for people aged 18 and over. ' + esc(who) + ' checks your age with a quick selfie. If it can\'t tell from your face, it asks you to show ID instead.</p>' +
-      '<p class="muted small">' + esc(who) + ' only tells us whether you passed. SeshOn never sees or keeps your photo or ID. See the <a href="privacy.html">Privacy Policy</a>.</p>';
+    var h = '<div class="stack" style="gap:20px;margin-block:auto">' + logo() + '<h1>Quick age check</h1>' +
+      '<p class="muted">Frenzy is for people aged 18 and over. ' + esc(who) + ' checks your age with a quick selfie. If it can\'t tell from your face, it asks you to show ID instead.</p>' +
+      '<p class="muted small">' + esc(who) + ' only tells us whether you passed. Frenzy never sees or keeps your photo or ID. See the <a href="privacy.html">Privacy Policy</a>.</p>';
     if (ui.ageNote) h += '<p class="error" id="age-note">' + esc(ui.ageNote) + '</p>';
     if (ui.age && ui.age.pending) h += '<button class="btn" data-act="age-finish"' + (ui.ageBusy ? ' disabled' : '') + '>I\'ve finished, check again</button><button class="btn ghost" data-act="age-start"' + (ui.ageBusy ? ' disabled' : '') + '>Start again</button>';
     else h += '<button class="btn" data-act="age-start"' + (ui.ageBusy ? ' disabled' : '') + '>Start age check</button>';
@@ -325,12 +363,12 @@
     if (store(UNDERAGE_KEY)) return tooYoung();
     var invited = store(INVITE_KEY);
     return '<div class="stack" style="gap:24px;margin-block:auto">' +
-      '<div class="wordmark">SeshOn</div>' +
+      logo() +
       '<h1>Tell your friends you\'re up for a sesh.</h1>' +
-      '<p class="muted">' + (invited ? 'A friend invited you. Sign up and they will get your friend request.' : 'Go On when you\'re keen, see which friends are too, and pick a place together.') + '</p>' +
+      '<p class="muted">' + (invited ? 'A friend invited you. Sign up and they will get your friend request.' : 'Go green when you\'re keen, see which friends are too, and pick a place together.') + '</p>' +
       '<form id="join" class="stack" style="gap:16px" novalidate>' +
       '<div class="field"><label for="name">Your first name</label><input id="name" type="text" autocomplete="given-name" maxlength="24"></div>' +
-      '<div class="field"><label for="dob">Date of birth</label><input id="dob" type="date" autocomplete="bday" min="1900-01-01"><span class="muted small">SeshOn is for people aged 18 and over. We only use this to check your age and do not keep it.</span></div>' +
+      '<div class="field"><label for="dob">Date of birth</label><input id="dob" type="date" autocomplete="bday" min="1900-01-01"><span class="muted small">Frenzy is for people aged 18 and over. We only use this to check your age and do not keep it.</span></div>' +
       (CAPTCHA_KEY ? '<div id="captcha"></div>' : '') +
       '<p id="join-error" class="error" hidden></p>' +
       '<button class="btn" type="submit" id="join-btn">Get started</button>' +
@@ -338,7 +376,7 @@
       '</form><button class="btn ghost" data-act="auth" data-v="login">I already have an account</button></div>';
   }
   function loginScreen() {
-    return '<div class="stack" style="gap:24px;margin-block:auto"><div class="wordmark">SeshOn</div><h1>Log in</h1>' +
+    return '<div class="stack" style="gap:24px;margin-block:auto">' + logo() + '<h1>Log in</h1>' +
       '<form id="login" class="stack" style="gap:16px" novalidate>' +
       '<div class="field"><label for="login-user">Username</label><input id="login-user" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="20" value="' + esc(ui.loginName || '') + '"></div>' +
       '<div class="field"><label for="login-pass">Password</label><input id="login-pass" type="password" autocomplete="current-password" maxlength="72"></div>' +
@@ -349,7 +387,7 @@
       '<button class="btn ghost" data-act="auth" data-v="">Back</button></div>';
   }
   function recoverScreen() {
-    return '<div class="stack" style="gap:24px;margin-block:auto"><div class="wordmark">SeshOn</div><h1>Use your recovery code</h1>' +
+    return '<div class="stack" style="gap:24px;margin-block:auto">' + logo() + '<h1>Use your recovery code</h1>' +
       '<p class="muted">Enter the recovery code you saved when you made your password, and choose a new password.</p>' +
       '<form id="recover" class="stack" style="gap:16px" novalidate>' +
       '<div class="field"><label for="rec-user">Username</label><input id="rec-user" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="20" value="' + esc(ui.loginName || '') + '"></div>' +
@@ -395,7 +433,7 @@
       h += '<section class="stack"><h2>Friend requests</h2>' + D.requests_in.map(function (r) {
         return '<div class="card"><div class="row">' + avatar(r.name) + '<div class="grow"><strong>' + esc(r.name) + '</strong> wants to add you</div></div>' +
           (ui.confirm === 'blockreq:' + r.friendship
-            ? '<div class="row"><span class="small grow">Block ' + esc(first(r.name)) + '? They won\'t be able to add you again.</span><button class="btn small-btn" style="--c:var(--off)" data-act="block-request" data-v="' + esc(r.friendship) + '">Block</button><button class="btn small-btn ghost" data-act="cancel-confirm">Cancel</button></div></div>'
+            ? '<div class="row"><span class="small grow">Block ' + esc(first(r.name)) + '? They won\'t be able to add you again.</span><button class="btn small-btn" style="--c:var(--off);--cf:var(--ink)" data-act="block-request" data-v="' + esc(r.friendship) + '">Block</button><button class="btn small-btn ghost" data-act="cancel-confirm">Cancel</button></div></div>'
             : '<div class="row"><button class="btn small-btn" data-act="accept" data-v="' + esc(r.friendship) + '">Accept</button>' +
               '<button class="btn small-btn ghost" data-act="unfriend" data-v="' + esc(r.friendship) + '">Decline</button>' +
               '<button class="linkbtn" data-act="ask" data-v="blockreq:' + esc(r.friendship) + '">Block</button></div></div>');
@@ -404,7 +442,7 @@
 
     var friends = D.friends;
     if (!friends.length) {
-      h += '<div class="card"><h2>Add your friends</h2><p class="muted small">SeshOn only works with friends on it. Send them your invite link, then accept their request when it arrives.</p>' +
+      h += '<div class="card"><h2>Add your friends</h2><p class="muted small">Frenzy only works with friends on it. Send them your invite link, then accept their request when it arrives.</p>' +
         '<button class="btn" data-act="share">Send your invite link</button>' + linkBox() + '</div>';
     } else if (s === 'off') {
       h += '<div class="card"><h2>Friends are hidden while you\'re red</h2><p class="muted small">Slide to green or amber to see who\'s up for it tonight.</p></div>';
@@ -412,14 +450,14 @@
       var on = friends.filter(function (f) { return f.colour === 'on'; }).length;
       var th = friends.filter(function (f) { return f.colour === 'thinking'; }).length;
       h += '<section class="stack" style="gap:4px"><div class="row between"><h2>Up for it now</h2><span class="muted small">' + on + ' green, ' + th + ' amber</span></div>' +
-        friends.map(function (f) {
-          return '<div class="friend">' + avatar(f.name, f.colour === 'off' ? 'var(--line)' : COLORS[f.colour], f.colour === 'thinking') +
-            '<div class="grow"><div style="font-weight:500' + (f.colour === 'off' ? ';color:var(--muted)' : '') + '">' + esc(f.name) + '</div></div>' +
-            '<div class="state" style="--c:' + (f.colour === 'off' ? 'var(--muted)' : COLORS[f.colour]) + '">' + LABELS[f.colour] + '</div></div>';
-        }).join('') + '</section>';
+        '<div class="faces">' + friends.slice().sort(function (x, y) { return STOPS.indexOf(x.colour) - STOPS.indexOf(y.colour); }).map(function (f) {
+          var c = f.colour === 'off' ? 'var(--line)' : COLORS[f.colour];
+          return '<div class="friend face' + (f.colour === 'off' ? ' away' : '') + '" style="--c:' + c + ';--h:' + hue(f.name) + '"><div class="face-pic">' + face(f.id, f.name) + '</div>' +
+            '<div class="face-name">' + esc(first(f.name)) + '</div><div class="state" style="--c:' + (f.colour === 'off' ? 'var(--muted)' : COLORS[f.colour]) + '">' + LABELS[f.colour] + '</div></div>';
+        }).join('') + '</div></section>';
       var sesh = mySesh();
       if (s === 'on') h += '<button class="btn" data-act="go-sesh">' + (sesh ? 'Open tonight\'s sesh' : 'Start a sesh') + '</button>';
-      else h += '<button class="btn" style="--c:var(--thinking)" data-act="tab" data-v="' + (DEALS_ON ? 'deals' : 'venues') + '">' + (DEALS_ON ? 'See tonight\'s deals' : 'See venues') + '</button>';
+      else h += '<button class="btn" style="--c:var(--thinking);--cf:var(--ink)" data-act="tab" data-v="events">See what\'s on tonight</button>';
     }
     return h;
   }
@@ -448,20 +486,22 @@
     if (!ui.messages.length) return '<p class="muted small">No messages yet. Say where you\'re heading.</p>';
     return ui.messages.map(function (m) {
       var mineMsg = m.sender === D.me.id;
-      var h = '<div class="msg' + (mineMsg ? ' me' : '') + '">' + (mineMsg ? '' : '<div class="who">' + esc(first(m.name)) + '</div>') + '<div>' + esc(m.body) + '</div>';
+      var h = '<div class="msg-row' + (mineMsg ? ' me' : '') + '">' + (mineMsg ? '' : avatar(m.name, 'var(--line)', false, m.sender)) + '<div class="msg-wrap">' +
+        (mineMsg ? '' : '<div class="who">' + esc(first(m.name)) + '</div>') +
+        '<div class="msg' + (mineMsg ? ' me' : '') + '"><div>' + esc(m.body) + '</div><span class="when">' + fmtTime(m.at) + '</span>';
       if (!mineMsg) {
         if (ui.confirm === 'report:' + m.id) h += '<div class="acts"><span class="small">Report this message?</span><button class="linkbtn" data-act="report-msg" data-v="' + esc(m.id) + '">Report</button><button class="linkbtn" data-act="cancel-confirm">Cancel</button></div>';
         else if (ui.confirm === 'block:' + m.sender) h += '<div class="acts"><span class="small">Block ' + esc(first(m.name)) + '?</span><button class="linkbtn" data-act="block-user" data-v="' + esc(m.sender) + '">Block</button><button class="linkbtn" data-act="cancel-confirm">Cancel</button></div>';
         else h += '<div class="acts"><button class="linkbtn" data-act="ask" data-v="report:' + esc(m.id) + '">Report</button><button class="linkbtn" data-act="ask" data-v="block:' + esc(m.sender) + '">Block</button></div>';
       }
-      return h + '</div>';
+      return h + '</div></div></div>';
     }).join('');
   }
   function chatHtml() {
     return '<section class="stack"><h2>Chat</h2>' +
       '<p class="muted small">Messages disappear when the sesh ends. Friends can still screenshot, so only send what you\'re happy for them to keep.</p>' +
       '<div id="chat-list" class="chat" aria-live="polite">' + chatItems() + '</div>' +
-      '<form id="chat-form" class="chat-form" novalidate><input id="chat-input" type="text" maxlength="500" autocomplete="off" aria-label="Message your mates" placeholder="Message your mates"><button class="btn small-btn" type="submit" id="chat-send">Send</button></form></section>';
+      '<form id="chat-form" class="chat-form" novalidate><input id="chat-input" type="text" maxlength="500" autocomplete="off" aria-label="Message your mates" placeholder="Type a message..."><button class="send" type="submit" id="chat-send" aria-label="Send">' + svg('send', 22) + '</button></form></section>';
   }
   function paintChat(stick) {
     var el = document.getElementById('chat-list');
@@ -548,14 +588,80 @@
   function mapTab() {
     var h = '<div class="stack" style="gap:6px"><h1>Map</h1><p class="muted small">Pick how far you want to go.</p></div>';
     if (window.L) {
-      h += '<div class="stack" style="gap:12px"><div id="map-slot" class="map big"></div>' +
-        '<div class="field"><div class="row between"><label for="radius" style="font-weight:700">How far</label><span id="radius-label" class="pill">' + ui.radiusKm + ' km</span></div>' +
-        '<input type="range" id="radius" min="1" max="25" step="1" value="' + ui.radiusKm + '" aria-describedby="radius-label"></div>' +
-        '<div class="row between"><p class="muted small grow">' + (geo.mine ? 'Searching around you. Your location stays on this phone and is never saved or shown to friends.' : 'Tap the map to search somewhere else.') + '</p>' +
-        '<button class="btn small-btn ghost" data-act="locate"' + (geo.busy ? ' disabled' : '') + '>' + (geo.busy ? 'Finding you...' : (geo.mine ? 'Update' : 'Near me')) + '</button></div></div>';
+      h += '<div class="stack" style="gap:12px"><div class="map-box"><div id="map-slot" class="map big"></div>' +
+        '<button class="map-fab" data-act="locate" aria-label="' + (geo.busy ? 'Finding you' : 'Near me') + '" aria-pressed="' + geo.mine + '"' + (geo.busy ? ' disabled' : '') + '>' + svg('arrow', 20) + '</button></div>' + mapPick() +
+        '<div class="radius"><div class="row between"><label for="radius" class="eyebrow">How far</label><div class="radius-num"><span id="radius-label">' + ui.radiusKm + '</span><small>km</small></div></div>' +
+        '<input type="range" id="radius" min="1" max="25" step="1" value="' + ui.radiusKm + '" style="--p:' + radiusFill() + '" aria-valuetext="' + ui.radiusKm + ' km">' +
+        '<div class="scale" aria-hidden="true"><span>1 km</span><span>25 km</span></div></div>' +
+        '<p class="muted small">' + (geo.busy ? 'Finding you...' : geo.mine ? 'Searching around you. Your location stays on this phone and is never saved or shown to friends.' : 'Tap the map to search somewhere else, or the arrow to search near you.') + '</p></div>';
     }
     return h + '<div class="stack" style="gap:12px" id="venue-list">' + venueList() + '</div>';
   }
+  // The venue picked on the map, with its deals, shown straight under the map.
+  function mapPick() {
+    var ven = ui.mapPick && venueById(ui.mapPick);
+    if (!ven) return '';
+    var here = DEALS_ON ? D.deals.filter(function (d) { return d.venue_id === ven.id; }) : [], mine = mySesh(), away = awayText(ven);
+    return '<div class="card map-pick" id="map-pick"><div class="row between"><div class="grow">' + (ven.is_example ? '<div class="eyebrow">Example venue</div>' : '') +
+      '<h2 style="font-size:22px">' + esc(ven.name) + '</h2><div class="muted small">' + esc([ven.kind, ven.closes, away].filter(Boolean).join(', ')) + '</div></div>' +
+      '<button class="back" data-act="map-pick" data-v="" aria-label="Close">' + svg('close', 18) + '</button></div>' +
+      here.map(dealBanner).join('') +
+      '<div class="row"><button class="btn small-btn" data-act="venue" data-v="' + esc(ven.id) + '">Open venue</button>' +
+      (mine && !mine.locked_venue ? '<button class="btn small-btn ghost" data-act="suggest" data-v="' + esc(ven.id) + '">Vote for it</button>' : '') + '</div></div>';
+  }
+  var PIN_FILL = { near: '#1F7BFF', far: '#8A90A0', goal: '#FF4757' };
+  function pinIcon(kind) {
+    return L.divIcon({ className: '', iconSize: [30, 40], iconAnchor: [15, 39],
+      html: '<span class="pin' + (kind === 'far' ? ' far' : '') + '"><svg width="30" height="40" viewBox="0 0 30 40" aria-hidden="true"><path d="M15 38.5S2.5 23.6 2.5 14a12.5 12.5 0 0 1 25 0c0 9.6-12.5 24.5-12.5 24.5z" fill="' + PIN_FILL[kind] + '" stroke="#fff" stroke-width="2.5"/><circle cx="15" cy="14" r="5" fill="#fff"/></svg></span>' });
+  }
+  function youIcon() { return L.divIcon({ className: '', iconSize: [44, 44], iconAnchor: [22, 22], html: '<span class="you-dot"></span>' }); }
+  function fromName() {
+    if (geo.mine) return 'you';
+    return geo.centre[0] === MAP_CENTRE[0] && geo.centre[1] === MAP_CENTRE[1] ? 'the city centre' : 'the map pin';
+  }
+  function awayText(ven) {
+    var at = pins && pins[ven.id];
+    if (!at) return '';
+    var d = fmtKm(km(geo.centre, at));
+    return geo.mine ? d + ' away' : d + ' from ' + fromName();
+  }
+
+  // One small map, moved between screens: the route to the venue above the sesh chat, and the top of a venue page.
+  var MINI = { el: null, map: null, layers: null };
+  function miniSlot(kind, venueId) { return '<div id="mini-slot" class="map ' + kind + '" data-venue="' + esc(venueId) + '"></div>'; }
+  function mountMini() {
+    var slot = document.getElementById('mini-slot');
+    if (!slot || !window.L) return;
+    var ven = venueById(slot.getAttribute('data-venue')), at = ven && pins && pins[ven.id], route = slot.classList.contains('route');
+    if (!at) { slot.hidden = true; return; }
+    if (!MINI.map) {
+      MINI.el = document.createElement('div');
+      MINI.map = L.map(MINI.el, { center: at, zoom: 15, scrollWheelZoom: false, dragging: !L.Browser.mobile, attributionControl: true });
+      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>'
+      }).addTo(MINI.map);
+      MINI.map.attributionControl.setPrefix(false);
+      MINI.layers = L.layerGroup().addTo(MINI.map);
+    }
+    MINI.el.className = slot.className;
+    MINI.el.setAttribute('aria-label', route ? 'Map from ' + fromName() + ' to ' + ven.name : 'Map showing where ' + ven.name + ' is');
+    slot.parentNode.replaceChild(MINI.el, slot);
+    MINI.map.invalidateSize();
+    MINI.layers.clearLayers();
+    var goal = L.marker(at, { icon: pinIcon('goal'), keyboard: false, interactive: false }).addTo(MINI.layers);
+    if (route) {
+      // A straight dotted line: how far it is as the crow flies, not a walking route.
+      L.polyline([geo.centre, at], { color: '#1F7BFF', weight: 6, opacity: 0.95, dashArray: '0.1 12', lineCap: 'round', interactive: false }).addTo(MINI.layers);
+      L.marker(geo.centre, { icon: youIcon(), keyboard: false, interactive: false }).addTo(MINI.layers)
+        .bindTooltip(geo.mine ? 'You' : fromName() === 'the city centre' ? 'City' : 'Pin', { permanent: true, direction: 'bottom', offset: [0, 10], className: 'tag you' });
+      goal.bindTooltip(esc(ven.name) + '<small>' + fmtKm(km(geo.centre, at)) + '</small>', { permanent: true, direction: 'right', offset: [12, -24], className: 'tag' });
+      MINI.map.fitBounds(L.latLngBounds([geo.centre, at]), { animate: false, padding: [46, 46], maxZoom: 16 });
+    } else {
+      MINI.map.setView(at, 16, { animate: false });
+    }
+  }
+
   function mountMap() {
     var slot = document.getElementById('map-slot');
     if (!slot || !window.L) return;
@@ -569,8 +675,8 @@
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>'
       }).addTo(M.map);
       M.map.attributionControl.setPrefix(false);
-      M.circle = L.circle(geo.centre, { radius: ui.radiusKm * 1000, color: '#3DDC84', weight: 2, fillOpacity: 0.08, interactive: false }).addTo(M.map);
-      M.centre = L.circleMarker(geo.centre, { radius: 7, color: '#121110', weight: 2, fillColor: '#F4F1EA', fillOpacity: 1, interactive: false }).addTo(M.map);
+      M.circle = L.circle(geo.centre, { radius: ui.radiusKm * 1000, color: '#1F7BFF', weight: 2, dashArray: '6 6', fillColor: '#1F7BFF', fillOpacity: 0.1, interactive: false }).addTo(M.map);
+      M.centre = L.marker(geo.centre, { icon: youIcon(), interactive: false, keyboard: false }).addTo(M.map);
       M.map.on('click', function (e) { geo.centre = [e.latlng.lat, e.latlng.lng]; geo.mine = false; render(); });
       M.fit = true;
     }
@@ -587,30 +693,37 @@
       var at = pins && pins[ven.id];
       if (!at) return;
       keep[ven.id] = true;
-      var inside = km(geo.centre, at) <= ui.radiusKm;
+      var inside = km(geo.centre, at) <= ui.radiusKm, kind = ui.mapPick === ven.id ? 'goal' : inside ? 'near' : 'far';
       var dot = M.dots[ven.id];
       if (!dot) {
-        dot = M.dots[ven.id] = L.circleMarker(at, { radius: 9, weight: 2 }).addTo(M.map);
-        dot.on('click', function () { ACT.venue(ven.id); });
+        dot = M.dots[ven.id] = L.marker(at, { icon: pinIcon(kind), title: ven.name, alt: ven.name }).addTo(M.map);
+        dot.kind = kind;
+        dot.on('click', function () { ACT['map-pick'](ven.id); });
       }
-      dot.setLatLng(at).setStyle({ color: '#121110', fillColor: inside ? '#3DDC84' : '#ABA59B', fillOpacity: inside ? 1 : 0.6 });
-      dot.unbindTooltip().bindTooltip(ven.name, { direction: 'top', offset: [0, -8] });
+      if (dot.kind !== kind) { dot.kind = kind; dot.setIcon(pinIcon(kind)); }
+      dot.setZIndexOffset(kind === 'goal' ? 1000 : 0);
+      dot.setLatLng(at);
+      dot.unbindTooltip().bindTooltip(esc(ven.name), { direction: 'top', offset: [0, -34], className: 'tag' });
     });
     Object.keys(M.dots).forEach(function (id) { if (!keep[id]) { M.map.removeLayer(M.dots[id]); delete M.dots[id]; } });
     if (M.fit) { M.fit = false; M.map.fitBounds(M.circle.getBounds(), { animate: false, padding: [12, 12] }); }
   }
+  function radiusFill() { return ((ui.radiusKm - 1) / 24 * 100).toFixed(1) + '%'; }
   function setRadius(v) {   // the slider moves without redrawing the page, so dragging it stays smooth
     ui.radiusKm = Math.min(25, Math.max(1, Math.round(Number(v)) || 5));
     store(RADIUS_KEY, ui.radiusKm);
     var label = document.getElementById('radius-label'), list = document.getElementById('venue-list');
-    if (label) label.textContent = ui.radiusKm + ' km';
+    if (label) label.textContent = ui.radiusKm;
+    var range = document.getElementById('radius');
+    if (range) { range.style.setProperty('--p', radiusFill()); range.setAttribute('aria-valuetext', ui.radiusKm + ' km'); }
     if (list) list.innerHTML = venueList();
     drawMap();
   }
 
   function sesh() {
     var me = D.me, mine = mySesh();
-    var h = '<div class="stack" style="gap:6px"><div class="eyebrow" style="color:var(--on)">' + (mine ? 'Live now' : 'Tonight') + '</div><h1>Tonight\'s sesh</h1></div>';
+    var h = (mine && mine.locked_venue && venueById(mine.locked_venue) ? '<div class="bleed">' + miniSlot('route', mine.locked_venue) + '</div>' : '') +
+      '<div class="stack" style="gap:6px"><div class="eyebrow" style="color:var(--on)">' + (mine ? 'Live now' : 'Tonight') + '</div><h1>Tonight\'s sesh</h1></div>';
     if (!mine) {
       var others = D.seshes.filter(function (s) { return !s.am_member; });
       if (others.length) {
@@ -624,21 +737,21 @@
         h += '<p class="muted">' + (others.length ? 'Or start your own.' : 'Nobody has started one yet. Start a sesh and your friends on green or amber can join and vote on where to go.') + '</p>' +
           '<button class="btn' + (others.length ? ' ghost' : '') + '" data-act="start-sesh">Start a sesh</button>';
       } else if (me.colour === 'thinking') {
-        h += '<p class="muted">' + (others.length ? 'Go green to start your own.' : 'No sesh yet. Go green to start one.') + '</p><button class="btn" data-act="status" data-v="on">Go green</button>';
+        h += '<p class="muted">' + (others.length ? 'Go green to start your own.' : 'No sesh yet. Go green to start one.') + '</p><button class="btn" style="--c:var(--on);--cf:var(--ink)" data-act="status" data-v="on">Go green</button>';
       } else {
-        h += '<p class="muted">You\'re red, so seshes are hidden. Go green to start one or see your friends\' plans.</p><button class="btn" data-act="status" data-v="on">Go green</button>';
+        h += '<p class="muted">You\'re red, so seshes are hidden. Go green to start one or see your friends\' plans.</p><button class="btn" style="--c:var(--on);--cf:var(--ink)" data-act="status" data-v="on">Go green</button>';
       }
       return h;
     }
 
-    h += '<div class="card"><div class="avatars">' + mine.members.map(function (m) { return avatar(m.name || '?', 'var(--on)'); }).join('') + '</div>' +
+    h += '<div class="card"><div class="avatars">' + mine.members.map(function (m) { return avatar(m.name || '?', 'var(--on)', false, m.id); }).join('') + '</div>' +
       '<div><div style="font-weight:700">' + mine.members.length + ' in</div><div class="muted small">' +
       esc(mine.members.map(function (m) { return m.id === me.id ? 'You' : first(m.name); }).join(', ')) + '</div></div></div>';
 
     if (mine.locked_venue) {
       var lv = venueById(mine.locked_venue);
       h += '<div class="card lead"><div class="eyebrow" style="color:var(--on)">Locked in</div><h2>' + esc(lv ? lv.name : 'A venue') + '</h2>' +
-        (lv ? '<p class="muted small">' + esc([lv.kind, lv.closes].filter(Boolean).join(', ')) + '</p><button class="btn" data-act="venue" data-v="' + esc(lv.id) + '">' + (DEALS_ON ? 'See venue and deals' : 'See venue') + '</button>' : '') + '</div>';
+        (lv ? '<p class="muted small">' + esc([lv.kind, lv.closes, awayText(lv)].filter(Boolean).join(', ')) + '</p><button class="btn" data-act="venue" data-v="' + esc(lv.id) + '">' + (DEALS_ON ? 'See venue and deals' : 'See venue') + '</button>' : '') + '</div>';
     } else {
       var tallyInfo = leaderOf(mine), total = mine.votes.length;
       var myVote = (mine.votes.filter(function (v) { return v.user_id === me.id; })[0] || {}).venue_id;
@@ -684,26 +797,46 @@
       (showVenue && ven ? '<div class="small muted">' + esc(ven.name) + (ven.is_example ? ' (example venue)' : '') + '</div>' : '') +
       '<div class="row">' +
       (showVenue && ven ? '<button class="btn small-btn ghost" data-act="venue" data-v="' + esc(ven.id) + '">Venue</button>' : '') +
-      '<button class="btn small-btn" style="--c:var(--thinking)" data-act="redeem" data-v="' + esc(d.id) + '"' + (d.running && !d.used ? '' : ' disabled') + '>' + (d.used ? 'Used tonight' : d.running ? (d.code ? 'Show code' : 'Use deal') : 'Not on now') + '</button></div></div>';
+      redeemBtn(d) + '</div></div>';
   }
-  function deals() {
-    var list = D.deals.filter(function (d) { return ui.filter === 'All' || d.type === ui.filter; });
-    return '<div class="stack" style="gap:6px"><h1>Deals near you</h1><p class="muted small">Deals only work during their hours. Each person can use a deal once per night.</p></div>' +
-      '<div class="chips" role="group" aria-label="Filter deals">' + DEAL_TYPES.map(function (t) {
-        return '<button class="chip" data-act="filter" data-v="' + t + '" aria-pressed="' + (ui.filter === t) + '">' + t + '</button>';
-      }).join('') + '</div>' +
-      '<div class="stack" style="gap:12px">' + (list.length ? list.map(function (d) { return dealCard(d, true); }).join('') : '<p class="muted">No deals of this type tonight.</p>') + '</div>';
+  function redeemBtn(d) {
+    return '<button class="btn small-btn" style="--c:var(--zest);--cf:var(--ink)" data-act="redeem" data-v="' + esc(d.id) + '"' + (d.running && !d.used ? '' : ' disabled') + '>' + (d.used ? 'Used tonight' : d.running ? (d.code ? 'Show code' : 'Use deal') : 'Not on now') + '</button>';
+  }
+  function dealBanner(d) {
+    return '<div class="deal-banner' + (d.running ? '' : ' off') + '"><div class="row between"><span class="sub">' + esc(d.type) + '</span><span class="small muted">' + dealLabel(d) + '</span></div>' +
+      '<div class="big">' + esc(d.title) + '</div>' +
+      (d.is_alcohol ? '<div class="small muted">18+. Bring photo ID. Please drink responsibly.</div>' : '') +
+      '<div class="row">' + redeemBtn(d) + '</div></div>';
+  }
+  // What's on: gigs, quiz nights and live music that venues list as events. Never drink promotions.
+  function events() {
+    var list = D.deals.filter(function (d) { return d.type === 'Events' && !d.is_alcohol; }).map(function (d) {
+      var at = pins && pins[d.venue_id];
+      return { d: d, ven: venueById(d.venue_id), km: at ? km(geo.centre, at) : null };
+    }).sort(function (x, y) { return (y.d.running - x.d.running) || ((x.km == null ? 1e9 : x.km) - (y.km == null ? 1e9 : y.km)); });
+    var h = '<div class="stack" style="gap:6px"><h1>Events</h1><p class="muted small">What\'s on at venues tonight.</p></div>';
+    if (!list.length) return h + '<div class="card"><h2>Nothing listed yet</h2><p class="muted small">Gigs, quiz nights and live music show up here when venues add them.</p></div>';
+    return h + '<div class="stack" style="gap:14px">' + list.map(function (e) {
+      var d = e.d, ven = e.ven;
+      return '<div class="deal-banner' + (d.running ? '' : ' off') + '"><div class="row between"><span class="sub">' + esc(ven ? ven.name : 'A venue') + '</span><span class="small muted">' + dealLabel(d) + '</span></div>' +
+        '<div class="big">' + esc(d.title) + '</div>' +
+        (e.km != null ? '<div class="small muted">' + esc(fmtKm(e.km) + (geo.mine ? ' away' : ' from ' + fromName())) + '</div>' : '') +
+        '<div class="row">' + (ven ? '<button class="btn small-btn ghost" data-act="venue" data-v="' + esc(ven.id) + '">See venue</button>' : '') + (DEALS_ON ? redeemBtn(d) : '') + '</div></div>';
+    }).join('') + '</div>';
   }
 
   function venue(id) {
     var ven = venueById(id);
-    if (!ven) return backBtn() + '<p class="muted">That venue is no longer listed.</p>';
-    var h = backBtn() +
-      '<div class="stack" style="gap:6px">' + (ven.is_example ? '<div class="eyebrow">Example venue</div>' : '') + '<h1>' + esc(ven.name) + '</h1><p class="muted small">' +
-      (ven.ratings ? '<strong style="color:var(--fg)">' + Number(ven.average).toFixed(1) + '</strong> from ' + ven.ratings + ' rating' + (ven.ratings === 1 ? '' : 's') + '. ' : 'No ratings yet. ') +
-      esc([ven.kind, ven.closes].filter(Boolean).join(', ')) + '</p></div>';
+    if (!ven) return topBar(true) + '<p class="muted">That venue is no longer listed.</p>';
+    var away = awayText(ven), fact = function (icon, text) { return '<div class="row">' + svg(icon, 20) + '<span class="grow">' + text + '</span></div>'; };
+    var h = topBar(true) + '<div class="bleed">' + miniSlot('hero', id) + '</div>' +
+      '<div class="stack" style="gap:12px">' + (ven.is_example ? '<div class="eyebrow">Example venue</div>' : '') + '<h1 class="venue-name">' + esc(ven.name) + '</h1><div class="facts">' +
+      (ven.kind || ven.closes ? fact('place', esc([ven.kind, ven.closes].filter(Boolean).join(', '))) : '') +
+      (away ? fact('arrow', esc(away)) : '') +
+      fact('star', ven.ratings ? '<strong>' + Number(ven.average).toFixed(1) + '</strong> from ' + ven.ratings + ' rating' + (ven.ratings === 1 ? '' : 's') : 'No ratings yet') +
+      '</div></div>';
     var here = D.deals.filter(function (d) { return d.venue_id === id; });
-    if (DEALS_ON) h += '<div class="stack" style="gap:12px"><h2>Deals here</h2>' + (here.length ? here.map(function (d) { return dealCard(d, false); }).join('') : '<p class="muted small">No deals here right now.</p>') + '</div>';
+    if (DEALS_ON) h += '<div class="stack" style="gap:12px"><h2>Deals here</h2>' + (here.length ? here.map(dealBanner).join('') : '<p class="muted small">No deals here right now.</p>') + '</div>';
     h += '<div class="stack" style="gap:12px;padding-top:18px;border-top:1px solid var(--line)"><h2>Rate this venue</h2>' +
       '<div class="stars" role="group" aria-label="Star rating">' + [1, 2, 3, 4, 5].map(function (n) {
         return '<button class="star" data-act="star" data-v="' + n + '" aria-label="' + n + ' star' + (n > 1 ? 's' : '') + '" aria-pressed="' + (ven.my_stars >= n) + '"><svg width="30" height="30" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true">' + ICON.star + '</svg></button>';
@@ -716,19 +849,19 @@
     return h;
   }
   // Shown above every tab: the name on the left, and your profile (the You page) at the top right.
-  function topBar() {
+  function topBar(back) {
     var me = D.me;
-    return '<div class="top"><div class="wordmark">SeshOn</div><div class="row" style="gap:10px">' +
+    return '<div class="top"><div class="row" style="gap:6px">' + (back ? backBtn() : '') + logo(me.colour) + '</div><div class="row" style="gap:10px">' +
       (ui.offline ? '<span class="pill" style="border-color:var(--off);color:var(--off)">Offline</span>' : '') +
-      '<button class="avatar profile-btn" style="--c:' + COLORS[me.colour] + '" data-act="tab" data-v="you" aria-label="You"' + (ui.tab === 'you' ? ' aria-current="page"' : '') + '>' + initials(me.name) + '</button></div></div>';
+      '<button class="avatar profile-btn" style="--c:' + COLORS[me.colour] + '" data-act="tab" data-v="you" aria-label="You"' + (ui.tab === 'you' ? ' aria-current="page"' : '') + '>' + face(me.id, me.name) + '</button></div></div>';
   }
   function backBtn() { return '<button class="back" data-act="close" aria-label="Back">' + svg('back', 20) + '</button>'; }
 
   function redeem(id) {
     var d = dealById(id);
-    if (!d) return backBtn() + '<p class="muted">That deal is no longer listed.</p>';
+    if (!d) return topBar(true) + '<p class="muted">That deal is no longer listed.</p>';
     var ven = venueById(d.venue_id) || { name: 'the venue', id: null };
-    var h = '<div class="row">' + backBtn() + '<div style="font-weight:700">' + esc(ven.name) + '</div></div>';
+    var h = topBar(true) + '<div class="eyebrow">' + esc(ven.name) + '</div>';
     if (d.used) {
       return h + '<h1>Deal used</h1><p class="deal-title">' + esc(d.title) + '</p><p class="muted">Each person can use a deal once per night. It will be available again tomorrow.</p>' +
         (ven.id ? '<button class="btn" data-act="venue" data-v="' + esc(ven.id) + '">Rate ' + esc(ven.name) + '</button>' : '');
@@ -741,7 +874,7 @@
         '<div class="card" style="gap:2px"><div class="muted small">Limit</div><div class="tile-num">1 per night</div></div></div>' +
         '<p class="muted small">This screen changes by itself once staff confirm the code.</p>';
     } else if (d.running) {
-      h += '<div class="card"><h2>This code ran out</h2><p class="muted small">Codes last 15 minutes so they can\'t be passed around.</p></div><button class="btn" style="--c:var(--thinking)" data-act="redeem" data-v="' + esc(id) + '">Get a new code</button>';
+      h += '<div class="card"><h2>This code ran out</h2><p class="muted small">Codes last 15 minutes so they can\'t be passed around.</p></div><button class="btn" style="--c:var(--zest);--cf:var(--ink)" data-act="redeem" data-v="' + esc(id) + '">Get a new code</button>';
     } else {
       h += '<div class="card"><h2>This deal has finished for today</h2></div>';
     }
@@ -750,7 +883,13 @@
 
   function you() {
     var me = D.me;
-    var h = '<div class="row">' + '<div class="avatar" style="width:56px;height:56px;font-size:18px;--c:' + COLORS[me.colour] + '">' + initials(me.name) + '</div><div class="grow"><h1 style="font-size:28px">' + esc(me.name) + '</h1><p class="muted small">Status: ' + LABELS[me.colour] + '</p></div></div>';
+    var h = '<div class="row">' + '<div class="avatar" style="width:56px;height:56px;font-size:18px;--c:' + COLORS[me.colour] + '">' + face(me.id, me.name) + '</div><div class="grow"><h1 style="font-size:28px">' + esc(me.name) + '</h1><p class="muted small">Status: ' + LABELS[me.colour] + '</p></div></div>';
+
+    h += '<div class="card"><h2>Your photo</h2><div class="row"><div class="face-pic me" style="--c:' + COLORS[me.colour] + ';--h:' + hue(me.name) + '">' + face(me.id, me.name) + '</div>' +
+      '<p class="muted small grow">Only your friends see it on your circle, never strangers or anyone you block. Use a photo of you.</p></div>' +
+      '<input type="file" id="photo-file" accept="image/*" hidden>' +
+      '<div class="row"><button class="btn small-btn" data-act="pick-photo"' + (ui.photoBusy ? ' disabled' : '') + '>' + (ui.photoBusy ? 'Saving...' : photos[me.id] ? 'Change photo' : 'Add a photo') + '</button>' +
+      (photos[me.id] && !ui.photoBusy ? '<button class="btn small-btn ghost" data-act="remove-photo">Remove</button>' : '') + '</div></div>';
 
     h += '<div class="card"><h2>Invite a friend</h2><p class="muted small">Send this link. When they sign up you get a friend request to accept.</p>' +
       '<button class="btn" data-act="share">Send your invite link</button>' + linkBox() + '</div>';
@@ -759,7 +898,7 @@
       h += '<div class="card" style="border-color:var(--thinking)"><h2>Staff: confirm a deal code</h2><p class="muted small">Type the code from the customer\'s phone. Each code works once.</p>' +
         '<form id="staff" class="stack" novalidate><div class="field"><label for="staff-code">Deal code</label><input id="staff-code" type="text" autocomplete="off" autocapitalize="characters" placeholder="SESH-0000" maxlength="12"></div>' +
         (ui.staffError ? '<p class="error" id="staff-error">' + esc(ui.staffError) + '</p>' : '') +
-        '<button class="btn" style="--c:var(--thinking)" type="submit">Confirm code</button></form></div>';
+        '<button class="btn" style="--c:var(--zest);--cf:var(--ink)" type="submit">Confirm code</button></form></div>';
     }
 
     if (D.friends.length || D.requests_out.length) {
@@ -768,9 +907,9 @@
           var asking = ui.confirm === 'unfriend:' + f.friendship, blocking = ui.confirm === 'block:' + f.id;
           return '<div class="row between"><div class="grow">' + esc(f.name) + (blocking ? '<div class="muted small">They won\'t see you or be able to add you again.</div>' : '') + '</div>' +
             (asking
-              ? '<button class="btn small-btn" style="--c:var(--off)" data-act="unfriend" data-v="' + esc(f.friendship) + '">Remove</button><button class="btn small-btn ghost" data-act="cancel-confirm">Keep</button>'
+              ? '<button class="btn small-btn" style="--c:var(--off);--cf:var(--ink)" data-act="unfriend" data-v="' + esc(f.friendship) + '">Remove</button><button class="btn small-btn ghost" data-act="cancel-confirm">Keep</button>'
               : blocking
-              ? '<button class="btn small-btn" style="--c:var(--off)" data-act="block-user" data-v="' + esc(f.id) + '">Block</button><button class="btn small-btn ghost" data-act="cancel-confirm">Cancel</button>'
+              ? '<button class="btn small-btn" style="--c:var(--off);--cf:var(--ink)" data-act="block-user" data-v="' + esc(f.id) + '">Block</button><button class="btn small-btn ghost" data-act="cancel-confirm">Cancel</button>'
               : '<button class="btn small-btn ghost" data-act="ask" data-v="unfriend:' + esc(f.friendship) + '">Remove</button><button class="btn small-btn ghost" data-act="ask" data-v="block:' + esc(f.id) + '">Block</button>') + '</div>';
         }).join('') +
         D.requests_out.map(function (r) {
@@ -787,7 +926,7 @@
       }).join('') + '</div>';
     }
 
-    h += '<div class="card"><h2>Put SeshOn on your home screen</h2><p class="muted small">On iPhone, tap the Share button in Safari, then Add to Home Screen. On Android, open the browser menu and tap Add to Home screen.</p></div>';
+    h += '<div class="card"><h2>Put Frenzy on your home screen</h2><p class="muted small">On iPhone, tap the Share button in Safari, then Add to Home Screen. On Android, open the browser menu and tap Add to Home screen.</p></div>';
 
     h += '<div class="card"><h2>About</h2><p class="small"><a href="privacy.html">Privacy Policy</a></p><p class="small"><a href="terms.html">Terms of use</a></p></div>';
 
@@ -807,7 +946,7 @@
     h += '<div class="card"><h2>Your account</h2><p class="muted small">' + (ui.account && ui.account !== 'off' ? 'You can log in on any phone with your username and password.' : 'Your account lives in this browser on this phone.') + ' If you work at a venue, give the organiser this ID so they can set you up as staff:</p>' +
       '<div class="linkbox" id="my-id">' + esc(me.id) + '</div>' +
       (ui.confirm === 'delete'
-        ? '<p class="error">This removes your name, friends, votes and ratings for good.</p><div class="row"><button class="btn small-btn" style="--c:var(--off)" data-act="delete-account">Delete for good</button><button class="btn small-btn ghost" data-act="cancel-confirm">Keep my account</button></div>'
+        ? '<p class="error">This removes your name, friends, votes and ratings for good.</p><div class="row"><button class="btn small-btn" style="--c:var(--off);--cf:var(--ink)" data-act="delete-account">Delete for good</button><button class="btn small-btn ghost" data-act="cancel-confirm">Keep my account</button></div>'
         : '<button class="btn ghost" data-act="ask" data-v="delete">Delete my account</button>') + '</div>';
     return h;
   }
@@ -853,7 +992,7 @@
       tabs.hidden = true;
       var want = ui.newCode ? 'newcode' : ui.auth || 'join';
       if (!document.getElementById(want)) {
-        view.innerHTML = want === 'newcode' ? '<div class="stack" style="margin-block:auto"><div class="wordmark">SeshOn</div>' + codeCard() + '</div>'
+        view.innerHTML = want === 'newcode' ? '<div class="stack" style="margin-block:auto">' + logo() + codeCard() + '</div>'
           : want === 'login' ? loginScreen() : want === 'recover' ? recoverScreen() : welcome();
         mountCaptcha();
       }
@@ -862,12 +1001,13 @@
     var html;
     if (ui.screen && ui.screen.type === 'venue') html = venue(ui.screen.id);
     else if (ui.screen && ui.screen.type === 'redeem') html = redeem(ui.screen.id);
-    else html = topBar() + { home: home, sesh: sesh, map: mapTab, venues: venues, deals: deals, you: you }[ui.tab]();
+    else html = topBar() + { home: home, sesh: sesh, map: mapTab, venues: venues, events: events, you: you }[ui.tab]();
     view.innerHTML = html;
     mountMap();
+    mountMini();
     tabs.hidden = false;
     var requests = D.requests_in.length;
-    var tabList = [['home', 'Home'], ['sesh', 'Sesh'], ['map', 'Map'], ['venues', 'Venues']].concat(DEALS_ON ? [['deals', 'Deals']] : []);
+    var tabList = [['home', 'Home'], ['sesh', 'Sesh'], ['map', 'Map'], ['venues', 'Venues'], ['events', 'Events']];
     tabs.style.gridTemplateColumns = 'repeat(' + tabList.length + ', minmax(0, 1fr))';
     tabs.innerHTML = tabList.map(function (t) {
       return '<button data-act="tab" data-v="' + t[0] + '"' + (ui.tab === t[0] && !ui.screen ? ' aria-current="page"' : '') + '>' + svg(t[0], 22) + '<span>' + t[1] + '</span>' +
@@ -890,7 +1030,7 @@
     var link = inviteLink();
     ui.linkShown = true;
     if (navigator.share) {
-      navigator.share({ title: 'SeshOn', text: 'Add me on SeshOn so we can see when we\'re both up for a sesh.', url: link }).catch(function () {});
+      navigator.share({ title: 'Frenzy', text: 'Add me on Frenzy so we can see when we\'re both up for a sesh.', url: link }).catch(function () {});
       render();
       return;
     }
@@ -903,7 +1043,7 @@
   var ACT = {
     tab: function (v) {
       ui.tab = v; ui.screen = null; ui.confirm = null; ui.staffError = ''; go(true);
-      if (v === 'map' || v === 'sesh') loadPins().then(function () { if (ui.tab === v && !ui.screen) { if (M.map) M.fit = true; render(); } });
+      if (v === 'map' || v === 'sesh' || v === 'events') loadPins().then(function () { if (ui.tab === v && !ui.screen) { if (M.map) M.fit = true; render(); } });
     },
     locate: function () {
       if (!navigator.geolocation) { toast('This phone cannot share its location. Tap the map instead.'); return; }
@@ -941,8 +1081,15 @@
       var s = mySesh(); if (!s) return;
       act('cast_vote', { p_sesh: s.id, p_venue: v }).then(function () { ui.screen = null; ui.tab = 'sesh'; go(true); });
     },
-    filter: function (v) { ui.filter = v; go(false); },
-    venue: function (v) { ui.screen = { type: 'venue', id: v }; go(true); },
+    'map-pick': function (v) {
+      ui.mapPick = v || null; render();
+      var card = document.getElementById('map-pick');
+      if (card && card.scrollIntoView) card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    },
+    venue: function (v) {
+      ui.screen = { type: 'venue', id: v }; go(true);
+      if (!pins) loadPins().then(function () { if (ui.screen && ui.screen.id === v) render(); });
+    },
     close: function () {
       if (ui.screen && ui.screen.type === 'redeem') { var d = dealById(ui.screen.id); ui.screen = d ? { type: 'venue', id: d.venue_id } : null; }
       else ui.screen = null;
@@ -964,6 +1111,8 @@
       act('rate_venue', { p_venue: ven.id, p_stars: ven.my_stars, p_tags: tags });
     },
     share: shareInvite,
+    'pick-photo': function () { var f = document.getElementById('photo-file'); if (f) f.click(); },
+    'remove-photo': function () { savePhoto(null); },
     'age-start': function () {
       ui.ageBusy = true; ui.ageNote = ''; render();
       ageCheckCall('start', { return_to: location.origin + location.pathname }).then(function (r) {
@@ -1057,6 +1206,12 @@
   document.addEventListener('pointercancel', function (e) { endDrag(e, true); });
 
   document.addEventListener('input', function (e) { if (e.target.id === 'radius') setRadius(e.target.value); });
+  document.addEventListener('change', function (e) {
+    if (e.target.id !== 'photo-file' || !e.target.files || !e.target.files[0]) return;
+    var file = e.target.files[0];
+    if (!/^image\//.test(file.type)) { toast('Pick a photo.'); return; }
+    shrinkPhoto(file).then(savePhoto, function () { toast('That photo could not be opened. Try a different one.'); });
+  });
   document.addEventListener('change', function (e) { if (e.target.id === 'radius' && M.map) { M.fit = true; drawMap(); } });   // zoom to the circle once the slider is let go
   document.addEventListener('click', function (e) {
     if (swallowClick) return;
@@ -1065,6 +1220,35 @@
     var fn = ACT[b.getAttribute('data-act')];
     if (fn) fn(b.getAttribute('data-v'));
   });
+
+  // Crops the middle square of a photo and shrinks it to 160 x 160 on this phone before it is sent.
+  function shrinkPhoto(file) {
+    return new Promise(function (resolve, reject) {
+      var reader = new FileReader();
+      reader.onerror = reject;
+      reader.onload = function () {
+        var img = new Image();
+        img.onerror = reject;
+        img.onload = function () {
+          var side = Math.min(img.naturalWidth, img.naturalHeight), c = document.createElement('canvas');
+          if (!side) return reject(new Error('empty'));
+          c.width = c.height = 160;
+          c.getContext('2d').drawImage(img, (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, 0, 0, 160, 160);
+          var out = c.toDataURL('image/jpeg', 0.82);
+          if (out.length > 60000) out = c.toDataURL('image/jpeg', 0.6);
+          resolve(out);
+        };
+        img.src = reader.result;
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+  function savePhoto(dataUrl) {
+    ui.photoBusy = true; render();
+    rpc('set_photo', { p_photo: dataUrl }).then(loadPhotos).then(function () { toast(dataUrl ? 'Photo saved.' : 'Photo removed.'); })
+      .catch(function (e) { toast(e.message); })
+      .then(function () { ui.photoBusy = false; render(); });
+  }
 
   function sendPendingInvite() {
     var code = store(INVITE_KEY);

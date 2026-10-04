@@ -167,7 +167,7 @@ try {
   const sent = [];
   ben.page.on('request', (r) => { if (r.url().startsWith(API)) sent.push(r.url() + ' ' + (r.postData() || '')); });
   ok(await has(ben, '23 venues within 5 km'), 'the map shows how many venues are inside the radius');
-  ok(await ben.page.locator('.leaflet-container path.leaflet-interactive').count() === 23, 'every venue with a position has a pin on the map');
+  ok(await ben.page.locator('.leaflet-container .leaflet-marker-icon.leaflet-interactive').count() === 23, 'every venue with a position has a pin on the map');
   ok(await has(ben, 'away,'), 'venue cards say how far away they are');
   await ben.ctx.grantPermissions(['geolocation']);
   await ben.ctx.setGeolocation({ latitude: -32.0569, longitude: 115.7439 });   // Fremantle, about 16 km from the example venues
@@ -184,17 +184,24 @@ try {
   await ben.page.evaluate(() => { document.getElementById('view').scrollTop = 0; });
   await ben.page.screenshot({ path: path.join(copy, 'venue-map.png') });
   await ben.page.evaluate(() => { document.getElementById('view').scrollTop = 0; });
-  await ben.page.locator('.leaflet-container path.leaflet-interactive').first().dispatchEvent('click');
-  ok(await has(ben, 'Rate this venue'), 'tapping a pin opens that venue');
+  const pin = (p, name) => p.page.locator(`.leaflet-container .leaflet-marker-icon[title="${name}"]`).dispatchEvent('click');
+  await pin(ben, 'Bodega Nine');
+  ok(await has(ben, 'Open venue') && await ben.page.locator('#map-pick', { hasText: 'Bodega Nine' }).count() === 1, 'tapping a pin shows that venue under the map');
+  await tap(ben, 'Open venue');
+  ok(await has(ben, 'Rate this venue'), 'and Open venue opens its page');
   await tab(ben, 'Venues');
 
-  console.log('Deals');
-  await tab(ben, 'Deals');
-  ok(await has(ben, '2-for-1 pizzas'), 'deals list shows food deals');
-  await tap(ben, 'Drinks');
-  ok(await has(ben, 'Happy hour: 25% off house drinks'), 'Drinks filter shows the compliant happy hour');
-  await tap(ben, 'All');
-  const bodega = ben.page.locator('.card', { hasText: 'Test deal: free garlic bread' });
+  console.log('Deals on the map, and events');
+  ok(await ben.page.locator('nav button:has-text("Deals")').count() === 0 && await ben.page.locator('nav button:has-text("Events")').count() === 1, 'there is an Events tab and no Deals tab');
+  await tab(ben, 'Events');
+  ok(await has(ben, 'Live music tonight') && !(await text(ben)).includes('2-for-1 pizzas') && !(await text(ben)).includes('Happy hour'), 'Events lists events only, never food or drink deals');
+  await tab(ben, 'Map');
+  await pin(ben, 'Bodega Nine');
+  ok(await has(ben, '2-for-1 pizzas'), 'a venue\'s deals show under the map when its pin is tapped');
+  await pin(ben, 'Lowtide Bar');
+  ok(await has(ben, 'Happy hour: 25% off house drinks') && !(await text(ben)).includes('2-for-1 pizzas'), 'tapping another pin shows that venue\'s deals instead');
+  await pin(ben, 'Bodega Nine');
+  const bodega = ben.page.locator('.deal-banner', { hasText: 'Test deal: free garlic bread' });
   await bodega.getByRole('button', { name: 'Use deal' }).click();
   ok(await has(ben, 'Show this to staff'), 'Ben gets a deal code screen');
   const code = await ben.page.locator('#code').innerText();
@@ -222,7 +229,7 @@ try {
   await ben.page.getByRole('button', { name: 'Good vibe' }).click();
   await ben.page.reload();
   await has(ben, 'Your status');
-  await tab(ben, 'Deals'); await ben.page.locator('.card', { hasText: 'Bodega Nine' }).getByRole('button', { name: 'Venue' }).first().click();
+  await tab(ben, 'Map'); await pin(ben, 'Bodega Nine'); await tap(ben, 'Open venue');
   ok(await ben.page.locator('button[aria-label="4 stars"][aria-pressed="true"]').count() === 1, 'rating and sign-in survive a page reload');
 
   console.log('Chat is erased');
@@ -282,6 +289,8 @@ try {
   const dan = await phone('Dan');
   await signUp(dan, 'Dan');
   ok((await dan.page.locator('nav button:has-text("Deals")').count()) === 0 && (await dan.page.locator('nav button:has-text("Venues")').count()) === 1, 'with deals off there is a Venues tab and no Deals tab');
+  await tab(dan, 'Events');
+  ok(await has(dan, 'Live music tonight') && await dan.page.getByRole('button', { name: 'Use deal' }).count() === 0, 'with deals off, events still show but cannot be redeemed');
   await tab(dan, 'Venues'); await dan.page.getByRole('button', { name: 'Open' }).first().click();
   ok(await has(dan, 'Rate this venue') && !(await text(dan)).includes('Deals here'), 'a venue page shows ratings but no deals');
 
@@ -345,6 +354,25 @@ try {
   ok(await fay2.page.locator('#login-user').inputValue() === 'fay_99', 'then the log-in form has the username filled in');
   await fay2.page.fill('#login-pass', 'brandnewpass'); await tap(fay2, 'Log in');
   ok(await has(fay2, 'Your status'), 'and the new password works');
+
+  console.log('Profile photos');
+  const pim = await phone('Pim'), quin = await phone('Quin');
+  await signUp(pim, 'Pim');
+  const pmLink = await inviteOf(pim);
+  await signUp(quin, 'Quin', pmLink);
+  await tab(pim, 'Home'); await has(pim, 'Quin wants to add you'); await tap(pim, 'Accept');
+  await tap(pim, 'Green'); await has(pim, 'Up for it now'); await tap(quin, 'Green');
+  ok(await has(quin, 'Up for it now') && await quin.page.locator('.friend.face .pic').count() === 0, 'with no photo, a friend\'s circle shows their initial');
+  await tab(pim, 'You');
+  ok(await has(pim, 'Add a photo'), 'the You page offers to add a photo');
+  // a 40 x 30 red PNG, so the square crop is tried too
+  const png = await pim.page.evaluate(() => { const c = document.createElement('canvas'); c.width = 40; c.height = 30; const g = c.getContext('2d'); g.fillStyle = '#d33'; g.fillRect(0, 0, 40, 30); return c.toDataURL('image/png').split(',')[1]; });
+  await pim.page.locator('#photo-file').setInputFiles({ name: 'me.png', mimeType: 'image/png', buffer: Buffer.from(png, 'base64') });
+  ok(await pim.page.waitForSelector('button.profile-btn img.pic', { timeout: 6000 }).then(() => true, () => false), 'Pim adds a photo and his profile button shows it');
+  await quin.page.reload(); await has(quin, 'Up for it now');
+  ok(await quin.page.waitForFunction(() => document.querySelectorAll('.friend.face .pic').length === 1, null, { timeout: 4000 }).then(() => true, () => false), 'his friend Quin sees his photo on his circle');
+  await tap(pim, 'Remove');
+  ok(await pim.page.waitForSelector('button.profile-btn img.pic', { state: 'detached', timeout: 6000 }).then(() => true, () => false), 'Pim can remove his photo');
 
   ok(consoleErrors.length === 0, 'no script errors on any phone' + (consoleErrors.length ? ': ' + consoleErrors.join('; ') : ''));
   await ana.page.screenshot({ path: path.join(copy, 'ana.png') });

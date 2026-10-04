@@ -3,36 +3,46 @@
 <head>
 <meta charset="utf-8">
 <!-- Security policy: scripts only from this site (and the Cloudflare Turnstile sign-up check), and the app can only talk to
-     the SeshOn Supabase project.
-     Map tiles are images from OpenStreetMap (img-src); the map code itself (Leaflet) is a copy kept in vendor/. If the Supabase project ever changes, change connect-src here as well as config.js. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://tile.openstreetmap.org; connect-src https://xfwrhetohauzhqqhkibm.supabase.co; frame-src https://challenges.cloudflare.com; manifest-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
+     the Frenzy Supabase project.
+     Map tiles are images from OpenStreetMap (img-src); the map code itself (Leaflet) is a copy kept in vendor/, and the fonts are copies kept in fonts/. If the Supabase project ever changes, change connect-src here as well as config.js. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: https://tile.openstreetmap.org; connect-src https://xfwrhetohauzhqqhkibm.supabase.co; frame-src https://challenges.cloudflare.com; manifest-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#121110">
+<meta name="theme-color" content="#050506">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="SeshOn">
-<title>SeshOn</title>
+<meta name="apple-mobile-web-app-title" content="Frenzy">
+<title>Frenzy</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="icon" href="icon-192.png">
 <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;700;800&family=DM+Sans:wght@400;500;700&display=swap">
 <style>
-/* Layout: one phone-width column, scrolling content above a tab bar; the status colour is the only loud thing on screen. */
+/* Layout: one phone-width column, scrolling content above a tab bar. Night-out look: near-black screens, a brush-script
+   logo, blue for your own messages and main actions, and the G/A/R status colours kept for status only. */
+@font-face { font-family: 'Permanent Marker'; font-weight: 400; font-display: swap; src: url(fonts/permanent-marker-latin-400-normal.woff2) format('woff2'); }
+@font-face { font-family: 'Montserrat'; font-weight: 700; font-display: swap; src: url(fonts/montserrat-latin-700-normal.woff2) format('woff2'); }
+@font-face { font-family: 'Montserrat'; font-weight: 800; font-display: swap; src: url(fonts/montserrat-latin-800-normal.woff2) format('woff2'); }
+@font-face { font-family: 'Inter'; font-weight: 400; font-display: swap; src: url(fonts/inter-latin-400-normal.woff2) format('woff2'); }
+@font-face { font-family: 'Inter'; font-weight: 500; font-display: swap; src: url(fonts/inter-latin-500-normal.woff2) format('woff2'); }
+@font-face { font-family: 'Inter'; font-weight: 700; font-display: swap; src: url(fonts/inter-latin-700-normal.woff2) format('woff2'); }
 :root {
   color-scheme: dark;
-  --bg: #121110;
-  --surface: #1F1D1A;
-  --surface-2: #2A2723;
-  --line: #3A362F;
-  --fg: #F4F1EA;
-  --muted: #ABA59B;
+  --bg: #050506;
+  --surface: #17181C;
+  --surface-2: #23252B;
+  --line: #2D2F36;
+  --fg: #F5F6F8;
+  --muted: #9B9EA8;
+  --accent: #1F7BFF;
+  --accent-ink: #FFFFFF;
+  --zest: #B8F23E;
   --on: #3DDC84;
   --thinking: #F5C542;
   --off: #F0524B;
-  --ink: #121110;
-  --display: 'Bricolage Grotesque', 'Trebuchet MS', system-ui, sans-serif;
-  --body: 'DM Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --ink: #0B0B0D;
+  --brush: 'Permanent Marker', 'Marker Felt', 'Comic Sans MS', cursive;
+  --display: 'Montserrat', 'Trebuchet MS', system-ui, sans-serif;
+  --body: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
 }
 html, body { height: 100%; margin: 0; }
 body { background: var(--bg); color: var(--fg); font-family: var(--body); font-size: 16px; line-height: 1.4; padding-top: env(safe-area-inset-top, 0px); box-sizing: border-box; }
@@ -40,48 +50,73 @@ body { background: var(--bg); color: var(--fg); font-family: var(--body); font-s
 [hidden] { display: none !important; }
 button, input { font: inherit; color: inherit; }
 button { cursor: pointer; }
-:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 #app { height: 100%; max-width: 440px; margin: 0 auto; display: flex; flex-direction: column; }
-main { flex: 1; min-height: 0; overflow-y: auto; padding-block: 20px; padding-inline: 20px; display: flex; flex-direction: column; gap: 20px; }
+main { flex: 1; min-height: 0; overflow-y: auto; padding-block: 0 24px; padding-inline: 18px; display: flex; flex-direction: column; gap: 20px; }
+main > :first-child:not(.top):not(.bleed) { margin-top: 20px; }
 h1, h2, h3, p { margin: 0; }
-h1 { font-family: var(--display); font-weight: 800; font-size: 34px; line-height: 1.05; letter-spacing: -1px; text-wrap: balance; overflow-wrap: anywhere; }
-h2 { font-family: var(--display); font-weight: 700; font-size: 20px; }
-.eyebrow { font-size: 13px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; color: var(--muted); }
+h1 { font-family: var(--display); font-weight: 800; font-size: 32px; line-height: 1.08; letter-spacing: -0.5px; text-wrap: balance; overflow-wrap: anywhere; }
+h2 { font-family: var(--display); font-weight: 700; font-size: 19px; letter-spacing: -0.2px; }
+.eyebrow { font-size: 12px; font-weight: 700; letter-spacing: 1.4px; text-transform: uppercase; color: var(--muted); }
 .muted { color: var(--muted); }
 .small { font-size: 14px; }
 .stack { display: flex; flex-direction: column; gap: 10px; }
 .row { display: flex; align-items: center; gap: 12px; }
 .between { justify-content: space-between; }
 .grow { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-.top { display: flex; align-items: center; justify-content: space-between; }
-.wordmark { font-family: var(--display); font-weight: 800; font-size: 24px; letter-spacing: -0.5px; }
+/* Header: brush logo, status dots, profile at the top right. It sticks while the page scrolls. */
+.top { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-inline: -18px; padding: 12px 18px 10px; background: rgba(5, 5, 6, 0.92); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
+.top .back { border: 0; background: none; width: 36px; margin-left: -8px; }
+.logo { display: flex; align-items: center; gap: 10px; }
+.wordmark { position: relative; font-family: var(--brush); font-weight: 400; font-size: 31px; line-height: 1; letter-spacing: 0.5px; color: #fff; transform: rotate(-4deg); padding-bottom: 4px; white-space: nowrap; }
+.wordmark::after { content: ''; position: absolute; left: 6%; right: -2%; bottom: -1px; height: 5px; border-radius: 3px 8px 2px 6px; background: var(--thinking); transform: skewX(-20deg) rotate(-1deg); }
+.dots { display: flex; gap: 5px; }
+.dots i { width: 9px; height: 9px; border-radius: 50%; background: var(--c); opacity: 0.28; }
+.dots i.lit { opacity: 1; box-shadow: 0 0 10px var(--c); }
+.dots.all i { opacity: 1; }
 .pill { font-size: 12px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; padding: 5px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
-.status-word { font-family: var(--display); font-weight: 800; font-size: 52px; line-height: 1; letter-spacing: -1.5px; }
+.status-word { font-family: var(--display); font-weight: 800; font-size: 50px; line-height: 1; letter-spacing: -1.5px; }
 /* Status switch: one track, a coloured knob you drag or flick across G, A, R; tapping a letter also works. */
 .slide { position: relative; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); height: 68px; padding: 5px; border-radius: 34px; background: var(--surface); border: 1px solid var(--line); touch-action: pan-y; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; }
-.slide .knob { position: absolute; top: 5px; bottom: 5px; left: 5px; width: calc((100% - 10px) / 3); border-radius: 29px; background: var(--c); box-shadow: 0 3px 12px rgba(0, 0, 0, 0.45); transform: translateX(calc(var(--i, 0) * 100%)); transition: transform 0.25s cubic-bezier(0.3, 1.35, 0.5, 1), background-color 0.2s; pointer-events: none; }
+.slide .knob { position: absolute; top: 5px; bottom: 5px; left: 5px; width: calc((100% - 10px) / 3); border-radius: 29px; background: var(--c); box-shadow: 0 0 22px color-mix(in srgb, var(--c) 45%, transparent), 0 3px 12px rgba(0, 0, 0, 0.5); transform: translateX(calc(var(--i, 0) * 100%)); transition: transform 0.25s cubic-bezier(0.3, 1.35, 0.5, 1), background-color 0.2s; pointer-events: none; }
 .slide.dragging .knob { transition: background-color 0.2s; }
 .slide .stop { position: relative; z-index: 1; border: 0; background: none; border-radius: 29px; font-family: var(--display); font-weight: 800; font-size: 24px; letter-spacing: 1px; color: var(--muted); transition: color 0.2s; }
 .slide .stop[aria-pressed="true"] { color: var(--ink); }
 @media (prefers-reduced-motion: reduce) { .slide .knob { transition: none; } }
-.btn { min-height: 54px; padding: 0 20px; border-radius: 27px; border: 0; background: var(--c, var(--on)); color: var(--ink); font-weight: 700; font-size: 16px; width: 100%; }
-.btn.ghost { background: transparent; color: var(--fg); border: 1px solid var(--fg); }
+/* Buttons: blue by default; --c / --cf switch a button to a status colour with dark text. */
+.btn { min-height: 54px; padding: 0 20px; border-radius: 27px; border: 0; background: var(--c, var(--accent)); color: var(--cf, var(--accent-ink)); font-weight: 700; font-size: 16px; width: 100%; }
+.btn.ghost { background: var(--surface); color: var(--fg); border: 1px solid var(--line); }
 .btn.small-btn { min-height: 44px; width: auto; padding: 0 18px; font-size: 14px; border-radius: 22px; white-space: nowrap; }
 .btn:disabled { background: var(--surface-2); color: var(--muted); cursor: default; border: 0; }
-.card { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
-.card.lead { border: 2px solid var(--on); }
-.card.deal-active { border-color: var(--thinking); }
-.avatar { width: 40px; height: 40px; flex: none; border-radius: 50%; border: 2px solid var(--c, var(--line)); background: var(--surface); display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+.card.lead { border: 2px solid var(--accent); }
+.card.deal-active { border-color: var(--zest); }
+.avatar { width: 40px; height: 40px; flex: none; border-radius: 50%; border: 2px solid var(--c, var(--line)); background: var(--surface-2); display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; }
 .profile-btn { width: 44px; height: 44px; padding: 0; color: var(--fg); }
 .profile-btn[aria-current="page"] { background: var(--c); color: var(--ink); }
 .avatar.dashed { border-style: dashed; }
 .avatars { display: flex; flex-wrap: wrap; gap: 4px; }
-.friend { display: flex; align-items: center; gap: 12px; min-height: 54px; }
+.friend { display: flex; align-items: center; gap: 12px; min-height: 58px; padding: 0 2px; border-bottom: 1px solid var(--line); }
+.friend:last-child { border-bottom: 0; }
 .friend .state { font-size: 13px; font-weight: 700; color: var(--c); }
-.deal-title { font-weight: 700; color: var(--thinking); overflow-wrap: anywhere; }
+/* Friends under the status switch: a row of round faces, each lit from behind in that friend's status colour. */
+.faces { display: grid; grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); gap: 14px 8px; padding-top: 10px; }
+.friend.face { position: relative; isolation: isolate; flex-direction: column; gap: 4px; min-height: 0; border: 0; padding: 0; text-align: center; }
+.face-pic { position: relative; width: 64px; height: 64px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-family: var(--display); font-weight: 800; font-size: 22px; color: #fff;
+  background: linear-gradient(140deg, hsl(var(--h) 70% 58%), hsl(calc(var(--h) + 40) 65% 38%)); border: 2px solid rgba(255, 255, 255, 0.85); margin: 8px 0 6px; }
+.face-pic::before { content: ''; position: absolute; inset: -18px; z-index: -1; border-radius: 50%; background: radial-gradient(circle, var(--c) 0%, color-mix(in srgb, var(--c) 55%, transparent) 42%, transparent 70%); }
+.friend.face.away .face-pic { filter: grayscale(1) brightness(0.6); border-color: var(--line); }
+.friend.face.away .face-pic::before { display: none; }
+.face-name { font-weight: 700; font-size: 14px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.friend.face .state { font-size: 12px; }
+.pic { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; display: block; }
+.face-pic .pic { border-radius: 50%; }
+.face-pic.me { flex: none; margin: 4px 6px 4px 4px; box-shadow: 0 0 0 3px var(--bg), 0 0 0 5px var(--c); }
+.avatar:has(.pic) { overflow: hidden; }
+.deal-title { font-weight: 700; color: var(--zest); overflow-wrap: anywhere; }
 .bar { flex: 1; height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; }
 .bar i { display: block; height: 100%; background: var(--muted); border-radius: 4px; }
-.lead .bar i { background: var(--on); }
+.lead .bar i { background: var(--accent); }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .chip { min-height: 44px; padding: 0 16px; border-radius: 22px; border: 1px solid var(--line); background: var(--surface); font-size: 14px; font-weight: 500; }
 .chip[aria-pressed="true"] { background: var(--fg); border-color: var(--fg); color: var(--ink); font-weight: 700; }
@@ -90,40 +125,97 @@ h2 { font-family: var(--display); font-weight: 700; font-size: 20px; }
 .star svg { fill: none; }
 .star[aria-pressed="true"] { color: var(--thinking); }
 .star[aria-pressed="true"] svg { fill: currentColor; }
-.back { width: 44px; height: 44px; flex: none; border-radius: 50%; border: 1px solid var(--line); background: var(--surface); display: flex; align-items: center; justify-content: center; }
+.back { width: 44px; height: 44px; flex: none; border-radius: 50%; border: 1px solid var(--line); background: var(--surface); display: flex; align-items: center; justify-content: center; color: var(--fg); }
 .code-box { background: var(--fg); color: var(--ink); border-radius: 20px; padding: 28px 20px; display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; }
 .code { font-family: var(--display); font-weight: 800; font-size: 38px; letter-spacing: 3px; font-variant-numeric: tabular-nums; }
-.code-box .note { color: #5C574F; font-size: 14px; }
+.code-box .note { color: #55585F; font-size: 14px; }
 .tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .tile-num { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .field { display: flex; flex-direction: column; gap: 8px; }
-.field input[type="text"] { height: 52px; width: 100%; border-radius: 14px; border: 1px solid var(--line); background: var(--surface); padding: 0 16px; }
+.field label { font-weight: 500; }
+.field input[type="text"], .field input[type="password"], .field input[type="date"] { height: 52px; width: 100%; border-radius: 14px; border: 1px solid var(--line); background: var(--surface); padding: 0 16px; }
+.field input:focus { border-color: var(--accent); outline: none; }
 .check { display: flex; align-items: center; gap: 12px; min-height: 44px; }
-.check input { width: 22px; height: 22px; accent-color: var(--on); }
+.check input { width: 22px; height: 22px; accent-color: var(--accent); }
 .linkbox { font-size: 14px; padding: 12px 14px; border-radius: 12px; background: var(--bg); border: 1px solid var(--line); overflow-wrap: anywhere; user-select: all; -webkit-user-select: all; }
-nav { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-top: 1px solid var(--line); padding: 8px 8px calc(10px + env(safe-area-inset-bottom, 0px)); background: var(--bg); }
-nav button { position: relative; background: none; border: 0; min-height: 50px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; font-size: 12px; font-weight: 500; color: var(--muted); border-radius: 12px; }
-nav button[aria-current="page"] { color: var(--fg); font-weight: 700; }
-.badge { position: absolute; top: 4px; left: calc(50% + 6px); min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--on); color: var(--ink); font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
-#toast { position: fixed; left: 50%; bottom: calc(96px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); width: max-content; max-width: min(360px, calc(100% - 32px)); background: var(--fg); color: var(--ink); font-weight: 700; font-size: 14px; padding: 12px 18px; border-radius: 24px; text-align: center; }
+nav { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-top: 1px solid var(--line); padding: 6px 8px calc(8px + env(safe-area-inset-bottom, 0px)); background: #0B0B0D; }
+nav button { position: relative; background: none; border: 0; min-height: 50px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; font-size: 11px; font-weight: 500; color: var(--muted); border-radius: 12px; }
+nav button[aria-current="page"] { color: var(--accent); font-weight: 700; }
+.badge { position: absolute; top: 4px; left: calc(50% + 6px); min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--off); color: #fff; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+#toast { position: fixed; left: 50%; bottom: calc(96px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); width: max-content; max-width: min(360px, calc(100% - 32px)); background: var(--fg); color: var(--ink); font-weight: 700; font-size: 14px; padding: 12px 18px; border-radius: 24px; text-align: center; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); }
 a { color: var(--fg); }
-.chat { max-height: 300px; min-height: 80px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding: 4px 0; }
-.msg { align-self: flex-start; max-width: 85%; padding: 8px 12px; border-radius: 14px; background: var(--surface); border: 1px solid var(--line); overflow-wrap: anywhere; }
-.msg.me { align-self: flex-end; background: var(--surface-2); }
-.msg .who { font-size: 12px; color: var(--muted); }
+/* Sesh chat: friends on the left in grey with their face and name, you on the right in blue. */
+.chat { max-height: 440px; min-height: 80px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; padding: 4px 0; }
+.msg-row { display: flex; align-items: flex-end; gap: 10px; max-width: 88%; }
+.msg-row .avatar { width: 36px; height: 36px; font-size: 12px; margin-bottom: 18px; }
+.msg-row.me { align-self: flex-end; }
+.msg-wrap { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.msg-wrap .who { font-size: 14px; color: var(--muted); padding-left: 2px; }
+.msg { align-self: flex-start; padding: 10px 14px 7px; border-radius: 18px; background: var(--surface-2); overflow-wrap: anywhere; font-size: 16px; }
+.msg.me { background: var(--accent); color: #fff; border-bottom-right-radius: 6px; }
+.msg-row:not(.me) .msg { border-bottom-left-radius: 6px; }
+.msg .when { display: block; margin-top: 3px; font-size: 12px; color: rgba(255, 255, 255, 0.55); text-align: right; }
+.msg-row:not(.me) .msg .when { text-align: left; }
 .msg .acts { display: flex; align-items: center; gap: 14px; }
-.linkbtn { background: none; border: 0; padding: 6px 0; min-height: 36px; font-size: 12px; color: var(--muted); text-decoration: underline; }
-.chat-form { display: flex; gap: 8px; }
-.chat-form input { flex: 1; min-width: 0; height: 48px; border-radius: 24px; border: 1px solid var(--line); background: var(--surface); padding: 0 16px; }
+.linkbtn { background: none; border: 0; padding: 4px 0; min-height: 32px; font-size: 12px; color: var(--muted); text-decoration: underline; }
+.chat-form { display: flex; align-items: center; gap: 10px; }
+.chat-form input { flex: 1; min-width: 0; height: 50px; border-radius: 25px; border: 1px solid var(--line); background: var(--surface); padding: 0 18px; }
+.chat-form input:focus { border-color: var(--accent); outline: none; }
+.send { width: 50px; height: 50px; flex: none; border-radius: 50%; border: 0; background: var(--accent); color: #fff; display: flex; align-items: center; justify-content: center; }
+.send:disabled { background: var(--surface-2); color: var(--muted); }
 .error { color: var(--off); font-size: 14px; font-weight: 500; }
-.map { height: 260px; border-radius: 16px; overflow: hidden; border: 1px solid var(--line); background: var(--surface); z-index: 0; }
-.map.big { height: min(52vh, 420px); min-height: 260px; }
-/* OpenStreetMap tiles are light; flip them to suit the dark app. Pins and the radius circle are not affected. */
-.map .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(0.95) contrast(0.9); }
-.map .leaflet-control-attribution { background: rgba(18, 17, 16, 0.75); color: var(--muted); font-size: 11px; }
-.map .leaflet-control-attribution a { color: var(--fg); }
-.map .leaflet-bar a { background: var(--surface); color: var(--fg); border-color: var(--line); }
-input[type="range"] { width: 100%; height: 44px; accent-color: var(--on); }
+/* Maps: bright, soft and friendly like Snap Map: OpenStreetMap tiles made a little more colourful, with white bubbles for
+   labels and controls, and chunky pins with a white outline. */
+.map { height: 260px; border-radius: 22px; overflow: hidden; border: 0; background: #E9EEF2; z-index: 0; }
+.map.big { height: min(52vh, 420px); min-height: 280px; }
+.bleed { margin-inline: -18px; }
+.map.route { height: 230px; border-radius: 0; }
+.map.hero { height: 240px; border-radius: 0; border: 0; }
+.map.hero .leaflet-control-zoom { display: none; }
+.map-box { position: relative; }
+.leaflet-container { background: #E9EEF2; font-family: var(--body); }
+.map .leaflet-tile-pane { filter: saturate(1.4) brightness(1.04) contrast(0.96); }
+.map .leaflet-control-attribution { background: rgba(255, 255, 255, 0.8); color: #555A66; font-size: 10px; border-radius: 8px 0 0 0; }
+.map .leaflet-control-attribution a { color: #22252C; }
+.map .leaflet-bar { border: 0; border-radius: 16px; overflow: hidden; box-shadow: 0 3px 12px rgba(20, 30, 50, 0.25); }
+.map .leaflet-bar a { width: 42px; height: 42px; line-height: 42px; background: #fff; color: #16181D; border-color: #E6E8EC; font-size: 22px; }
+.map .leaflet-bar a:hover { background: #F2F4F7; }
+.pin { position: relative; display: block; width: 30px; height: 40px; filter: drop-shadow(0 3px 4px rgba(20, 30, 50, 0.35)); transition: transform 0.15s; }
+.leaflet-marker-icon:hover .pin { transform: scale(1.12); transform-origin: 50% 100%; }
+.pin svg { display: block; }
+.pin.far { opacity: 0.55; transform: scale(0.75); transform-origin: 50% 100%; }
+.you-dot { display: block; width: 44px; height: 44px; border-radius: 50%; background: rgba(31, 123, 255, 0.25); position: relative; }
+.you-dot::after { content: ''; position: absolute; inset: 12px; border-radius: 50%; background: var(--accent); border: 4px solid #fff; box-shadow: 0 2px 8px rgba(20, 30, 50, 0.35); }
+.leaflet-tooltip.tag { background: #fff; color: #16181D; border: 0; border-radius: 14px; padding: 6px 11px; font-size: 13px; font-weight: 700; box-shadow: 0 3px 12px rgba(20, 30, 50, 0.25); line-height: 1.25; }
+.leaflet-tooltip.tag::before { display: none; }
+.leaflet-tooltip.tag small { display: block; color: #5E6370; font-size: 12px; font-weight: 500; }
+.leaflet-tooltip.tag.you { background: var(--accent); border-color: var(--accent); color: #fff; }
+.map-fab { position: absolute; top: 12px; right: 12px; z-index: 500; width: 46px; height: 46px; border-radius: 50%; border: 0; background: #fff; color: #16181D; display: flex; align-items: center; justify-content: center; box-shadow: 0 3px 12px rgba(20, 30, 50, 0.25); }
+.map-pick { border-color: var(--accent); gap: 12px; }
+.map-pick .back { width: 36px; height: 36px; }
+.map-pick .deal-banner .big { font-size: 24px; }
+.map-fab[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+/* Radius control: a big readout and a thick slider that fills blue up to the chosen distance. */
+.radius { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 14px 16px 6px; }
+.radius-num { font-family: var(--display); font-weight: 800; font-size: 26px; letter-spacing: -0.5px; }
+.radius-num small { font-size: 15px; color: var(--muted); font-weight: 700; margin-left: 2px; }
+input[type="range"] { -webkit-appearance: none; appearance: none; width: 100%; height: 44px; background: transparent; --p: 20%; }
+input[type="range"]::-webkit-slider-runnable-track { height: 8px; border-radius: 4px; background: linear-gradient(to right, var(--accent) var(--p), var(--surface-2) var(--p)); }
+input[type="range"]::-moz-range-track { height: 8px; border-radius: 4px; background: var(--surface-2); }
+input[type="range"]::-moz-range-progress { height: 8px; border-radius: 4px; background: var(--accent); }
+input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 28px; height: 28px; margin-top: -10px; border-radius: 50%; background: #fff; border: 0; box-shadow: 0 0 0 6px rgba(31, 123, 255, 0.3), 0 2px 8px rgba(0, 0, 0, 0.5); }
+input[type="range"]::-moz-range-thumb { width: 28px; height: 28px; border-radius: 50%; background: #fff; border: 0; box-shadow: 0 0 0 6px rgba(31, 123, 255, 0.3), 0 2px 8px rgba(0, 0, 0, 0.5); }
+.scale { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); padding: 0 2px 6px; }
+/* Venue page: a map of where it is across the top, then the name, where and how far, and its deals as banners. */
+.venue-name { font-family: var(--display); font-weight: 800; font-size: 34px; line-height: 1.05; letter-spacing: -0.5px; }
+.facts { display: flex; flex-direction: column; gap: 8px; color: #D5D7DD; font-size: 16px; }
+.facts .row { gap: 10px; align-items: flex-start; }
+.facts svg { flex: none; margin-top: 1px; }
+.deal-banner { position: relative; overflow: hidden; border-radius: 18px; border: 1px solid var(--line); padding: 18px 18px 16px; display: flex; flex-direction: column; gap: 10px;
+  background: radial-gradient(120% 90% at 100% 0%, rgba(31, 123, 255, 0.35), transparent 60%), radial-gradient(90% 80% at 0% 100%, rgba(184, 242, 62, 0.16), transparent 60%), #0C0D10; }
+.deal-banner.off { opacity: 0.7; }
+.deal-banner .big { font-family: var(--brush); font-size: 30px; line-height: 1.05; color: var(--zest); transform: rotate(-2deg); transform-origin: left; overflow-wrap: anywhere; }
+.deal-banner .sub { font-family: var(--display); font-weight: 800; font-size: 12px; letter-spacing: 2px; text-transform: uppercase; color: #fff; }
 .banner { background: var(--surface-2); border: 1px solid var(--off); border-radius: 12px; padding: 10px 14px; font-size: 14px; }
 </style>
 <script src="load-config.js"></script>
