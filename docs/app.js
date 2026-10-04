@@ -277,7 +277,7 @@
   function loadVenues() {
     venuesAsked = true;
     return rpc('api_venues').then(function (list) {
-      VENUES = list || []; venuesAt = Date.now();
+      VENUES = Array.isArray(list) ? list : []; venuesAt = Date.now();
       if (D) { D.venues = VENUES; lastKey = ''; }
     }, function () { venuesAt = Date.now(); });
   }
@@ -293,6 +293,7 @@
     }).then(function (data) {
       ui.offline = false;
       clockOffset = new Date(data.now).getTime() - Date.now();
+      tidyState(data);
       noticeFriends(data);
       if (data.venues) data.legacyVenues = true; else data.venues = VENUES || [];
       var key = JSON.stringify([data.me, data.friends, data.requests_in, data.requests_out, data.seshes, data.legacyVenues ? data.venues : venuesAt, data.deals, data.staff_venues, data.blocked]);
@@ -312,6 +313,18 @@
       ui.offline = true; ui.booted = true;
       if (!quiet) toast(e.message);
       render();
+    });
+  }
+  // Every list the screens read is always a list, even if the database leaves one out (an update not run yet),
+  // so one missing piece can't stop the whole app with "Cannot read properties of undefined".
+  function tidyState(data) {
+    ['friends', 'requests_in', 'requests_out', 'seshes', 'deals', 'staff_venues', 'blocked'].forEach(function (k) {
+      if (!Array.isArray(data[k])) data[k] = [];
+    });
+    if (data.venues && !Array.isArray(data.venues)) delete data.venues;
+    data.seshes.forEach(function (s) {
+      if (!Array.isArray(s.members)) s.members = [];
+      if (!Array.isArray(s.votes)) s.votes = [];
     });
   }
   function noticeFriends(data) {
