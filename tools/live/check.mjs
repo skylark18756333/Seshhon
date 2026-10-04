@@ -548,6 +548,38 @@ try {
   ok(await has(rex, "Private, you're invited"), 'and now Rex sees it');
   if (process.env.SHOTS) await pim.page.screenshot({ path: process.env.SHOTS + '/private-sesh.png' });
 
+  console.log('Planned sesh');
+  await tab(quin, 'Sesh');
+  await tap(quin, 'Plan a sesh for later');
+  ok(await has(quin, "When's it on?"), 'Quin opens the planner');
+  const tomorrow8 = await quin.page.evaluate(() => { const d = new Date(); d.setDate(d.getDate() + 1); const t = (n) => String(n).padStart(2, '0'); return d.getFullYear() + '-' + t(d.getMonth() + 1) + '-' + t(d.getDate()) + 'T20:00'; });
+  await quin.page.fill('#plan-at', tomorrow8);
+  if (process.env.SHOTS) await quin.page.screenshot({ path: process.env.SHOTS + '/plan-sesh.png' });
+  await tap(quin, 'Plan it');
+  ok(await has(quin, 'Tomorrow, 8:00 pm') && await has(quin, 'Start it now'), 'Quin plans a sesh for 8 pm tomorrow');
+  if (process.env.SHOTS) await quin.page.screenshot({ path: process.env.SHOTS + '/planned-sesh.png' });
+  await tap(quin, 'Add a private pres address');
+  await quin.page.fill('#pres-address', '7 Hidden Lane, Leederville');
+  await quin.page.fill('#pres-time', '18:30');
+  await tap(quin, 'Save');
+  ok(await has(quin, '7 Hidden Lane, Leederville') && await has(quin, 'From 6:30 pm') && await has(quin, 'The people who are in see it from'), 'Quin adds a private pres address');
+  if (process.env.SHOTS) await quin.page.screenshot({ path: process.env.SHOTS + '/pres-host.png' });
+  await tab(pim, 'Sesh');
+  ok(await has(pim, "Quin's sesh") && await has(pim, 'Only you and the 2 friends you picked can see it'), 'Pim sees it under Planned, below his sesh tonight');
+  if (process.env.SHOTS) await pim.page.screenshot({ path: process.env.SHOTS + '/planned-list.png', fullPage: true });
+  await tap(pim, "I'm in");
+  await tap(pim, 'Open');
+  ok(await has(pim, "Can't make it") && await has(pim, '2 in'), 'says he is in, and opens it');
+  ok(await has(pim, "Quin added a private pres address") && !(await has(pim, '7 Hidden Lane', 500)), 'Pim knows there is a pres, but the address stays hidden until 4 hours before');
+  if (process.env.SHOTS) await pim.page.screenshot({ path: process.env.SHOTS + '/pres-guest.png' });
+  await tap(pim, 'All seshes');
+  ok(await has(pim, 'Only you and the 2 friends you picked can see it'), 'and goes back to his sesh tonight');
+  await tap(quin, 'Start it now');
+  ok(await has(quin, 'Live now') && await gone(quin, 'Start it now'), 'Quin starts it early and it goes live');
+  await tab(pim, 'Sesh'); await tap(pim, 'Open');
+  ok(await has(pim, '7 Hidden Lane, Leederville') && await has(pim, 'Directions'), 'once it is live, Pim, who is in, sees the pres address');
+  ok(!(await has(rex, '7 Hidden Lane', 500)), 'Rex, who is not in, never sees it');
+
   ok(consoleErrors.length === 0, 'no script errors on any phone' + (consoleErrors.length ? ': ' + consoleErrors.join('; ') : ''));
   await ana.page.screenshot({ path: path.join(copy, 'ana.png') });
 } catch (e) {

@@ -127,6 +127,13 @@ The page's security policy uses `'self'`, so it needs no change for a new addres
 join it, and can invite more later. Friends who weren't picked can't see it at all. Until it is run, starting a private
 sesh shows an error and ordinary seshes work as before.
 
+`supabase/migrations/0025_planned_seshes.sql` adds planned seshes: a sesh can be planned for a date and time up to 2 weeks
+ahead, for all friends or only picked ones. Friends can say they're in, vote and chat before it starts; it goes live at
+that time (or earlier with "Start it now") and is deleted 8 hours after its start time. Until it is run, planning a sesh
+shows an error and everything else works as before. The same migration lets the host add a private pres (pre-drinks)
+address to a sesh: only people who have said they're in see it, from 4 hours before the start; it is never on the map
+and is deleted with the sesh.
+
 If your project was set up before the age gate and sign up says it cannot find `public.api_sign_up(p_birth_date, p_name)`,
 paste `supabase/update.sql` into the Supabase SQL editor and press Run once. It adds migrations 0003 onwards.
 
