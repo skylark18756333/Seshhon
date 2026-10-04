@@ -168,7 +168,7 @@ a { color: var(--fg); }
 /* Maps: a dark night map like a phone's dark-mode maps. OpenStreetMap tiles are recoloured by the #night filter at the
    end of the page (dark navy land, light grey streets, light labels); pins, labels and controls sit on top in dark bubbles. */
 .map { height: 260px; border-radius: 18px; overflow: hidden; border: 1px solid var(--line); background: #141B2A; z-index: 0; }
-.map.big { height: min(52vh, 420px); min-height: 280px; }
+.map.big { height: min(62vh, 520px); min-height: 320px; }
 .bleed { margin-inline: -18px; }
 .map.route { height: 230px; border-radius: 0; }
 .map.hero { height: 240px; border-radius: 0; border: 0; }
@@ -190,6 +190,37 @@ a { color: var(--fg); }
 .hours { display: flex; flex-direction: column; gap: 4px; font-size: 15px; }
 .hours .today { font-weight: 700; }
 .pin.far { opacity: 0.55; transform: scale(0.75); transform-origin: 50% 100%; }
+/* Snap Map style venue bubbles: round icon, bold name, a tag above, and a heat glow where it's busy */
+.bub { position: relative; display: block; width: 40px; height: 40px; }
+.bub-disc { position: relative; z-index: 2; display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: 50%; background: #1B1D24; color: #fff; border: 3px solid var(--accent); box-shadow: 0 4px 12px rgba(0, 0, 0, 0.6); transition: transform 0.15s; }
+.leaflet-marker-icon:hover .bub-disc { transform: scale(1.1); }
+.bub.far .bub-disc { border-color: #8A90A0; color: #C9CCD3; transform: scale(0.7); opacity: 0.7; }
+.bub.goal .bub-disc { border-color: #FF4757; background: #FF4757; transform: scale(1.15); }
+.bub.tagged .bub-disc { border-color: var(--zest); }
+.bub .pin-badge { top: -3px; right: -3px; }
+.bub-name { position: absolute; z-index: 3; top: 44px; left: 50%; transform: translateX(-50%); width: max-content; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--display); font-weight: 800; font-size: 13px; color: #fff; text-shadow: 0 1px 3px #000, 0 0 8px #000; pointer-events: none; display: none; }
+.map.names .bub-name, .bub.tagged .bub-name, .bub.goal .bub-name { display: block; }
+.bub.far .bub-name { display: none; }
+.bub-tag { position: absolute; z-index: 3; bottom: 44px; left: 50%; transform: translateX(-50%); width: max-content; padding: 3px 8px; border-radius: 10px; background: var(--zest); color: #0B0B0D; font-size: 11px; font-weight: 800; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5); pointer-events: none; }
+.bub.busy-1 .bub-tag, .bub.busy-2 .bub-tag, .bub.busy-3 .bub-tag { background: #FF7A3D; color: #fff; }
+.heat { position: absolute; z-index: 1; left: 50%; top: 50%; width: 110px; height: 110px; margin: -55px 0 0 -55px; border-radius: 50%; pointer-events: none;
+  background: radial-gradient(circle, rgba(255, 210, 61, 0.9) 0%, rgba(255, 106, 61, 0.65) 30%, rgba(255, 61, 120, 0.3) 55%, transparent 72%); animation: heat 2.4s ease-in-out infinite; }
+.busy-2 .heat { width: 150px; height: 150px; margin: -75px 0 0 -75px; }
+.busy-3 .heat { width: 200px; height: 200px; margin: -100px 0 0 -100px; }
+@keyframes heat { 50% { transform: scale(1.12); opacity: 0.8; } }
+@media (prefers-reduced-motion: reduce) { .heat { animation: none; } }
+.me-mark { position: relative; isolation: isolate; display: block; width: 48px; height: 48px; }
+.me-mark .face-pic { width: 44px; height: 44px; margin: 2px; font-size: 16px; }
+.me-mark b { position: absolute; top: 50px; left: 50%; transform: translateX(-50%); padding: 2px 9px; border-radius: 9px; background: var(--accent); color: #fff; font-size: 12px; font-weight: 800; }
+.map-chips { flex-shrink: 0; display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; margin-inline: -18px; padding: 0 18px; }
+.map-chips::-webkit-scrollbar { display: none; }
+.map-chips .chip { flex: none; min-height: 40px; }
+.map-friends { position: absolute; left: 0; right: 0; bottom: 18px; z-index: 500; display: flex; gap: 12px; overflow-x: auto; scrollbar-width: none; padding: 16px 14px 4px; pointer-events: none; }
+.map-friends::-webkit-scrollbar { display: none; }
+.mini-face { position: relative; isolation: isolate; flex: none; display: flex; flex-direction: column; align-items: center; gap: 3px; pointer-events: auto; }
+.mini-face .face-pic { width: 40px; height: 40px; font-size: 15px; margin: 0; }
+.mini-face .face-pic::before { inset: -10px; }
+.mini-face span { font-size: 12px; font-weight: 700; color: #fff; text-shadow: 0 1px 3px #000; }
 .you-dot { display: block; width: 44px; height: 44px; border-radius: 50%; background: rgba(31, 123, 255, 0.25); position: relative; }
 .you-dot::after { content: ''; position: absolute; inset: 12px; border-radius: 50%; background: #fff; border: 4px solid var(--accent); box-shadow: 0 0 10px rgba(31, 123, 255, 0.8); }
 .leaflet-tooltip.tag { background: rgba(16, 17, 21, 0.9); color: var(--fg); border: 0; border-radius: 10px; padding: 5px 10px; font-size: 14px; font-weight: 500; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5); line-height: 1.25; }

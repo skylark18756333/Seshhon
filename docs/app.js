@@ -281,6 +281,16 @@
       if (D) { D.venues = VENUES; lastKey = ''; }
     }, function () { venuesAt = Date.now(); });
   }
+  // Busy and trending venues for the map (api_buzz): counts only, never who is going where.
+  var BUZZ = {}, buzzAt = 0;
+  function loadBuzz() {
+    buzzAt = Date.now();
+    return rpc('api_buzz').then(function (list) {
+      BUZZ = {};
+      (Array.isArray(list) ? list : []).forEach(function (b) { BUZZ[b.id] = b; });
+      if (ui.tab === 'map' && !ui.screen) { drawMap(); var l = document.getElementById('venue-list'); if (l) l.innerHTML = venueList(); }
+    }, function () {});   // an older database without api_buzz: the map just has no glows
+  }
   function freshVenues(maxAgeMs) {   // fetch again if older than maxAgeMs, then redraw
     if (D && D.legacyVenues) return Promise.resolve();
     if (VENUES && Date.now() - venuesAt < maxAgeMs) return Promise.resolve();
@@ -298,6 +308,7 @@
       if (data.venues) data.legacyVenues = true; else data.venues = VENUES || [];
       var key = JSON.stringify([data.me, data.friends, data.requests_in, data.requests_out, data.seshes, data.legacyVenues ? data.venues : venuesAt, data.deals, data.staff_venues, data.blocked]);
       D = data; ui.booted = true;
+      if (ui.tab === 'map' && !ui.screen && Date.now() - buzzAt > 60000) loadBuzz();
       if (data.me && !data.legacyVenues && !venuesAsked) loadVenues().then(function () { render(); });
       if (data.me && !pins && !pinsAsked) { pinsAsked = true; loadPins().then(function () { render(); }); }   // venue distances for the sesh vote list
       if (!quiet || key !== lastKey) { lastKey = key; render(); }
@@ -367,6 +378,7 @@
     arrow: '<path d="M21 3L3 10.5l7.5 3 3 7.5z"/>',
     search: '<circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/>',
     clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+    fork: '<path d="M7 3v8"/><path d="M4 3v5a3 3 0 0 0 6 0V3"/><path d="M7 11v10"/><path d="M17 21V3c-2.5 1-4 4-4 8h4"/>',
     star: '<path d="M12 3l2.7 5.6 6.1.8-4.5 4.3 1.1 6.1L12 16.9 6.6 19.8l1.1-6.1L3.2 9.4l6.1-.8z"/>'
   };
   function svg(name, size) {
@@ -632,6 +644,38 @@
       (ven.ratings ? '<strong>' + Number(ven.average).toFixed(1) + '</strong> from ' + ven.ratings + ' rating' + (ven.ratings === 1 ? '' : 's') : 'no ratings yet') + '</div></div>' +
       '<button class="btn small-btn ghost" data-act="' + (onMap && pins && pins[ven.id] ? 'map-pick' : 'venue') + '" data-v="' + esc(ven.id) + '">' + (onMap && pins && pins[ven.id] ? 'Show' : 'Open') + '</button></div></div>';
   }
+  // Snap Map style tags and filters. Busy and trending come from counts (api_buzz), never anyone's location.
+  var FILTERS = [['popular', 'Popular'], ['trending', 'Trending'], ['deals', 'Deals'], ['open', 'Open now']];
+  function topPick(ven) { return ven.ratings >= 3 && Number(ven.average) >= 4.3; }
+  function hasDeal(ven) { return DEALS_ON && D.deals.some(function (d) { return d.venue_id === ven.id; }); }
+  function busyOf(ven) { return (BUZZ[ven.id] && BUZZ[ven.id].busy) || 0; }
+  function tagOf(ven) {
+    if (busyOf(ven)) return 'Busy tonight';
+    if (BUZZ[ven.id] && BUZZ[ven.id].trending) return 'Trending this week';
+    if (topPick(ven)) return 'Top pick';
+    if (hasDeal(ven)) return 'Deal on';
+    return '';
+  }
+  function filterOk(ven) {
+    var f = ui.mapFilter;
+    if (!f) return true;
+    if (f === 'popular') return busyOf(ven) > 0 || topPick(ven);
+    if (f === 'trending') return !!(BUZZ[ven.id] && BUZZ[ven.id].trending);
+    if (f === 'deals') return hasDeal(ven);
+    var st = openState(ven); return !!(st && st.open);
+  }
+  function filterChips() {
+    return '<div class="map-chips" role="group" aria-label="Show only">' + FILTERS.filter(function (f) { return f[0] !== 'deals' || DEALS_ON; }).map(function (f) {
+      return '<button class="chip" data-act="map-filter" data-v="' + f[0] + '" aria-pressed="' + (ui.mapFilter === f[0]) + '">' + f[1] + '</button>';
+    }).join('') + '</div>';
+  }
+  function filterName() { return (FILTERS.filter(function (f) { return f[0] === ui.mapFilter; })[0] || [])[1] || ''; }
+  // With a filter on but no spot chosen, it searches all venues, like the search box does.
+  function filterHits() {
+    if (!ui.mapFilter || geo.chosen) return null;
+    return D.venues.filter(filterOk).map(function (ven) { return { ven: ven, d: null }; })
+      .sort(function (a, b) { return busyOf(b.ven) - busyOf(a.ven) || (b.ven.ratings || 0) - (a.ven.ratings || 0) || a.ven.name.localeCompare(b.ven.name); });
+  }
   // Venue search on the Map tab: matches venue names and kinds anywhere, whatever the radius.
   var SEARCH_MAX = 30;
   function fold(t) { return String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').trim(); }
@@ -640,7 +684,7 @@
     if (!words.length) return null;
     var hits = D.venues.filter(function (ven) {
       var text = ' ' + fold(ven.name + ' ' + (ven.kind || ''));
-      return words.every(function (w) { return text.indexOf(' ' + w) >= 0; });
+      return words.every(function (w) { return text.indexOf(' ' + w) >= 0; }) && filterOk(ven);
     }).map(function (ven) { return { ven: ven, d: pins && pins[ven.id] && geo.chosen ? km(geo.centre, pins[ven.id]) : null }; });
     var q = fold(ui.venueQuery);
     hits.sort(function (a, b) {
@@ -652,25 +696,28 @@
     return hits;
   }
   function searchList(hits) {
-    if (!hits.length) return '<p class="small" id="venue-count">No venues match <strong>' + esc(ui.venueQuery.trim()) + '</strong>.</p>';
+    var what = ui.venueQuery && ui.venueQuery.trim() ? '<strong>' + esc(ui.venueQuery.trim()) + '</strong>' : '';
+    if (ui.mapFilter) what = (what ? what + ' and ' : '') + '<strong>' + esc(filterName()) + '</strong>';
+    if (!hits.length) return '<p class="small" id="venue-count">No venues match ' + what + '.</p>';
     return '<p class="small" id="venue-count"><strong>' + hits.length + ' venue' + (hits.length === 1 ? '' : 's') + '</strong> match' + (hits.length === 1 ? 'es' : '') +
       (hits.length > SEARCH_MAX ? '<span class="muted">. Showing the first ' + SEARCH_MAX + '.</span>' : '') + '</p>' +
       hits.slice(0, SEARCH_MAX).map(function (x) { return venueCard(x.ven, x.d, true); }).join('');
   }
   function venueList() {
-    var hits = searchHits();
+    var hits = searchHits() || filterHits();
     if (hits) return searchList(hits);
     if (!geo.chosen) return '<div class="card" id="venue-count"><div style="font-weight:700">Choose where to look</div>' +
       '<p class="muted small">Tap the arrow on the map to search near you, or tap the map to pick a spot. Or search for a venue by name above.</p></div>';
     if (!pins) return D.venues.map(function (v) { return venueCard(v, null); }).join('');
     var near = [], far = 0, unpinned = [];
     D.venues.forEach(function (ven) {
+      if (!filterOk(ven)) return;
       if (!pins[ven.id]) { unpinned.push(ven); return; }
       var d = km(geo.centre, pins[ven.id]);
       if (d <= ui.radiusKm) near.push({ ven: ven, d: d }); else far += 1;
     });
     near.sort(function (a, b) { return a.d - b.d; });
-    var h = '<p class="small" id="venue-count"><strong>' + near.length + ' venue' + (near.length === 1 ? '' : 's') + '</strong> within ' + ui.radiusKm + ' km' +
+    var h = '<p class="small" id="venue-count"><strong>' + near.length + (ui.mapFilter ? ' ' + esc(filterName().toLowerCase()) : '') + ' venue' + (near.length === 1 ? '' : 's') + '</strong> within ' + ui.radiusKm + ' km' +
       (geo.mine ? ' of you' : ' of the pin') + (far ? '<span class="muted">. ' + far + ' more further away.</span>' : '') + '</p>';
     h += near.map(function (n) { return venueCard(n.ven, n.d); }).join('');
     if (unpinned.length) h += '<div class="eyebrow" style="padding-top:8px">Not on the map yet</div>' + unpinned.map(function (v) { return venueCard(v, null); }).join('');
@@ -698,9 +745,9 @@
     var h = '<div class="stack" style="gap:6px"><h1>Map</h1><p class="muted small">Pick how far you want to go.</p></div>' +
       '<div class="venue-search" role="search"><label for="venue-search" class="sr-only">Search venues</label>' + svg('search', 18) +
       '<input type="search" id="venue-search" data-keep placeholder="Search venues" autocomplete="off" enterkeyhint="search" value="' + esc(ui.venueQuery || '') + '">' +
-      (ui.venueQuery ? '<button class="back" data-act="clear-search" aria-label="Clear search">' + svg('close', 16) + '</button>' : '') + '</div>';
+      (ui.venueQuery ? '<button class="back" data-act="clear-search" aria-label="Clear search">' + svg('close', 16) + '</button>' : '') + '</div>' + filterChips();
     if (window.L) {
-      h += '<div class="stack" style="gap:12px"><div class="map-box"><div id="map-slot" class="map big"></div>' +
+      h += '<div class="stack" style="gap:12px"><div class="map-box"><div id="map-slot" class="map big"></div>' + mapFriends() +
         '<button class="map-fab" data-act="locate" aria-label="' + (geo.busy ? 'Finding you' : 'Near me') + '" aria-pressed="' + geo.mine + '"' + (geo.busy ? ' disabled' : '') + '>' + svg('arrow', 20) + '</button></div>' + mapPick() +
         '<div class="radius"><div class="row between"><label for="radius" class="eyebrow">How far</label><div class="radius-num"><span id="radius-label">' + ui.radiusKm + '</span><small>km</small></div></div>' +
         '<input type="range" id="radius" min="1" max="25" step="1" value="' + ui.radiusKm + '" style="--p:' + radiusFill() + '" aria-valuetext="' + ui.radiusKm + ' km">' +
@@ -708,6 +755,17 @@
         '<p class="muted small">' + (geo.busy ? 'Finding you...' : geo.mine ? 'Searching around you. Your location stays on this phone and is never saved or shown to friends.' : geo.chosen ? 'Tap the map to search somewhere else, or the arrow to search near you.' : '') + '</p></div>';
     }
     return h + '<div class="stack" style="gap:12px" id="venue-list">' + venueList() + '</div>';
+  }
+  // Friends who are out, as faces along the bottom of the map. Faces only: never where anyone is.
+  function mapFriends() {
+    if (D.me.colour === 'off') return '';
+    var out = D.friends.filter(function (f) { return f.colour === 'on' || f.colour === 'thinking'; })
+      .sort(function (x, y) { return STOPS.indexOf(x.colour) - STOPS.indexOf(y.colour); });
+    if (!out.length) return '';
+    return '<div class="map-friends" aria-label="Friends out tonight">' + out.map(function (f) {
+      return '<div class="mini-face" style="--c:' + COLORS[f.colour] + ';--h:' + hue(f.name) + '" title="' + esc(first(f.name)) + ', ' + LABELS[f.colour] + '">' +
+        '<div class="face-pic">' + face(f.id, f.name) + '</div><span>' + esc(first(f.name)) + '</span></div>';
+    }).join('') + '</div>';
   }
   // The venue picked on the map, with its deals, shown straight under the map.
   function mapPick() {
@@ -735,6 +793,23 @@
   function pinIcon(kind, open) {   // open: true, false, or null (hours unknown, no badge)
     return L.divIcon({ className: '', iconSize: [30, 40], iconAnchor: [15, 39],
       html: '<span class="pin' + (kind === 'far' ? ' far' : '') + '">' + (open === null ? '' : '<i class="pin-badge ' + (open ? 'open' : 'shut') + '"></i>') + '<svg width="30" height="40" viewBox="0 0 30 40" aria-hidden="true"><path d="M15 38.5S2.5 23.6 2.5 14a12.5 12.5 0 0 1 25 0c0 9.6-12.5 24.5-12.5 24.5z" fill="' + PIN_FILL[kind] + '" stroke="#0B0B0D" stroke-width="2"/><circle cx="15" cy="14" r="5" fill="#fff"/></svg></span>' });
+  }
+  // Snap Map style venue bubble: a round icon with a bold name, a tag like "Top pick", and a glow where it's busy.
+  function kindGlyph(ven) {
+    var k = String(ven.kind || '').toLowerCase();
+    return /club|night|music|live/.test(k) ? 'events' : /restaurant|cafe|food|eat|kitchen/.test(k) ? 'fork' : 'venues';
+  }
+  function bubbleIcon(ven, kind, open) {
+    var tag = kind === 'far' ? '' : tagOf(ven), busy = busyOf(ven);
+    return L.divIcon({ className: '', iconSize: [40, 40], iconAnchor: [20, 20],
+      html: '<span class="bub ' + kind + (tag ? ' tagged' : '') + (busy ? ' busy-' + busy : '') + '">' + (busy ? '<i class="heat"></i>' : '') +
+        (tag ? '<b class="bub-tag">' + esc(tag) + '</b>' : '') +
+        '<span class="bub-disc">' + svg(kindGlyph(ven), 20) + (open === null ? '' : '<i class="pin-badge ' + (open ? 'open' : 'shut') + '"></i>') + '</span>' +
+        '<span class="bub-name">' + esc(ven.name) + '</span></span>' });
+  }
+  function meIcon() {   // you, as your own face, only when you chose "Near me". Never sent to anyone.
+    return L.divIcon({ className: '', iconSize: [48, 48], iconAnchor: [24, 24],
+      html: '<span class="me-mark"><span class="face-pic me" style="--c:var(--accent);--h:' + hue(D.me.name) + '">' + face(D.me.id, D.me.name) + '</span><b>Me</b></span>' });
   }
   function youIcon() { return L.divIcon({ className: '', iconSize: [44, 44], iconAnchor: [22, 22], html: '<span class="you-dot"></span>' }); }
   function fromName() {
@@ -789,7 +864,7 @@
     if (!slot || !window.L) return;
     if (!M.map) {
       M.el = document.createElement('div');
-      M.el.className = 'map';
+      M.el.className = 'map big';
       M.el.setAttribute('aria-label', 'Map of venues');
       M.map = L.map(M.el, { center: geo.centre, zoom: 13, attributionControl: true });
       L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -799,6 +874,9 @@
       M.map.attributionControl.setPrefix(false);
       M.circle = L.circle(geo.centre, { radius: ui.radiusKm * 1000, color: '#1F7BFF', weight: 2, dashArray: '6 6', fillColor: '#1F7BFF', fillOpacity: 0.1, interactive: false }).addTo(M.map);
       M.centre = L.marker(geo.centre, { icon: youIcon(), interactive: false, keyboard: false }).addTo(M.map);
+      M.centre.look = 'pin';
+      var zoomClass = function () { M.el.classList.toggle('names', M.map.getZoom() >= 15); };
+      M.map.on('zoomend', zoomClass); zoomClass();
       M.map.on('click', function (e) { geo.centre = [e.latlng.lat, e.latlng.lng]; geo.mine = false; geo.chosen = true; render(); });
       M.fit = true;
     }
@@ -810,28 +888,29 @@
     if (!M.map) return;
     M.circle.setLatLng(geo.centre).setRadius(ui.radiusKm * 1000).setStyle({ opacity: geo.chosen ? 1 : 0, fillOpacity: geo.chosen ? 0.1 : 0 });
     M.centre.setLatLng(geo.centre).setOpacity(geo.chosen ? 1 : 0);
+    var meLook = geo.mine ? 'me:' + (photos[D.me.id] ? 1 : 0) : 'pin';
+    if (M.centre.look !== meLook) { M.centre.look = meLook; M.centre.setIcon(geo.mine ? meIcon() : youIcon()); }
     // Which pins: search matches while searching; otherwise the venues inside the circle once a spot is chosen.
-    var hits = searchHits(), show = null;
+    var hits = searchHits() || filterHits(), show = null;
     if (hits) { show = {}; hits.slice(0, SEARCH_MAX).forEach(function (x) { show[x.ven.id] = true; }); }
     var keep = {};
     D.venues.forEach(function (ven) {
       var at = pins && pins[ven.id];
       if (!at) return;
       var inside = geo.chosen && km(geo.centre, at) <= ui.radiusKm;
-      if (ui.mapPick !== ven.id && (show ? !show[ven.id] : !inside)) return;
+      if (ui.mapPick !== ven.id && (show ? !show[ven.id] : !inside || !filterOk(ven))) return;
       keep[ven.id] = true;
       var kind = ui.mapPick === ven.id ? 'goal' : inside ? 'near' : 'far';
-      var st = openState(ven), open = st ? st.open : null, look = kind + ':' + open;
+      var st = openState(ven), open = st ? st.open : null, look = [kind, open, tagOf(ven), busyOf(ven)].join(':');
       var dot = M.dots[ven.id];
       if (!dot) {
-        dot = M.dots[ven.id] = L.marker(at, { icon: pinIcon(kind, open), title: ven.name, alt: ven.name }).addTo(M.map);
+        dot = M.dots[ven.id] = L.marker(at, { icon: bubbleIcon(ven, kind, open), title: ven.name, alt: ven.name }).addTo(M.map);
         dot.look = look;
         dot.on('click', function () { ACT['map-pick'](ven.id); });
       }
-      if (dot.look !== look) { dot.look = look; dot.setIcon(pinIcon(kind, open)); }
-      dot.setZIndexOffset(kind === 'goal' ? 1000 : 0);
+      if (dot.look !== look) { dot.look = look; dot.setIcon(bubbleIcon(ven, kind, open)); }
+      dot.setZIndexOffset(kind === 'goal' ? 1000 : busyOf(ven) * 100 + (tagOf(ven) ? 50 : 0));
       dot.setLatLng(at);
-      dot.unbindTooltip().bindTooltip(esc(ven.name) + '<br><small>' + esc(hoursLine(ven)) + '</small>', { direction: 'top', offset: [0, -34], className: 'tag' });
     });
     Object.keys(M.dots).forEach(function (id) { if (!keep[id]) { M.map.removeLayer(M.dots[id]); delete M.dots[id]; } });
     if (M.fitHits && hits && hits.length) {
@@ -1207,6 +1286,7 @@
     tab: function (v) {
       ui.tab = v; ui.screen = null; ui.confirm = null; ui.staffError = ''; go(true);
       if (v === 'map' || v === 'venues') freshVenues(5 * 60000);
+      if (v === 'map' && Date.now() - buzzAt > 60000) loadBuzz();
       if (v === 'map' || v === 'sesh' || v === 'events') loadPins().then(function () { if (ui.tab === v && !ui.screen) { if (M.map) M.fit = true; render(); } });
     },
     locate: function () {
@@ -1250,6 +1330,9 @@
       if (v && M.map && pins && pins[v] && !M.map.getBounds().pad(-0.1).contains(pins[v])) M.map.setView(pins[v], Math.max(M.map.getZoom(), 15), { animate: false });
       var card = document.getElementById('map-pick');
       if (card && card.scrollIntoView) card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    },
+    'map-filter': function (v) {
+      ui.mapFilter = ui.mapFilter === v ? '' : v; M.fitHits = !geo.chosen; render();
     },
     'clear-search': function () {
       ui.venueQuery = ''; render();

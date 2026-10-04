@@ -130,11 +130,23 @@ try {
   await ana.page.locator('.card', { hasText: 'The Paper Lantern' }).getByRole('button', { name: 'Open' }).click();
   await has(ana, 'Rate this venue');
   await shot(ana, '5-venue.png');
+  // Some ratings, so the map has a top pick (Lowtide) and a trending venue (Bodega). The Paper Lantern is busy from the sesh above.
+  const sql = (q) => execSync(`psql -X -q -h ${sock} -p ${dbPort} -U postgres -d postgres -c "${q}"`);
+  sql("insert into public.ratings (venue_id, user_id, stars, updated_at) select 'a0000000-0000-4000-8000-000000000001', id, 5, now() - interval '30 days' from public.profiles where name in ('Ana', 'Jack', 'Mia')");
+  sql("insert into public.ratings (venue_id, user_id, stars) select 'a0000000-0000-4000-8000-000000000002', id, 4 from public.profiles where name in ('Tom', 'Zoe')");
+  await ana.ctx.grantPermissions(['geolocation']);
+  await ana.ctx.setGeolocation({ latitude: -31.9500, longitude: 115.8590 });
+  await ana.page.reload(); await has(ana, 'Your status');   // picks up the new ratings
   await tab(ana, 'Map');
   await ana.page.waitForTimeout(500);
+  await ana.page.locator('#radius').fill('1');
+  await tap(ana, 'Near me');
+  await ana.page.waitForSelector('.me-mark');
+  for (const i of [1]) { await ana.page.locator('.leaflet-control-zoom-in').click(); await ana.page.waitForTimeout(400); }
+  await shot(ana, '6-map.png', 0);
   await ana.page.locator('.leaflet-marker-icon[title="The Paper Lantern"]').dispatchEvent('click');
   await has(ana, 'Open venue');
-  await shot(ana, '6-map.png', 120);
+  await shot(ana, '6b-map-pick.png', 200);
   await tab(ana, 'Events');
   await has(ana, 'Live music tonight');
   await shot(ana, '7-events.png');
