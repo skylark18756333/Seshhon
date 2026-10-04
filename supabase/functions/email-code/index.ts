@@ -1,6 +1,8 @@
 // Frendzy email codes: a Supabase Edge Function that emails the 6-digit login codes (migration 0018).
 //   POST { action: "setup", email: "you@example.com" } -> { sent: true, hint }   confirm a new login email
 //   POST { action: "login" }                           -> { sent: true, hint }   a code for this login
+//   POST { action: "recovery", username, code }        -> { sent: true, hint }   a copy of a new recovery code,
+//        to the account's confirmed email (migration 0022). The code is checked against the stored hash first.
 // The person's own sign-in token must be sent as "Authorization: Bearer ...". The database makes the code
 // and keeps only its hash; this function just sends it. The email service key never leaves this function.
 //
@@ -52,19 +54,29 @@ async function whoIs(req: Request): Promise<{ user: string; session: string | nu
   return { user: String(user.id), session };
 }
 
-function message(code: string, purpose: string) {
+function message(code: string, purpose: string, username = '') {
+  if (purpose === 'recovery') {
+    const intro = 'Here is your Frendzy recovery code for the username ' + username + '. Keep this email somewhere safe.';
+    const outro = 'If you forget your password, go to frendzy.au, tap Log in, then Forgot your password?, and enter this code. ' +
+      'Each code works once, and you get a new one after using it. If you didn\'t make a Frendzy account, ignore this email.';
+    return {
+      subject: 'Your Frendzy recovery code',
+      text: intro + '\n\n' + code + '\n\n' + outro + '\n\nhttps://frendzy.au',
+      html: '<p>' + intro + '</p><p style="font-size:24px;font-weight:700;letter-spacing:2px">' + code + '</p><p>' + outro + '</p><p><a href="https://frendzy.au">frendzy.au</a></p>'
+    };
+  }
   const subject = purpose === 'setup' ? 'Confirm your email for Frendzy' : 'Your Frendzy login code';
   const intro = purpose === 'setup' ? 'Type this code in Frendzy to confirm your email:' : 'Type this code in Frendzy to finish logging in:';
   const outro = 'It works for 10 minutes. If this wasn\'t you, ignore this email. Nobody can log in without this code.';
   return {
     subject,
-    text: intro + '\n\n' + code + '\n\n' + outro,
-    html: '<p>' + intro + '</p><p style="font-size:28px;font-weight:700;letter-spacing:4px">' + code + '</p><p>' + outro + '</p>'
+    text: intro + '\n\n' + code + '\n\n' + outro + '\n\nhttps://frendzy.au',
+    html: '<p>' + intro + '</p><p style="font-size:28px;font-weight:700;letter-spacing:4px">' + code + '</p><p>' + outro + '</p><p><a href="https://frendzy.au">frendzy.au</a></p>'
   };
 }
-async function send(to: string, code: string, purpose: string): Promise<void> {
+async function send(to: string, code: string, purpose: string, username = ''): Promise<void> {
   const from = env('EMAIL_FROM') || '';
-  const m = message(code, purpose);
+  const m = message(code, purpose, username);
   let res: Response;
   if (env('BREVO_API_KEY')) {
     res = await fetch('https://api.brevo.com/v3/smtp/email', {
@@ -92,13 +104,19 @@ Deno.serve(async (req) => {
     const who = await whoIs(req);
     if (!who) return reply(401, { message: 'Sign in first.' });
     const body = await req.json().catch(() => ({}));
+    const hint = (email: string) => { const [name, domain] = String(email).split('@'); return name.slice(0, 1) + '•••@' + domain; };
+    if (body.action === 'recovery') {
+      if (typeof body.username !== 'string' || typeof body.code !== 'string' || body.code.length > 40) return reply(400, { message: 'Which recovery code?' });
+      const target = await db('two_step_recovery_target', { p_user: who.user, p_username: body.username, p_code: body.code });
+      await send(target.email, body.code.trim().toUpperCase(), 'recovery', body.username.trim().toLowerCase());
+      return reply(200, { sent: true, hint: hint(target.email) });
+    }
     const purpose = body.action === 'setup' ? 'setup' : body.action === 'login' ? 'login' : null;
     if (!purpose) return reply(400, { message: 'Which code?' });
     if (purpose === 'setup' && (typeof body.email !== 'string' || body.email.length > 254)) return reply(400, { message: 'Enter a real email address.' });
     const made = await db('two_step_make_code', { p_user: who.user, p_session: who.session, p_purpose: purpose, p_email: purpose === 'setup' ? body.email : null });
     await send(made.email, made.code, purpose);
-    const [name, domain] = String(made.email).split('@');
-    return reply(200, { sent: true, hint: name.slice(0, 1) + '•••@' + domain });
+    return reply(200, { sent: true, hint: hint(made.email) });
   } catch (e) {
     console.error(e);
     return reply(400, { message: (e as any).shown ? (e as Error).message : 'The email could not be sent. Try again soon.' });
