@@ -1,4 +1,4 @@
-// Seshhon phone app: a native shell around the live web app in docs/.
+// Frenzy phone app: a native shell around the live web app in docs/.
 // The shell adds what a web page can't do well on a phone: the native share sheet, the Android back
 // button, opening outside links in the browser, invite links, and a proper screen when there is no signal.
 // Everything else (sign-up, friends, status, sesh chat) is the live web app, so it stays in one place.
@@ -9,7 +9,7 @@ import { BackHandler, Linking, Platform, Pressable, Share, StyleSheet, Text, Vie
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { WebView, type WebViewMessageEvent, type WebViewNavigation } from 'react-native-webview';
 
-const BG = '#121110';
+const BG = '#050506';
 const FG = '#F4F1EA';
 const GREEN = '#3DDC84';
 
@@ -90,7 +90,7 @@ function Shell() {
     return (
       <View style={styles.offline}>
         <Text style={styles.title}>No connection</Text>
-        <Text style={styles.body}>Seshhon needs the internet to see who's out. Check your signal and try again.</Text>
+        <Text style={styles.body}>Frenzy needs the internet to see who's out. Check your signal and try again.</Text>
         <Pressable style={styles.button} onPress={() => { setFailed(false); web.current?.reload(); }} accessibilityRole="button">
           <Text style={styles.buttonText}>Try again</Text>
         </Pressable>
@@ -119,6 +119,7 @@ function Shell() {
       allowsBackForwardNavigationGestures
       allowsInlineMediaPlayback
       domStorageEnabled
+      geolocationEnabled
       javaScriptEnabled
       sharedCookiesEnabled
       pullToRefreshEnabled={false}
