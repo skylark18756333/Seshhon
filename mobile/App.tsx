@@ -13,7 +13,7 @@ const BG = '#050506';
 const FG = '#F4F1EA';
 const GREEN = '#3DDC84';
 
-const WEB_URL: string = (Constants.expoConfig?.extra?.webUrl as string) || 'https://skylark18756333.github.io/Seshhon/';
+const WEB_URL: string = (Constants.expoConfig?.extra?.webUrl as string) || 'https://frendzy.au/';
 const WEB_ORIGIN = new URL(WEB_URL).origin;
 const WEB_PATH = new URL(WEB_URL).pathname;
 
