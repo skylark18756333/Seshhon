@@ -1,0 +1,25 @@
+# Saves every change to the live web app as a named version, so it can be rolled back with the
+# "Roll back the web app" workflow. Versions are git tags named web-YYYY-MM-DD-HHMM (UTC); see them
+# under Code > Tags on GitHub.
+name: Save web app version
+
+on:
+  push:
+    branches: [main]
+    paths: ['docs/**']
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tag this version
+        run: |
+          tag="web-$(date -u +%Y-%m-%d-%H%M)"
+          if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null; then tag="$tag-$(git rev-parse --short HEAD)"; fi
+          git tag "$tag" "$GITHUB_SHA"
+          git push origin "refs/tags/$tag"
+          echo "Saved version **$tag**" >> "$GITHUB_STEP_SUMMARY"

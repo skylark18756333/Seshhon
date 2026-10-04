@@ -71,7 +71,15 @@ async function signUp(p, name, link) {
   await tap(p, "I've saved it");
   await has(p, 'Your status');
 }
-async function tab(p, t) { await (t === 'You' ? p.page.locator('button.profile-btn') : p.page.locator(`nav button:has-text("${t}")`)).click(); }   // You is the profile button at the top right
+async function tab(p, t) {
+  await (t === 'You' ? p.page.locator('button.profile-btn') : p.page.locator(`nav button:has-text("${t}")`)).click();
+  if (t === 'You') await openSettings(p);
+}
+// Settings are drop-down sections. The checks open them all, as a person would tap each title.
+async function openSettings(p) {
+  await p.page.waitForSelector('details.set');
+  await p.page.evaluate(() => document.querySelectorAll('details.set:not([open]) > summary').forEach((s) => s.click()));
+}   // You is the profile button at the top right
 async function inviteOf(p) { await tab(p, 'You'); await tap(p, 'Send your invite link'); const l = await p.page.locator('#invite-link').innerText(); return l.slice(l.indexOf('?')); }
 
 try {
@@ -330,8 +338,9 @@ try {
   console.log('Going Red hides you');
   await tab(cam, 'Home');
   { // drag the knob across the switch from Amber to Red, like a finger would
-    await cam.page.waitForSelector('#status-slide');
-    const box = await cam.page.locator('#status-slide').boundingBox(), y = box.y + box.height / 2;
+    let box = null;   // the screen can redraw between finding the switch and measuring it, so measure until it holds still
+    for (let i = 0; i < 20 && !box; i++) { await cam.page.waitForSelector('#status-slide'); box = await cam.page.locator('#status-slide').boundingBox(); }
+    const y = box.y + box.height / 2;
     await cam.page.mouse.move(box.x + box.width / 2, y); await cam.page.mouse.down();
     for (let i = 1; i <= 8; i++) await cam.page.mouse.move(box.x + box.width / 2 + (box.width / 3) * i / 8, y);
     await cam.page.mouse.up();
