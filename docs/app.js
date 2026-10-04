@@ -352,6 +352,7 @@
     send: '<path d="M21 3L10 14"/><path d="M21 3l-7 18-4-7-7-4z"/>',
     place: '<path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/>',
     arrow: '<path d="M21 3L3 10.5l7.5 3 3 7.5z"/>',
+    search: '<circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/>',
     clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
     star: '<path d="M12 3l2.7 5.6 6.1.8-4.5 4.3 1.1 6.1L12 16.9 6.6 19.8l1.1-6.1L3.2 9.4l6.1-.8z"/>'
   };
@@ -569,7 +570,9 @@
      saved or shown to anyone else, and it is gone when the page closes. */
   var pins = null;          // venue id -> [lat, lng], or null until loaded
   var pinsAsked = false;
-  var geo = { centre: MAP_CENTRE.slice(), mine: false, busy: false };
+  // chosen: false until the person taps the map or shares their location. Until then no venues are shown
+  // (a search still finds them), so the map isn't covered in 1,500 pins nobody asked for.
+  var geo = { centre: MAP_CENTRE.slice(), mine: false, busy: false, chosen: false };
   var M = { el: null, map: null, circle: null, centre: null, dots: {} };
 
   function loadPins() {
@@ -608,15 +611,44 @@
   }
   function hoursLine(ven) { var st = openState(ven); return st ? st.text : (ven.closes || 'Hours unknown'); }
   function fmtKm(d) { return d < 1 ? Math.max(100, Math.round(d * 10) * 100) + ' m' : (d < 10 ? d.toFixed(1) : Math.round(d)) + ' km'; }
-  function venueCard(ven, dist) {
+  function venueCard(ven, dist, onMap) {
     return '<div class="card"><div class="row between"><div class="grow">' + (ven.is_example ? '<div class="eyebrow">Example venue</div>' : '') +
       '<div style="font-weight:700;font-size:17px">' + esc(ven.name) + '</div>' +
       '<div class="muted small">' + esc([ven.kind, hoursLine(ven)].filter(Boolean).join(', ')) + '</div>' +
       '<div class="small">' + (dist != null ? '<strong>' + fmtKm(dist) + '</strong> away, ' : '') +
       (ven.ratings ? '<strong>' + Number(ven.average).toFixed(1) + '</strong> from ' + ven.ratings + ' rating' + (ven.ratings === 1 ? '' : 's') : 'no ratings yet') + '</div></div>' +
-      '<button class="btn small-btn ghost" data-act="venue" data-v="' + esc(ven.id) + '">Open</button></div></div>';
+      '<button class="btn small-btn ghost" data-act="' + (onMap && pins && pins[ven.id] ? 'map-pick' : 'venue') + '" data-v="' + esc(ven.id) + '">' + (onMap && pins && pins[ven.id] ? 'Show' : 'Open') + '</button></div></div>';
+  }
+  // Venue search on the Map tab: matches venue names and kinds anywhere, whatever the radius.
+  var SEARCH_MAX = 30;
+  function fold(t) { return String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').trim(); }
+  function searchHits() {
+    var words = fold(ui.venueQuery).split(' ').filter(Boolean);
+    if (!words.length) return null;
+    var hits = D.venues.filter(function (ven) {
+      var text = ' ' + fold(ven.name + ' ' + (ven.kind || ''));
+      return words.every(function (w) { return text.indexOf(' ' + w) >= 0; });
+    }).map(function (ven) { return { ven: ven, d: pins && pins[ven.id] && geo.chosen ? km(geo.centre, pins[ven.id]) : null }; });
+    var q = fold(ui.venueQuery);
+    hits.sort(function (a, b) {
+      var sa = fold(a.ven.name).indexOf(q) === 0 ? 0 : 1, sb = fold(b.ven.name).indexOf(q) === 0 ? 0 : 1;
+      if (sa !== sb) return sa - sb;
+      if (a.d != null && b.d != null) return a.d - b.d;
+      return a.ven.name.localeCompare(b.ven.name);
+    });
+    return hits;
+  }
+  function searchList(hits) {
+    if (!hits.length) return '<p class="small" id="venue-count">No venues match <strong>' + esc(ui.venueQuery.trim()) + '</strong>.</p>';
+    return '<p class="small" id="venue-count"><strong>' + hits.length + ' venue' + (hits.length === 1 ? '' : 's') + '</strong> match' + (hits.length === 1 ? 'es' : '') +
+      (hits.length > SEARCH_MAX ? '<span class="muted">. Showing the first ' + SEARCH_MAX + '.</span>' : '') + '</p>' +
+      hits.slice(0, SEARCH_MAX).map(function (x) { return venueCard(x.ven, x.d, true); }).join('');
   }
   function venueList() {
+    var hits = searchHits();
+    if (hits) return searchList(hits);
+    if (!geo.chosen) return '<div class="card" id="venue-count"><div style="font-weight:700">Choose where to look</div>' +
+      '<p class="muted small">Tap the arrow on the map to search near you, or tap the map to pick a spot. Or search for a venue by name above.</p></div>';
     if (!pins) return D.venues.map(function (v) { return venueCard(v, null); }).join('');
     var near = [], far = 0, unpinned = [];
     D.venues.forEach(function (ven) {
@@ -650,14 +682,17 @@
     return voted.concat(near);
   }
   function mapTab() {
-    var h = '<div class="stack" style="gap:6px"><h1>Map</h1><p class="muted small">Pick how far you want to go.</p></div>';
+    var h = '<div class="stack" style="gap:6px"><h1>Map</h1><p class="muted small">Pick how far you want to go.</p></div>' +
+      '<div class="venue-search" role="search"><label for="venue-search" class="sr-only">Search venues</label>' + svg('search', 18) +
+      '<input type="search" id="venue-search" data-keep placeholder="Search venues" autocomplete="off" enterkeyhint="search" value="' + esc(ui.venueQuery || '') + '">' +
+      (ui.venueQuery ? '<button class="back" data-act="clear-search" aria-label="Clear search">' + svg('close', 16) + '</button>' : '') + '</div>';
     if (window.L) {
       h += '<div class="stack" style="gap:12px"><div class="map-box"><div id="map-slot" class="map big"></div>' +
         '<button class="map-fab" data-act="locate" aria-label="' + (geo.busy ? 'Finding you' : 'Near me') + '" aria-pressed="' + geo.mine + '"' + (geo.busy ? ' disabled' : '') + '>' + svg('arrow', 20) + '</button></div>' + mapPick() +
         '<div class="radius"><div class="row between"><label for="radius" class="eyebrow">How far</label><div class="radius-num"><span id="radius-label">' + ui.radiusKm + '</span><small>km</small></div></div>' +
         '<input type="range" id="radius" min="1" max="25" step="1" value="' + ui.radiusKm + '" style="--p:' + radiusFill() + '" aria-valuetext="' + ui.radiusKm + ' km">' +
         '<div class="scale" aria-hidden="true"><span>1 km</span><span>25 km</span></div></div>' +
-        '<p class="muted small">' + (geo.busy ? 'Finding you...' : geo.mine ? 'Searching around you. Your location stays on this phone and is never saved or shown to friends.' : 'Tap the map to search somewhere else, or the arrow to search near you.') + '</p></div>';
+        '<p class="muted small">' + (geo.busy ? 'Finding you...' : geo.mine ? 'Searching around you. Your location stays on this phone and is never saved or shown to friends.' : geo.chosen ? 'Tap the map to search somewhere else, or the arrow to search near you.' : '') + '</p></div>';
     }
     return h + '<div class="stack" style="gap:12px" id="venue-list">' + venueList() + '</div>';
   }
@@ -665,7 +700,7 @@
   function mapPick() {
     var ven = ui.mapPick && venueById(ui.mapPick);
     if (!ven) return '';
-    var here = DEALS_ON ? D.deals.filter(function (d) { return d.venue_id === ven.id; }) : [], mine = mySesh(), away = awayText(ven);
+    var here = DEALS_ON ? D.deals.filter(function (d) { return d.venue_id === ven.id; }) : [], mine = mySesh(), away = geo.chosen ? awayText(ven) : '';
     return '<div class="card map-pick" id="map-pick"><div class="row between"><div class="grow">' + (ven.is_example ? '<div class="eyebrow">Example venue</div>' : '') +
       '<h2 style="font-size:22px">' + esc(ven.name) + '</h2><div class="muted small">' + esc([ven.kind, hoursLine(ven), away].filter(Boolean).join(', ')) + '</div></div>' +
       '<button class="back" data-act="map-pick" data-v="" aria-label="Close">' + svg('close', 18) + '</button></div>' +
@@ -751,7 +786,7 @@
       M.map.attributionControl.setPrefix(false);
       M.circle = L.circle(geo.centre, { radius: ui.radiusKm * 1000, color: '#1F7BFF', weight: 2, dashArray: '6 6', fillColor: '#1F7BFF', fillOpacity: 0.1, interactive: false }).addTo(M.map);
       M.centre = L.marker(geo.centre, { icon: youIcon(), interactive: false, keyboard: false }).addTo(M.map);
-      M.map.on('click', function (e) { geo.centre = [e.latlng.lat, e.latlng.lng]; geo.mine = false; render(); });
+      M.map.on('click', function (e) { geo.centre = [e.latlng.lat, e.latlng.lng]; geo.mine = false; geo.chosen = true; render(); });
       M.fit = true;
     }
     slot.parentNode.replaceChild(M.el, slot);
@@ -760,14 +795,19 @@
   }
   function drawMap() {
     if (!M.map) return;
-    M.circle.setLatLng(geo.centre).setRadius(ui.radiusKm * 1000);
-    M.centre.setLatLng(geo.centre);
+    M.circle.setLatLng(geo.centre).setRadius(ui.radiusKm * 1000).setStyle({ opacity: geo.chosen ? 1 : 0, fillOpacity: geo.chosen ? 0.1 : 0 });
+    M.centre.setLatLng(geo.centre).setOpacity(geo.chosen ? 1 : 0);
+    // Which pins: search matches while searching; otherwise the venues inside the circle once a spot is chosen.
+    var hits = searchHits(), show = null;
+    if (hits) { show = {}; hits.slice(0, SEARCH_MAX).forEach(function (x) { show[x.ven.id] = true; }); }
     var keep = {};
     D.venues.forEach(function (ven) {
       var at = pins && pins[ven.id];
       if (!at) return;
+      var inside = geo.chosen && km(geo.centre, at) <= ui.radiusKm;
+      if (ui.mapPick !== ven.id && (show ? !show[ven.id] : !inside)) return;
       keep[ven.id] = true;
-      var inside = km(geo.centre, at) <= ui.radiusKm, kind = ui.mapPick === ven.id ? 'goal' : inside ? 'near' : 'far';
+      var kind = ui.mapPick === ven.id ? 'goal' : inside ? 'near' : 'far';
       var st = openState(ven), open = st ? st.open : null, look = kind + ':' + open;
       var dot = M.dots[ven.id];
       if (!dot) {
@@ -781,6 +821,12 @@
       dot.unbindTooltip().bindTooltip(esc(ven.name) + '<br><small>' + esc(hoursLine(ven)) + '</small>', { direction: 'top', offset: [0, -34], className: 'tag' });
     });
     Object.keys(M.dots).forEach(function (id) { if (!keep[id]) { M.map.removeLayer(M.dots[id]); delete M.dots[id]; } });
+    if (M.fitHits && hits && hits.length) {
+      var spots = hits.slice(0, SEARCH_MAX).map(function (x) { return pins[x.ven.id]; }).filter(Boolean);
+      if (spots.length) M.map.fitBounds(L.latLngBounds(spots), { animate: false, padding: [40, 40], maxZoom: 16 });
+      M.fit = false;
+    }
+    M.fitHits = false;
     if (M.fit) { M.fit = false; M.map.fitBounds(M.circle.getBounds(), { animate: false, padding: [12, 12] }); }
   }
   function radiusFill() { return ((ui.radiusKm - 1) / 24 * 100).toFixed(1) + '%'; }
@@ -793,6 +839,17 @@
     if (range) { range.style.setProperty('--p', radiusFill()); range.setAttribute('aria-valuetext', ui.radiusKm + ' km'); }
     if (list) list.innerHTML = venueList();
     drawMap();
+  }
+
+  var searchTimer = null;
+  function setSearch(v) {   // updates the list and pins in place, so typing keeps the keyboard open
+    ui.venueQuery = v;
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(function () {
+      var list = document.getElementById('venue-list');
+      if (list) list.innerHTML = venueList();
+      M.fitHits = true; drawMap();
+    }, 150);
   }
 
   function sesh() {
@@ -1143,7 +1200,7 @@
       if (!navigator.geolocation) { toast('This phone cannot share its location. Tap the map instead.'); return; }
       geo.busy = true; render();
       navigator.geolocation.getCurrentPosition(function (pos) {
-        geo.busy = false; geo.mine = true;
+        geo.busy = false; geo.mine = true; geo.chosen = true;
         geo.centre = [pos.coords.latitude, pos.coords.longitude];   // kept in memory only, never sent anywhere
         M.fit = true; render();
       }, function () {
@@ -1177,8 +1234,13 @@
     },
     'map-pick': function (v) {
       ui.mapPick = v || null; render();
+      if (v && M.map && pins && pins[v] && !M.map.getBounds().pad(-0.1).contains(pins[v])) M.map.setView(pins[v], Math.max(M.map.getZoom(), 15), { animate: false });
       var card = document.getElementById('map-pick');
       if (card && card.scrollIntoView) card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    },
+    'clear-search': function () {
+      ui.venueQuery = ''; render();
+      var box = document.getElementById('venue-search'); if (box) box.focus();
     },
     venue: function (v) {
       ui.screen = { type: 'venue', id: v }; go(true);
@@ -1304,7 +1366,10 @@
   document.addEventListener('pointerup', function (e) { endDrag(e, false); });
   document.addEventListener('pointercancel', function (e) { endDrag(e, true); });
 
-  document.addEventListener('input', function (e) { if (e.target.id === 'radius') setRadius(e.target.value); });
+  document.addEventListener('input', function (e) {
+    if (e.target.id === 'radius') setRadius(e.target.value);
+    if (e.target.id === 'venue-search') setSearch(e.target.value);
+  });
   document.addEventListener('change', function (e) {
     if (e.target.id !== 'photo-file' || !e.target.files || !e.target.files[0]) return;
     var file = e.target.files[0];

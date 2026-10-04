@@ -166,7 +166,26 @@ try {
   await tab(ben, 'Map');
   const sent = [];
   ben.page.on('request', (r) => { if (r.url().startsWith(API)) sent.push(r.url() + ' ' + (r.postData() || '')); });
-  ok(await has(ben, '23 venues within 5 km'), 'the map shows how many venues are inside the radius');
+  ok(await has(ben, 'Choose where to look') && await ben.page.locator('.leaflet-container .leaflet-marker-icon.leaflet-interactive').count() === 0, 'no venues show until you choose where to look');
+  await ben.page.evaluate(() => { document.getElementById('view').scrollTop = 0; });
+  await ben.page.screenshot({ path: path.join(copy, 'map-choose.png') });
+  await ben.page.fill('#venue-search', 'bodega');
+  ok(await has(ben, '1 venue matches') && await ben.page.locator('.leaflet-container .leaflet-marker-icon.leaflet-interactive').count() === 1, 'searching finds a venue by name before choosing where to look');
+  await ben.page.fill('#venue-search', 'live music');
+  ok(await has(ben, 'The Paper Lantern') && !(await ben.page.locator('#venue-list').innerText()).includes('Bodega Nine'), 'search matches venue kinds too');
+  await ben.page.waitForTimeout(5600);   // a background refresh must not wipe the search box
+  ok(await ben.page.locator('#venue-search').inputValue() === 'live music', 'the search survives background refreshes');
+  await ben.page.locator('#venue-list').getByRole('button', { name: 'Show' }).first().click();
+  ok(await ben.page.locator('#map-pick').count() === 1, 'Show puts a found venue under the map');
+  await ben.page.evaluate(() => { document.getElementById('view').scrollTop = 0; });
+  await ben.page.screenshot({ path: path.join(copy, 'map-search.png') });
+  await ben.page.getByRole('button', { name: 'Clear search' }).click();
+  await ben.page.locator('#map-pick').getByRole('button', { name: 'Close' }).click();
+  ok(await has(ben, 'Choose where to look'), 'clearing the search hides the venues again');
+  await ben.page.locator('.leaflet-container').click();   // tap the middle of the map
+  ok(await has(ben, 'within 5 km of the pin'), 'tapping the map chooses where to look');
+  const shown = Number(/(\d+) venues? within/.exec(await ben.page.locator('#venue-count').innerText())[1]);
+  ok(shown > 0 && await ben.page.locator('.leaflet-container .leaflet-marker-icon.leaflet-interactive').count() === shown, 'the map shows a pin for each venue inside the radius: ' + shown);
   ok(await ben.page.locator('.leaflet-container .leaflet-marker-icon.leaflet-interactive').count() === 23, 'every venue with a position has a pin on the map');
   ok(await has(ben, 'away,'), 'venue cards say how far away they are');
   await ben.ctx.grantPermissions(['geolocation']);
@@ -233,6 +252,8 @@ try {
   await ana.page.fill('#staff-code', code); await tap(ana, 'Confirm code');
   ok(await has(ana, 'not valid') || await has(ana, 'already') || await has(ana, 'used') || await has(ana, 'expired'), 'a second use of the same code is refused: ' + (await ana.page.locator('#staff-error').innerText().catch(() => '?')));
   await tab(ana, 'Map');
+  await ana.page.fill('#venue-search', 'bodega nine');
+  await has(ana, '1 venue matches');
   await ana.page.evaluate(() => { document.getElementById('view').scrollTop = 0; });
   await ana.page.locator('.leaflet-container .leaflet-marker-icon[title="Bodega Nine"]').dispatchEvent('click');
   await tap(ana, 'Open venue');
@@ -251,7 +272,7 @@ try {
   await ben.page.getByRole('button', { name: 'Good vibe' }).click();
   await ben.page.reload();
   await has(ben, 'Your status');
-  await tab(ben, 'Map'); await pin(ben, 'Bodega Nine'); await tap(ben, 'Open venue');
+  await tab(ben, 'Map'); await ben.page.fill('#venue-search', 'bodega'); await has(ben, '1 venue matches'); await pin(ben, 'Bodega Nine'); await tap(ben, 'Open venue');
   ok(await ben.page.locator('button[aria-label="4 stars"][aria-pressed="true"]').count() === 1, 'rating and sign-in survive a page reload');
 
   console.log('Chat is erased');
