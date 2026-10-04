@@ -185,9 +185,9 @@ try {
   console.log('Venue map');
   ok(await ben.page.locator('.leaflet-container').count() === 0, 'the Venues tab is a plain list with no map');
   ok(await ben.page.locator('nav button:has-text("You")').count() === 0 && await ben.page.locator('button.profile-btn').count() === 1, 'You is a profile button at the top right, not a tab');
-  await tab(ben, 'Map');
   const sent = [];
   ben.page.on('request', (r) => { if (r.url().startsWith(API)) sent.push(r.url() + ' ' + (r.postData() || '')); });
+  await tab(ben, 'Map');
   ok(await has(ben, 'Choose where to look') && await ben.page.locator('.leaflet-container .leaflet-marker-icon.leaflet-interactive').count() === 0, 'no venues show until you choose where to look');
   await ben.page.evaluate(() => { document.getElementById('view').scrollTop = 0; });
   await ben.page.screenshot({ path: path.join(copy, 'map-choose.png') });
@@ -224,15 +224,35 @@ try {
   ok(during.filter((x) => x.includes('/rpc/api_state')).length >= 2 && during.filter((x) => x.includes('/rpc/api_venues')).length === 0, 'background refreshes do not download the venues again');
   ok(await ben.page.locator('#radius').inputValue() === '15' && await has(ben, 'within 15 km of you'), 'the radius and location survive background refreshes');
   ok(!sent.some((x) => /-32\.05|115\.74/.test(x)), 'the phone\'s location is never sent to the server');
+  ok(await ben.page.locator('.leaflet-container .me-mark').count() === 1, 'Near me shows you as a Me marker on your own map');
+  ok(sent.some((x) => x.includes('/rpc/api_buzz')), 'the map asks which venues are busy, by counts only');
+  await ben.page.locator('#radius').fill('25');
+  const mapChip = (p, name) => p.page.evaluate((n) => { document.getElementById('view').scrollTop = 0; [...document.querySelectorAll('.map-chips .chip')].find((b) => b.textContent === n).click(); }, name);
+  await mapChip(ben, 'Open now');
+  ok(await ben.page.locator('.map-chips .chip', { hasText: 'Open now' }).getAttribute('aria-pressed') === 'true' && await has(ben, 'open now venue'), 'the Open now chip filters the venues');
+  const openPins = await ben.page.locator('.leaflet-container .leaflet-marker-icon.leaflet-interactive').count();
+  ok(openPins === Number(/(\d+) open now venues? within/.exec(await ben.page.locator('#venue-count').innerText())[1]), 'and the map shows a bubble for each open one: ' + openPins);
+  await mapChip(ben, 'Open now');
+  ok(await has(ben, '23 venues within 25 km of you'), 'tapping the chip again shows every venue');
+  { // the traffic light in the header is the status switch, and the screen glows in that colour
+    const before = await ben.page.evaluate(() => document.body.dataset.status);
+    const other = before === 'thinking' ? 'Green' : 'Amber', otherKey = other === 'Green' ? 'on' : 'thinking';
+    await ben.page.getByRole('button', { name: 'Switch to ' + other }).click();
+    await ben.page.waitForFunction((k) => document.body.dataset.status === k && document.querySelector('.dots.switch [aria-pressed="true"]')?.getAttribute('data-v') === k, otherKey, { timeout: 6000 }).catch(() => {});
+    ok(await ben.page.evaluate(() => document.body.dataset.status) === otherKey && await ben.page.locator('#venue-search').count() === 1, 'tapping a light in the header changes your status and keeps you on the map');
+    await ben.page.getByRole('button', { name: 'Switch to ' + { on: 'Green', thinking: 'Amber', off: 'Red' }[before] }).click();
+    await ben.page.waitForFunction((k) => document.body.dataset.status === k, before, { timeout: 6000 }).catch(() => {});
+    ok(await ben.page.evaluate(() => document.body.dataset.status) === before, 'and back again');
+  }
   await ben.page.locator('#radius').fill('25');
   await ben.page.evaluate(() => { document.getElementById('view').scrollTop = 0; });
   await ben.page.screenshot({ path: path.join(copy, 'venue-map.png') });
   await ben.page.evaluate(() => { document.getElementById('view').scrollTop = 0; });
   const pin = (p, name) => p.page.locator(`.leaflet-container .leaflet-marker-icon[title="${name}"]`).dispatchEvent('click');
   await pin(ben, 'Lowtide Bar');
-  ok(await has(ben, 'No Frenzy ratings yet') && await has(ben, '4.4 ★ on Google Maps (120)'), 'the card under a pin shows Frenzy and Google ratings');
+  ok(await has(ben, 'No Frendzy ratings yet') && await has(ben, '4.4 ★ on Google Maps (120)'), 'the card under a pin shows Frendzy and Google ratings');
   await ben.page.getByRole('button', { name: 'Rate 5 stars' }).click();
-  ok(await has(ben, '5.0 ★ on Frenzy (1)'), 'tapping a star on the card rates the venue');
+  ok(await has(ben, '5.0 ★ on Frendzy (1)'), 'tapping a star on the card rates the venue');
   await pin(ben, 'Bodega Nine');
   ok(await has(ben, 'Open venue') && await ben.page.locator('#map-pick', { hasText: 'Bodega Nine' }).count() === 1, 'tapping a pin shows that venue under the map');
   ok(/(Open till|Closes soon|Opens) /.test(await ben.page.locator('#map-pick').innerText()), 'the picked venue says when it opens or closes');
@@ -308,6 +328,7 @@ try {
   console.log('Going Red hides you');
   await tab(cam, 'Home');
   { // drag the knob across the switch from Amber to Red, like a finger would
+    await cam.page.waitForSelector('#status-slide');
     const box = await cam.page.locator('#status-slide').boundingBox(), y = box.y + box.height / 2;
     await cam.page.mouse.move(box.x + box.width / 2, y); await cam.page.mouse.down();
     for (let i = 1; i <= 8; i++) await cam.page.mouse.move(box.x + box.width / 2 + (box.width / 3) * i / 8, y);

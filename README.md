@@ -193,7 +193,7 @@ To switch it on, in this order:
 
 ## Google ratings (optional, paid)
 
-Venue cards can show a venue's Google rating ("4.4 ★ on Google Maps (812)") next to Frenzy's own
+Venue cards can show a venue's Google rating ("4.4 ★ on Google Maps (812)") next to Frendzy's own
 ratings. It is **off** until switched on, and each look-up is billed by Google to your Google Cloud
 account. Google's terms allow keeping a venue's Google place ID but not its rating, so the rating is
 fetched fresh each time someone opens a venue, and each person is limited to 100 look-ups a day.
