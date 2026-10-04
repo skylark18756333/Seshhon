@@ -8,7 +8,7 @@ window.SESHHON_CONFIG = {
   pollMs: 5000,
   // Cloudflare Turnstile site key (public). Leave empty until CAPTCHA is set up; then paste the site key here
   // BEFORE switching on CAPTCHA protection in Supabase, or sign-up stops working.
-  captchaSiteKey: '0x4AAAAAAFMmz2o4vglTp1C7',
+  captchaSiteKey: '0x4AAAAAAFNfIIGCx_1GPNVc',
   deals: false,   // deals are hidden for now; set to true to show the Deals tab and staff code checking
   googleRatings: false   // set to true once the google-rating Edge Function and its Google key are set up (see README)
 };
