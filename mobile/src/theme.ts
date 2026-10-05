@@ -67,3 +67,23 @@ export function fade(colour: string, part: number): string {
   const n = parseInt(hex.length === 3 ? hex.replace(/(.)/g, '$1$1') : hex, 16);
   return 'rgba(' + ((n >> 16) & 255) + ', ' + ((n >> 8) & 255) + ', ' + (n & 255) + ', ' + part + ')';
 }
+
+// "8:05 pm", in this phone's time (fmtTime in docs/app.js).
+export function fmtTime(iso: string | number | null | undefined): string {
+  if (iso === null || iso === undefined || iso === '') return '';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  const h = d.getHours(), m = d.getMinutes();
+  return (h % 12 || 12) + ':' + (m < 10 ? '0' : '') + m + (h >= 12 ? ' pm' : ' am');
+}
+const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+// "Today, 8:00 pm", "Tomorrow, 7:30 pm" or "Sat 10 Oct, 8:00 pm", in this phone's time (fmtWhen in docs/app.js).
+export function fmtWhen(iso: string | number | null | undefined): string {
+  if (iso === null || iso === undefined || iso === '') return '';
+  const d = new Date(iso), t = new Date(), day = 86400000;
+  if (isNaN(d.getTime())) return '';
+  const midnight = new Date(t.getFullYear(), t.getMonth(), t.getDate()).getTime(), diff = Math.floor((d.getTime() - midnight) / day);
+  const dayText = diff === 0 ? 'Today' : diff === 1 ? 'Tomorrow' : DAY_NAMES[d.getDay()] + ' ' + d.getDate() + ' ' + MONTHS[d.getMonth()];
+  return dayText + ', ' + fmtTime(d.getTime());
+}

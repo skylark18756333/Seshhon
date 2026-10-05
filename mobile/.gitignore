@@ -49,3 +49,4 @@ yarn-error.*
 
 # Made from docs/ by scripts/bundle-web.mjs before every build
 web/app-html.generated.ts
+web/hours.generated.js

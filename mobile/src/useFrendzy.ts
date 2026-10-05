@@ -5,7 +5,7 @@ import { AppState } from 'react-native';
 import { addFriendByUsername, answerFriend, friendPhotos, loadGates, loadState, myAccount, setStatus } from './api';
 import type { Colour, State } from './api';
 import { POLL_MS } from './config';
-import type { ApiError } from './session';
+import { rpc, type ApiError } from './session';
 
 export type Frendzy = {
   phase: 'loading' | 'ready' | 'web' | 'failed';   // 'web' when only the packed web app can handle this account
@@ -20,6 +20,11 @@ export type Frendzy = {
   addFriend: (username: string) => Promise<boolean>;
   retry: () => void;
   say: (message: string) => void;
+  // A tap that calls a database function, like act() in docs/app.js: taps wait their turn, the result is
+  // said in a toast (or the error is), everything is read again, and the answer comes back (null if it failed).
+  act: (fn: string, args?: Record<string, unknown>, okMsg?: string | null) => Promise<any>;
+  acting: () => boolean;   // true while a tap is still running, so the chat poll waits as on the web
+  refresh: () => Promise<void>;
 };
 
 // paused: the packed web page is on screen and looking after itself, so the native poll waits.
@@ -121,5 +126,22 @@ export function useFrendzy(signedIn: boolean, paused?: boolean): Frendzy {
 
   const retry = useCallback(() => setTries((n) => n + 1), []);
 
-  return { phase, state, photos, username, offline, toast, busy, setColour, answer, addFriend, retry, say };
+  // Taps are never dropped: if one is still running, the next waits its turn.
+  const queue = useRef<Promise<unknown>>(Promise.resolve());
+  const waiting = useRef(0);
+  const act = useCallback((fn: string, args?: Record<string, unknown>, okMsg?: string | null) => {
+    waiting.current += 1;
+    const run = () => rpc(fn, args || {}).then(async (result) => {
+      if (okMsg) say(okMsg);
+      await read(true);
+      return result;
+    }, (e: ApiError) => { if (!e.signedOut) say(e.message); return null; });
+    const p = queue.current.then(run);
+    queue.current = p.then(() => {}, () => {});
+    return p.then((result) => { waiting.current -= 1; return result; });
+  }, [read, say]);
+  const acting = useCallback(() => waiting.current > 0, []);
+  const refresh = useCallback(() => read(true), [read]);
+
+  return { phase, state, photos, username, offline, toast, busy, setColour, answer, addFriend, retry, say, act, acting, refresh };
 }

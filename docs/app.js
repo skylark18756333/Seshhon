@@ -44,10 +44,18 @@
   // age check — until then it keeps showing this page, so none of those steps is cut off. Nothing on the website.
   var toldNative = false;
   function tellNative() {
-    if (!window.ReactNativeWebView || toldNative) return;
+    if (!window.ReactNativeWebView) return;
+    // The app has native screens for some tabs (Home, Sesh): when this page moves to another tab by itself
+    // (closing a venue, a "Sesh Map" button, voting from a venue page), the app is told so it can show its own.
+    if (!ui.screen && ui.tab !== toldTab) {
+      toldTab = ui.tab;
+      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'tab', tab: ui.tab }));
+    }
+    if (toldNative) return;
     toldNative = true;
     window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ready' }));
   }
+  var toldTab = null;   // set at start-up to the tab the app opened this page on
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
   function initials(n) { var p = String(n || '?').trim().split(/\s+/); return esc(((p[0] || '?').charAt(0) + (p[1] ? p[1].charAt(0) : '')).toUpperCase()); }
   function first(n) { return String(n || 'Someone').trim().split(/\s+/)[0]; }
@@ -2634,6 +2642,13 @@
   // on, and asks for another one when a tab is tapped. Nothing of this happens on the website.
   if (window.ReactNativeWebView) {
     if (window.SESHHON_TAB) ui.tab = String(window.SESHHON_TAB);
+    toldTab = ui.tab;
+    // Opened on one venue's page (from the app's own Sesh tab): its back button returns to the Sesh tab.
+    if (window.SESHHON_VENUE) {
+      ui.screen = { type: 'venue', id: String(window.SESHHON_VENUE) };
+      toldTab = null;   // so closing the venue tells the app, which then shows its own Sesh tab again
+      loadPins().then(function () { render(); });
+    }
     window.FrendzyNative = { go: function (tab) { ACT.tab(String(tab)); } };
   }
   try {

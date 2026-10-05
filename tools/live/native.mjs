@@ -2,8 +2,11 @@
 // Phone builds can't be made here, so the screens are built for Expo's web target instead (react-native-web)
 // and driven with Playwright. It starts the test database and the fake Supabase from tools/live, signs up a
 // handful of people in the web app so there are real friends with real statuses, then opens the native Home
-// as one of them and takes pictures. It also checks the web half the app packs in: that it opens on the tab
-// the app asks for, switches tabs when the app says so, and tells the app when the sign-in changes.
+// as one of them and takes pictures. Then the native Sesh tab: Ana starts a sesh, Jack joins it on his own
+// phone, both vote, they chat both ways, Ana reports and blocks, plans a crawl and plans a sesh for later,
+// and every tap is checked in the database. It also checks the web half the app packs in: that it opens on the
+// tab the app asks for, switches tabs when the app says so, tells the app when it moves to another tab by
+// itself, opens on a venue when asked, and tells the app when the sign-in changes.
 // Run: node tools/live/native.mjs [output folder]   (needs PostgreSQL 15+ and Playwright's Chromium)
 import { chromium } from 'playwright';
 import { spawn, execSync } from 'node:child_process';
@@ -20,6 +23,7 @@ const API = 'http://127.0.0.1:54340', WEB_PORT = 54341, NATIVE_PORT = 54342;
 
 // The native screens, built for the browser. The addresses go in at build time (EXPO_PUBLIC_...).
 const dist = fs.mkdtempSync('/tmp/frendzy-native-web-');
+execSync('node scripts/bundle-web.mjs', { cwd: path.join(root, 'mobile'), stdio: 'inherit' });   // the packed page and docs/hours.js
 execSync(`CI=1 EXPO_PUBLIC_API_URL=http://127.0.0.1:54340 EXPO_PUBLIC_API_KEY=test-anon-key npx expo export --platform web --output-dir ${dist} --clear`,
   { cwd: path.join(root, 'mobile'), stdio: 'inherit' });
 
@@ -92,6 +96,13 @@ async function join(p, name, dob) {
   await p.page.reload();
   await has(p, 'Your status');
 }
+// A database check: prints what was found, and fails the run if it isn't what was expected.
+const expect = (what, got, want) => {
+  const ok = String(got) === String(want);
+  console.log((ok ? '  ok   ' : '  FAIL ') + what + ': ' + got + (ok ? '' : ' (expected ' + want + ')'));
+  if (!ok) process.exitCode = 1;
+};
+const until = async (fn, t = 8000) => { const end = Date.now() + t; while (Date.now() < end) { if (await fn()) return true; await new Promise((r) => setTimeout(r, 200)); } return false; };
 const shot = async (p, file) => { await p.page.waitForTimeout(600); await p.page.screenshot({ path: path.join(out, file) }); console.log('  saved ' + file); };
 
 try {
@@ -101,11 +112,14 @@ try {
   await join(ana, 'Ana', '1995-04-12');
   const code = psql("select invite_code from public.profiles where name = 'Ana'");
   const link = '?invite=' + code;
+  const sessions = {};
   for (const [name, colour] of [['Jack', 'Green'], ['Mia', 'Amber'], ['Tom', 'Green'], ['Zoe', 'Red']]) {
     const f = await phone(name, `http://127.0.0.1:${WEB_PORT}/` + link);
     await join(f, name, '1996-05-06');
     await has(ana, 'wants to add you'); await tap(ana, 'Accept');
     if (colour !== 'Red') await tap(f, colour);
+    await f.page.waitForTimeout(400);
+    sessions[name] = await f.page.evaluate(() => localStorage.getItem('seshhon-session-v1'));
     await f.ctx.close();
   }
   await tap(ana, 'Green');
@@ -136,6 +150,183 @@ try {
   await nat.page.getByRole('tab', { name: 'Map' }).click();
   await shot(nat, '4-tab-map.png');
   console.log('after tapping Map: ' + (await nat.page.evaluate(() => document.body.innerText)).replace(/\n+/g, ' | '));
+
+  /* ---------- the native Sesh tab ---------- */
+  const sesh = path.join(out, 'native-sesh');
+  fs.mkdirSync(sesh, { recursive: true });
+  const sshot = async (p, file) => { await p.page.waitForTimeout(700); await p.page.screenshot({ path: path.join(sesh, file), fullPage: true }); console.log('  saved native-sesh/' + file); };
+  const id = (name) => psql(`select id from public.profiles where name = '${name}'`);
+  const anaId = id('Ana'), jackId = id('Jack'), tomId = id('Tom');
+  await nat.page.getByRole('tab', { name: 'Sesh' }).click();
+  await has(nat, "Tonight's sesh");
+  await has(nat, 'Nobody has started one yet');
+  await sshot(nat, '1-no-sesh.png');
+
+  // Start a sesh: start_sesh, the same function the web app calls.
+  await tap(nat, 'Start a sesh');
+  await has(nat, 'Live now');
+  await has(nat, 'Where to?');
+  const seshId = psql(`select id from public.seshes where creator = '${anaId}' and ended_at is null`);
+  expect('a live sesh started by Ana', psql(`select count(*) from public.seshes where creator = '${anaId}' and ended_at is null`), 1);
+  // The vote list: the venues within 5 km of the city centre, with their opening hours and distance.
+  const venues = psql("select string_agg(id || '|' || name, ';' order by name) from public.venues where lat is not null").split(';').map((x) => x.split('|'));
+  const [venueA, nameA] = venues[0], [venueB, nameB] = venues[1];
+  await has(nat, nameA, 15000);
+  await sshot(nat, '2-sesh-started.png');
+
+  // Ana votes; the vote must land in the database, and tapping again takes it back, as on the web.
+  await nat.page.getByTestId('vote-' + venueA).click();
+  await has(nat, 'Your vote');
+  await until(() => psql(`select count(*) from public.venue_votes where sesh_id = '${seshId}'`) === '1');
+  expect("Ana's vote in the database", psql(`select venue_id from public.venue_votes where sesh_id = '${seshId}' and user_id = '${anaId}'`), venueA);
+
+  // Jack, on his own phone, sees Ana's sesh and joins it.
+  const natJ = await phone('Jack native', `http://127.0.0.1:${NATIVE_PORT}/`, `localStorage.setItem('seshhon-session-v1', ${JSON.stringify(sessions.Jack)});`);
+  await has(natJ, "You're green.");
+  await natJ.page.getByRole('tab', { name: 'Sesh' }).click();
+  await has(natJ, "Ana's sesh");
+  await sshot(natJ, '3-jack-sees-sesh.png');
+  await tap(natJ, 'Join');
+  await has(natJ, 'Live now');
+  expect('Jack is in the sesh', psql(`select count(*) from public.sesh_members where sesh_id = '${seshId}' and user_id = '${jackId}'`), 1);
+  // Jack votes for the other venue, then changes to Ana's: two votes for one venue.
+  await natJ.page.getByTestId('vote-' + venueB).click();
+  await until(() => psql(`select count(*) from public.venue_votes where sesh_id = '${seshId}'`) === '2');
+  expect("Jack's first vote", psql(`select venue_id from public.venue_votes where sesh_id = '${seshId}' and user_id = '${jackId}'`), venueB);
+  await natJ.page.getByTestId('vote-' + venueA).click();
+  await until(() => psql(`select venue_id from public.venue_votes where sesh_id = '${seshId}' and user_id = '${jackId}'`) === venueA);
+  expect('votes counted for ' + nameA, psql(`select count(*) from public.venue_votes where sesh_id = '${seshId}' and venue_id = '${venueA}'`), 2);
+  await has(natJ, '2 votes in');
+  await has(nat, '2 votes in', 10000);
+  console.log("Ana's screen shows the vote count Jack changed: yes");
+
+  // Chat, both ways. Each phone only polls, so this also checks the chat poll.
+  await natJ.page.getByLabel('Message your mates').fill('Heading there at 9, who is in?');
+  await natJ.page.getByRole('button', { name: 'Send', exact: true }).click();
+  await until(() => psql(`select count(*) from public.messages where sesh_id = '${seshId}'`) === '1');
+  expect('message stored', psql(`select body from public.messages where sesh_id = '${seshId}' and sender = '${jackId}'`), 'Heading there at 9, who is in?');
+  await has(nat, 'Heading there at 9, who is in?', 10000);
+  console.log("Ana's phone received Jack's message: yes");
+  await nat.page.getByLabel('Message your mates').fill("I'm in, see you there");
+  await nat.page.getByLabel('Message your mates').press('Enter');
+  await has(natJ, "I'm in, see you there", 10000);
+  console.log("Jack's phone received Ana's reply: yes");
+  expect('messages stored', psql(`select count(*) from public.messages where sesh_id = '${seshId}'`), 2);
+  expect('input cleared after sending', await nat.page.getByLabel('Message your mates').inputValue(), '');
+  await sshot(nat, '4-chat-ana.png');
+  await sshot(natJ, '5-chat-jack.png');
+
+  // Reporting a message: report_message, with the message kept for the moderators.
+  await nat.page.getByRole('button', { name: 'Report', exact: true }).first().click();
+  await has(nat, 'Report this message?');
+  await sshot(nat, '6-report-confirm.png');
+  await nat.page.getByRole('button', { name: 'Report', exact: true }).first().click();
+  await has(nat, 'Reported. Thanks for telling us.');
+  expect('report stored', psql(`select count(*) from public.reports where reporter = '${anaId}' and reported = '${jackId}' and message_body = 'Heading there at 9, who is in?'`), 1);
+
+  // Lock in the winner: lock_sesh.
+  await tap(nat, 'Lock in ' + nameA);
+  await has(nat, 'Locked in');
+  await until(() => psql(`select coalesce(locked_venue::text, '') from public.seshes where id = '${seshId}'`) === venueA);
+  expect('locked venue in the database', psql(`select locked_venue from public.seshes where id = '${seshId}'`), venueA);
+  await has(natJ, 'Locked in', 10000);
+
+  // The Sesh Map: stops are added from the map (the web half), so two are added straight through the
+  // database as Jack and Ana would, then Ana ticks one off and moves one on the native screen.
+  const rpcAs = (p, fn, args) => p.page.evaluate(async ([fn, args]) => {
+    const s = JSON.parse(localStorage.getItem('seshhon-session-v1'));
+    const r = await fetch('http://127.0.0.1:54340/rest/v1/rpc/' + fn, { method: 'POST', headers: { apikey: 'test-anon-key', Authorization: 'Bearer ' + s.access_token, 'Content-Type': 'application/json' }, body: JSON.stringify(args) });
+    return r.status;
+  }, [fn, args]);
+  console.log('crawl_add as Jack: ' + await rpcAs(natJ, 'crawl_add', { p_sesh: seshId, p_venue: venueA }));
+  console.log('crawl_add as Ana: ' + await rpcAs(nat, 'crawl_add', { p_sesh: seshId, p_venue: venueB }));
+  await has(nat, '2 stops', 10000);
+  await nat.page.getByRole('button', { name: 'Done with ' + nameA, exact: true }).click();
+  await until(() => psql(`select done from public.crawl_stops where sesh_id = '${seshId}' and venue_id = '${venueA}'`) === 't');
+  expect('stop 1 ticked off', psql(`select done from public.crawl_stops where sesh_id = '${seshId}' and venue_id = '${venueA}'`), 't');
+  await has(nat, 'Next stop');
+  await nat.page.getByRole('button', { name: 'Move ' + nameB + ' earlier', exact: true }).click();
+  await until(() => psql(`select position from public.crawl_stops where sesh_id = '${seshId}' and venue_id = '${venueB}'`) === '1');
+  expect(nameB + ' moved to stop 1', psql(`select position from public.crawl_stops where sesh_id = '${seshId}' and venue_id = '${venueB}'`), 1);
+  await has(natJ, '2 stops', 10000);
+  await has(natJ, 'started this sesh, so they set the order');
+  await sshot(nat, '7-crawl-ana.png');
+  await sshot(natJ, '8-crawl-jack.png');
+
+  // Tom joins and says something; Ana blocks him from the chat (block_user) and his messages go.
+  const natT = await phone('Tom native', `http://127.0.0.1:${NATIVE_PORT}/`, `localStorage.setItem('seshhon-session-v1', ${JSON.stringify(sessions.Tom)});`);
+  await natT.page.getByRole('tab', { name: 'Sesh' }).click();
+  await has(natT, "Ana's sesh");
+  await tap(natT, 'Join');
+  await has(natT, 'Live now');
+  await natT.page.getByLabel('Message your mates').fill('Ugh not there');
+  await natT.page.getByRole('button', { name: 'Send', exact: true }).click();
+  await has(nat, 'Ugh not there', 10000);
+  const tomRow = nat.page.locator('[data-testid="chat-list"] >> text=Ugh not there').locator('xpath=../..');
+  await tomRow.getByRole('button', { name: 'Block', exact: true }).click();
+  await has(nat, 'Block Tom?');
+  await sshot(nat, '9-block-confirm.png');
+  await tomRow.getByRole('button', { name: 'Block', exact: true }).click();
+  await has(nat, 'Blocked.');
+  expect('block stored', psql(`select count(*) from public.blocks where blocker = '${anaId}' and blocked = '${tomId}'`), 1);
+  expect('no longer friends with Tom', psql(`select count(*) from public.friendships where state = 'accepted' and ((requester = '${anaId}' and addressee = '${tomId}') or (requester = '${tomId}' and addressee = '${anaId}'))`), 0);
+  await until(async () => !(await nat.page.evaluate(() => document.body.innerText.includes('Ugh not there'))));
+  expect("Tom's message gone from Ana's chat", await nat.page.evaluate(() => document.body.innerText.includes('Ugh not there')), false);
+  await natT.ctx.close();
+
+  // Plan a sesh for later, for all friends: plan_sesh.
+  await tap(nat, 'Plan a sesh for later');
+  await has(nat, "When's it on?");
+  await tap(nat, 'A day later');
+  await sshot(nat, '10-plan.png');
+  await tap(nat, 'Pick friends');
+  await has(nat, 'Pick at least one friend');
+  await nat.page.getByRole('button', { name: 'Jack', exact: true }).click();
+  await has(nat, 'Plan it with 1');
+  await sshot(nat, '11-plan-pick.png');
+  await tap(nat, 'Plan it with 1');
+  await has(nat, 'Planned. Only the friends you picked can see it.');
+  await has(nat, 'Add a private pres address');
+  expect('a planned private sesh in the database', psql(`select count(*) from public.seshes where creator = '${anaId}' and created_at > now() + interval '20 hours' and private`), 1);
+  // The pres address for it: set_sesh_pres.
+  await tap(nat, 'Add a private pres address');
+  await nat.page.getByLabel('Address', { exact: true }).fill('12 Smith St, Northbridge');
+  await tap(nat, '15 minutes later');
+  await tap(nat, 'Save');
+  await has(nat, 'Pres address saved.');
+  expect('pres address stored', psql(`select address from private.sesh_pres p join public.seshes s on s.id = p.sesh_id where s.creator = '${anaId}' and s.created_at > now() + interval '20 hours'`), '12 Smith St, Northbridge');
+  await sshot(nat, '12-planned-sesh.png');
+  await tap(nat, 'All seshes');
+  await has(nat, 'Live now');
+  await has(nat, 'Planned');
+  await sshot(nat, '13-back-to-tonight.png');
+
+  // A private sesh from Jack's phone: start_private_sesh. He leaves Ana's first.
+  await tap(natJ, 'Leave the sesh');
+  await has(natJ, "Ana's sesh");
+  expect('Jack left', psql(`select count(*) from public.sesh_members where sesh_id = '${seshId}' and user_id = '${jackId}'`), 0);
+  await tap(natJ, 'Start a private sesh');
+  await has(natJ, "Who's invited?");
+  await natJ.page.getByRole('button', { name: 'Ana', exact: true }).click();   // Jack's one friend
+  await sshot(natJ, '14-private-picker.png');
+  await tap(natJ, 'Start private sesh with 1');
+  await has(natJ, 'Private sesh started.');
+  await has(natJ, 'Only you and the 1 friend you picked can see it.');
+  expect("Jack's private sesh", psql(`select count(*) from public.seshes where creator = '${jackId}' and private and ended_at is null`), 1);
+  await sshot(natJ, '15-private-sesh.png');
+
+  // Ending: end_sesh.
+  await tap(nat, 'End the sesh');
+  await has(nat, 'Sesh ended.');
+  // end_sesh deletes the sesh, with its members, votes, stops and chat.
+  expect("Ana's sesh gone", psql(`select count(*) from public.seshes where id = '${seshId}'`), 0);
+  expect('its chat gone', psql(`select count(*) from public.messages where sesh_id = '${seshId}'`), 0);
+  await sshot(nat, '16-ended.png');
+  await natJ.ctx.close();
+  // Home's "Start a sesh" opens the native Sesh tab too.
+  await nat.page.getByRole('tab', { name: 'Home' }).click();
+  await has(nat, 'Up for it now');
+
   // The web half inside the app: it starts on the tab the app asks for, tells the app when the sign-in
   // changes, and switches tabs when the app says so. The app itself is stubbed, as a WebView can't run here.
   const inApp = await phone('in-app', `http://127.0.0.1:${WEB_PORT}/`, `
@@ -151,7 +342,26 @@ try {
   console.log('page switched tab when the app asked: ' + (await inApp.page.evaluate(() => !!document.querySelector('nav button[data-v="venues"][aria-current="page"]'))));
   // Storing anything else must not send the app a message, and the page says once that it is past sign-up.
   const posted = await inApp.page.evaluate(() => { localStorage.setItem('seshhon-not-the-session', '1'); return window.__posted.map((m) => m.type); });
-  console.log('messages so far (only the "past sign-up" one): ' + JSON.stringify(posted));
+  console.log('messages so far (the "past sign-up" one, then the tab it moved to when asked): ' + JSON.stringify(posted));
+  expect('page messages', JSON.stringify(posted), JSON.stringify(['ready', 'tab']));
+  // Opened on one venue (from the native Sesh tab): the page shows it, and its back button tells the app to
+  // go back to the Sesh tab.
+  const venueId = psql("select id from public.venues where lat is not null order by name limit 1");
+  const venueName = psql("select name from public.venues where lat is not null order by name limit 1");
+  const onVenue = await phone('venue', `http://127.0.0.1:${WEB_PORT}/`, `
+    window.__posted = [];
+    window.ReactNativeWebView = { postMessage: function (m) { window.__posted.push(JSON.parse(m)); } };
+    window.SESHHON_TAB = 'sesh';
+    window.SESHHON_VENUE = ${JSON.stringify(venueId)};
+    localStorage.setItem('seshhon-session-v1', ${JSON.stringify(session)});
+  `);
+  await has(onVenue, venueName);
+  await onVenue.page.waitForSelector('button.back[data-act="close"]');
+  await sshot(onVenue, '17-venue-page.png');
+  await onVenue.page.locator('button.back[data-act="close"]').first().click();
+  await until(() => onVenue.page.evaluate(() => window.__posted.some((m) => m.type === 'tab')));
+  expect('page told the app it went back to Sesh', JSON.stringify(await onVenue.page.evaluate(() => window.__posted.filter((m) => m.type === 'tab'))), JSON.stringify([{ type: 'tab', tab: 'sesh' }]));
+  await onVenue.ctx.close();
   // Log out from the You page, which clears the sign-in: the app must be told.
   await inApp.page.evaluate(() => { window.__posted = []; });
   await inApp.page.locator('button.profile-btn').click();
@@ -170,7 +380,7 @@ try {
   await inApp.page.waitForFunction(() => window.__posted.length > 0, null, { timeout: 15000 });
   const back = await inApp.page.evaluate(() => window.__posted.map((m) => m.type + ':' + (m.session && m.session.access_token ? 'a sign-in' : String(m.session))));
   console.log('messages after logging in: ' + JSON.stringify(back));
-  console.log('ALL CHECKS RAN');
+  console.log(process.exitCode ? 'SOME CHECKS FAILED' : 'ALL CHECKS RAN');
 } catch (e) {
   console.log('crashed: ' + e.message);
   process.exitCode = 1;

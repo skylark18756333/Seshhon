@@ -14,7 +14,15 @@ const ICON: Record<string, Shape[]> = {
   // Status lamps: a tick for green (out), a question mark for amber (maybe), a cross for red (off)
   tick: [{ d: 'M4.5 12.5l5 5L19.5 7' }],
   query: [{ d: 'M8.5 8.5a3.5 3.5 0 1 1 5.2 3c-1.1.7-1.7 1.4-1.7 2.7v.6' }, { c: [12, 19, 0.6] }],
-  cross: [{ d: 'M6 6l12 12' }, { d: 'M18 6L6 18' }]
+  cross: [{ d: 'M6 6l12 12' }, { d: 'M18 6L6 18' }],
+  // The Sesh tab's
+  back: [{ d: 'M15 5l-7 7 7 7' }],
+  close: [{ d: 'M6 6l12 12' }, { d: 'M18 6L6 18' }],
+  send: [{ d: 'M21 3L10 14' }, { d: 'M21 3l-7 18-4-7-7-4z' }],
+  clock: [{ c: [12, 12, 9] }, { d: 'M12 7v5l3 2' }],
+  lock: [{ d: 'M7 11h10a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-6a2 2 0 0 1 2-2z' }, { d: 'M8 11V8a4 4 0 0 1 8 0v3' }],
+  up: [{ d: 'M12 19V5' }, { d: 'M5 12l7-7 7 7' }],
+  down: [{ d: 'M12 5v14' }, { d: 'M5 12l7 7 7-7' }]
 };
 
 export default function Icon({ name, size, colour, weight }: { name: string; size: number; colour: string; weight?: number }) {

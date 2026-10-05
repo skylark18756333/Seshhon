@@ -1,13 +1,12 @@
 // The native Home screen: the logo with the status switch, your status, and who's up for it tonight.
 // It shows the same things in the same words as home() in docs/app.js.
-import { LinearGradient } from 'expo-linear-gradient';
 import React, { useEffect, useRef, useState } from 'react';
-import { Image, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { Colour, Friend } from './api';
 import Icon from './Icon';
-import Logo from './Logo';
+import { Button, Face, Glow, Toast, TopBar } from './Parts';
 import type { Frendzy } from './useFrendzy';
-import { C, COLOURS, F, LABELS, STATUS_COPY, STATUS_ICON, STOPS, fade, first, fmtLeft, hue, initials } from './theme';
+import { C, COLOURS, F, LABELS, STATUS_COPY, STATUS_ICON, STOPS, fade, first, fmtLeft, initials } from './theme';
 
 const INVITE_BASE = 'https://frendzy.au/';
 
@@ -33,22 +32,8 @@ export default function Home({ f, onOpenWeb }: { f: Frendzy; onOpenWeb: (tab: st
 
   return (
     <View style={styles.fill}>
-      {/* The whole screen glows in your status colour, so you can tell at a glance where you are. */}
-      <LinearGradient
-        pointerEvents="none"
-        colors={[fade(COLOURS[colour], 0.5), fade(COLOURS[colour], 0.12), 'rgba(5,5,6,0)']}
-        locations={[0, 0.45, 1]}
-        style={styles.glow}
-      />
-      <View style={styles.top}>
-        <Logo status={colour} onPick={(c) => { if (c !== colour) f.setColour(c); }} />
-        <View style={styles.topRight}>
-          {f.offline ? <Text style={styles.pill}>Offline</Text> : null}
-          <Pressable onPress={() => onOpenWeb('you')} accessibilityRole="button" accessibilityLabel="You" style={[styles.profile, { borderColor: COLOURS[colour] }]}>
-            <Face id={me.id} name={me.name} photos={f.photos} size={40} font={13} />
-          </Pressable>
-        </View>
-      </View>
+      <Glow colour={colour} />
+      <TopBar f={f} onOpenWeb={onOpenWeb} />
 
       <ScrollView style={styles.fill} contentContainerStyle={styles.view} keyboardShouldPersistTaps="handled">
         <View style={styles.stack}>
@@ -137,12 +122,19 @@ export default function Home({ f, onOpenWeb }: { f: Frendzy; onOpenWeb: (tab: st
 
         {friends.length && colour !== 'off' ? (
           colour === 'on'
-            ? <Button label={live ? "Open tonight's sesh" : 'Start a sesh'} onPress={() => onOpenWeb('sesh')} />
+            ? <Button
+                label={live ? "Open tonight's sesh" : 'Start a sesh'}
+                onPress={() => {
+                  // Like go-sesh in docs/app.js: open tonight's sesh, or start one and then open it.
+                  if (live) { onOpenWeb('sesh'); return; }
+                  f.act('start_sesh', {}, 'Sesh started. Friends who are around can join.').then(() => onOpenWeb('sesh'));
+                }}
+              />
             : <Button label="See what's on tonight" colour={C.thinking} ink onPress={() => onOpenWeb('events')} />
         ) : null}
       </ScrollView>
 
-      {f.toast ? <View style={styles.toast}><Text style={styles.toastText}>{f.toast}</Text></View> : null}
+      <Toast text={f.toast} />
     </View>
   );
 }
@@ -207,49 +199,9 @@ function FriendFace({ friend, photos }: { friend: Friend; photos: Record<string,
   );
 }
 
-// Someone's photo if they added one and you're allowed to see it, otherwise their initials on a colour of their own.
-function Face({ id, name, photos, size, font, away }: { id: string; name: string; photos: Record<string, string>; size: number; font: number; away?: boolean }) {
-  const pic = photos[id];
-  const h = hue(name);
-  return (
-    <View style={[styles.face, { width: size, height: size, borderRadius: size / 2, opacity: away ? 0.45 : 1, borderColor: away ? C.line : 'rgba(255, 255, 255, 0.85)' }]}>
-      {pic
-        ? <Image source={{ uri: pic }} style={{ width: size, height: size, borderRadius: size / 2 }} />
-        : (
-          <LinearGradient
-            colors={[`hsl(${h}, 70%, 58%)`, `hsl(${(h + 40) % 360}, 65%, 38%)`]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={[styles.faceFill, { borderRadius: size / 2 }]}
-          >
-            <Text style={[styles.faceInitials, { fontSize: font }]}>{initials(name)}</Text>
-          </LinearGradient>
-        )}
-    </View>
-  );
-}
-
-function Button({ label, onPress, small, ghost, colour, ink }: { label: string; onPress: () => void; small?: boolean; ghost?: boolean; colour?: string; ink?: boolean }) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      onPress={onPress}
-      style={[styles.btn, small && styles.btnSmall, ghost && styles.btnGhost, colour ? { backgroundColor: colour } : null]}
-    >
-      <Text style={[styles.btnText, small && styles.btnTextSmall, ghost && styles.btnTextGhost, ink ? { color: C.ink } : null]}>{label}</Text>
-    </Pressable>
-  );
-}
-
 const styles = StyleSheet.create({
   fill: { flex: 1 },
-  glow: { position: 'absolute', left: 0, right: 0, top: 0, height: 320 },
   view: { paddingHorizontal: 18, paddingTop: 20, paddingBottom: 24, gap: 20, maxWidth: 440, width: '100%', alignSelf: 'center' },
-  // The header sits above the page: logo and status switch on the left, you on the right.
-  top: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, paddingHorizontal: 18, paddingTop: 12, paddingBottom: 10, maxWidth: 440, width: '100%', alignSelf: 'center' },
-  topRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  pill: { fontFamily: F.bodyBold, fontSize: 12, letterSpacing: 0.8, textTransform: 'uppercase', paddingVertical: 5, paddingHorizontal: 10, borderRadius: 999, borderWidth: 1, borderColor: C.off, color: C.off },
-  profile: { width: 44, height: 44, borderRadius: 22, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
 
   stack: { gap: 10 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12 },
@@ -284,20 +236,6 @@ const styles = StyleSheet.create({
   faceGlow: { position: 'absolute', width: 100, height: 100, borderRadius: 50 },
   faceGlowMid: { position: 'absolute', width: 88, height: 88, borderRadius: 44 },
   faceGlowInner: { position: 'absolute', width: 76, height: 76, borderRadius: 38 },
-  face: { borderWidth: 2, overflow: 'hidden' },
-  faceFill: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  faceInitials: { fontFamily: F.display, color: '#fff' },
   faceName: { fontFamily: F.bodyBold, fontSize: 14, color: C.fg, maxWidth: '100%' },
-  faceState: { fontFamily: F.body, fontSize: 12 },
-
-  // Buttons
-  btn: { minHeight: 54, paddingHorizontal: 20, borderRadius: 27, backgroundColor: C.accent, alignItems: 'center', justifyContent: 'center' },
-  btnSmall: { minHeight: 44, paddingHorizontal: 18, borderRadius: 22 },
-  btnGhost: { backgroundColor: C.surface, borderWidth: 1, borderColor: C.line },
-  btnText: { fontFamily: F.bodyBold, fontSize: 16, color: C.accentInk },
-  btnTextSmall: { fontSize: 14 },
-  btnTextGhost: { color: C.fg },
-
-  toast: { position: 'absolute', left: 16, right: 16, bottom: 16, alignItems: 'center' },
-  toastText: { fontFamily: F.bodyBold, fontSize: 14, color: C.ink, backgroundColor: C.fg, paddingVertical: 12, paddingHorizontal: 18, borderRadius: 24, textAlign: 'center', overflow: 'hidden' }
+  faceState: { fontFamily: F.body, fontSize: 12 }
 });

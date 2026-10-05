@@ -2,6 +2,8 @@
 // The phone app shows this copy instead of loading the website, so it opens without frendzy.au.
 // Scripts, styles and fonts are put inline; the page's security policy is widened only by the exact
 // hashes of those scripts. Output: web/app-html.generated.ts (not committed; made before every build).
+// It also copies docs/hours.js to web/hours.generated.js, so the native Sesh tab reads opening hours with the
+// very same code as the web app.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -44,3 +46,7 @@ const out = path.join(mobile, 'web/app-html.generated.ts');
 fs.mkdirSync(path.dirname(out), { recursive: true });
 fs.writeFileSync(out, '// Made by scripts/bundle-web.mjs from docs/. Do not edit.\nexport default ' + JSON.stringify(html) + ';\n');
 console.log(`bundle-web: ${out} (${Math.round(html.length / 1024)} KB)`);
+
+const hoursOut = path.join(mobile, 'web/hours.generated.js');
+fs.writeFileSync(hoursOut, '// Copied from docs/hours.js by scripts/bundle-web.mjs. Do not edit.\n' + read('hours.js'));
+console.log(`bundle-web: ${hoursOut}`);
