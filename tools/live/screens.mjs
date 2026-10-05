@@ -22,7 +22,7 @@ const api = spawn('node', [path.join(here, 'fake-supabase.mjs'), sock, dbPort, '
 const web = http.createServer((req, res) => {
   const p = new URL(req.url, 'http://x').pathname;
   if (p === '/config.js') { res.setHeader('Content-Type', 'text/javascript');
-    return res.end(fs.readFileSync(path.join(root, 'docs/config.js'), 'utf8').replace(/url: '[^']*'/, `url: '${API}'`).replace(/key: '[^']*'/, "key: 'test-anon-key'").replace(/pollMs: \d+/, 'pollMs: 600, chatPollMs: 500').replace(/deals: (true|false)/, 'deals: true').replace(/captchaSiteKey: '[^']*'/, "captchaSiteKey: ''")); }
+    return res.end(fs.readFileSync(path.join(root, 'docs/config.js'), 'utf8').replace(/url: '[^']*'/, `url: '${API}'`).replace(/key: '[^']*'/, "key: 'test-anon-key'").replace(/pollMs: \d+/, 'pollMs: 600, chatPollMs: 500').replace(/deals: (true|false)/, 'deals: true')); }
   const f = path.join(root, 'docs', p === '/' ? 'index.html' : p);
   if (f === path.join(root, 'docs/index.html')) {
     const live = fs.readFileSync(path.join(root, 'docs/config.js'), 'utf8').match(/url: '([^']*)'/)[1];
@@ -64,6 +64,17 @@ async function tile(z, x, y) {
 async function phone(name) {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, timezoneId: 'Australia/Perth' });
   await ctx.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
+  // A pretend Cloudflare Turnstile at the real address (so the security policy is tested too). Like the real one,
+  // it hands out a one-time token a moment after it appears, and a new one after a reset.
+  await ctx.route(/challenges\.cloudflare\.com\/turnstile/, (r) => r.fulfill({ contentType: 'text/javascript', body: `(() => {
+    const w = {}; let n = 0, k = 0;
+    const issue = (id) => setTimeout(() => { const x = w[id]; if (x && x.el.isConnected) x.opts.callback('fake-ts-' + Date.now() + '-' + (++k)); }, 150);
+    window.turnstile = {
+      render(el, opts) { if (!el.isConnected) throw new Error('turnstile: box not on the page'); const id = 'w' + (++n); w[id] = { el, opts }; el.innerHTML = '<div class="fake-turnstile">Human check</div>'; issue(id); return id; },
+      reset(id) { if (!w[id]) throw new Error('turnstile: unknown widget'); issue(id); },
+      remove(id) { delete w[id]; }
+    };
+  })();` }));
   await ctx.route(/tile\.openstreetmap\.org\/(\d+)\/(\d+)\/(\d+)/, async (r) => {
     const [, z, x, y] = r.request().url().match(/(\d+)\/(\d+)\/(\d+)\.png/).map(Number);
     r.fulfill({ contentType: 'image/png', body: await tile(z, x, y) });
@@ -94,6 +105,7 @@ async function join(p, name, dob) {   // the sign up form, then skip the email c
   await tap(p, 'Get started');
   await has(p, 'Confirm your email'); await tap(p, 'Later');
   await has(p, 'Save your recovery code'); await tap(p, "I've saved it");
+  try { await p.page.locator('.tour-skip').click({ timeout: 4000 }); await p.page.locator('.tour').waitFor({ state: 'detached', timeout: 4000 }); } catch {}   // the walkthrough opens after every sign-up
 }
 try {
   const ana = await phone('Ana'), ben = await phone('Ben');
@@ -171,6 +183,13 @@ try {
   await shot(ana, '8-settings.png');
   await ana.page.locator('details.set[data-set="login"] > summary').click();
   await shot(ana, '8b-settings-open.png');
+  await ana.page.locator('details.set[data-set="login"] > summary').click();
+  await ana.page.locator('details.set[data-set="friends"] > summary').click();
+  await tap(ana, 'Hide my status');
+  await has(ana, 'Your status is hidden');
+  await shot(ana, '8c-hide-status.png', await ana.page.evaluate(() => document.querySelector('details.set[data-set="friends"]').offsetTop - 70));
+  await tab(ben, 'Home'); await ben.page.waitForTimeout(1500);
+  await shot(ben, '8d-hidden-from-ben.png', 0);
 } catch (e) {
   console.log('crashed: ' + e.message);
   process.exitCode = 1;
