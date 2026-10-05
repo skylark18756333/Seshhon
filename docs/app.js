@@ -11,6 +11,8 @@
   var CAPTCHA_KEY = String(CFG.captchaSiteKey || '');   // Cloudflare Turnstile site key; when set, sign-up asks for a quick human check   // deals are switched off for now; set deals: true in config.js to bring them back
   var SESSION_KEY = 'seshhon-session-v1';
   var INVITE_KEY = 'seshhon-pending-invite';
+  var DEVICE_KEY = 'seshhon-remembered-phone';   // per account: the secret that lets this phone skip the email code (migration 0023)
+  var LAST_USER_KEY = 'seshhon-last-username';   // filled in on the login screen next time
   var UNDERAGE_KEY = 'seshhon-under-18';
   var SIGNUP_KEY = 'seshhon-signup-waiting';   // name and date of birth, kept in this tab only while the age check runs
   var PROVIDER_NAMES = { yoti: 'Yoti', didit: 'Didit' };
@@ -63,7 +65,8 @@
     session = {
       access_token: body.access_token,
       refresh_token: body.refresh_token,
-      expires_at: body.expires_at || Math.floor(Date.now() / 1000) + (body.expires_in || 3600)
+      expires_at: body.expires_at || Math.floor(Date.now() / 1000) + (body.expires_in || 3600),
+      user_id: (body.user && body.user.id) || (session && session.user_id) || null
     };
     store(SESSION_KEY, session);
   }
@@ -244,7 +247,7 @@
   var D = null;            // the latest answer from api_state()
   var lastKey = '';        // used to skip redraws when nothing changed
   var clockOffset = 0;     // server time minus this phone's time
-  var ui = { messages: [], tab: 'home', screen: null, confirm: null, staffError: '', offline: false, booted: false, linkShown: false, age: null, ageNote: '', ageBusy: false, auth: null, account: undefined, newCode: null, editAccount: false, twoStep: undefined, emailStep: null };
+  var ui = { messages: [], tab: 'home', screen: null, confirm: null, staffError: '', offline: false, booted: false, linkShown: false, age: null, ageNote: '', ageBusy: false, auth: null, account: undefined, newCode: null, editAccount: false, twoStep: undefined, emailStep: null, sets: {} };
   ui.radiusKm = Math.min(25, Math.max(1, Number(store(RADIUS_KEY)) || 5));
   var seen = null;         // friend id -> colour at the last look, for "just went on" notices
   var acting = false;
@@ -272,7 +275,31 @@
   }
   function venueById(id) { return (D.venues || []).filter(function (v) { return v.id === id; })[0]; }
   function dealById(id) { return (D.deals || []).filter(function (d) { return d.id === id; })[0]; }
-  function mySesh() { return (D.seshes || []).filter(function (s) { return s.am_member; })[0] || null; }
+  // Planned seshes (migration 0025) start later. Until then they only show under "Planned", and never as tonight's sesh.
+  function isPlanned(s) { return !!(s && s.planned && new Date(s.starts_at).getTime() > now()); }
+  function liveSesh() { return (D.seshes || []).filter(function (s) { return s.am_member && !isPlanned(s); })[0] || null; }
+  // The sesh the Sesh tab shows: one opened from the Planned list, or else the one you're in tonight.
+  function mySesh() {
+    var open = ui.seshId && (D.seshes || []).filter(function (s) { return s.am_member && s.id === ui.seshId; })[0];
+    return open || liveSesh();
+  }
+  function plannedSeshes() {
+    return (D.seshes || []).filter(isPlanned).sort(function (a, b) { return new Date(a.starts_at) - new Date(b.starts_at); });
+  }
+  // "Tonight, 8 pm", "Tomorrow, 7:30 pm" or "Sat 10 Oct, 8 pm", in this phone's time.
+  function fmtWhen(iso) {
+    var d = new Date(iso), t = new Date(now()), day = 86400000;
+    if (isNaN(d)) return '';
+    var midnight = new Date(t.getFullYear(), t.getMonth(), t.getDate()).getTime(), diff = Math.floor((d.getTime() - midnight) / day);
+    var dayText = diff === 0 ? 'Today' : diff === 1 ? 'Tomorrow'
+      : ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getDay()] + ' ' + d.getDate() + ' ' + ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getMonth()];
+    return dayText + ', ' + fmtTime(iso);
+  }
+  // A datetime-local value ("2026-10-10T20:00") in this phone's time.
+  function localInput(ms) {
+    var d = new Date(ms), two = function (n) { return (n < 10 ? '0' : '') + n; };
+    return d.getFullYear() + '-' + two(d.getMonth() + 1) + '-' + two(d.getDate()) + 'T' + two(d.getHours()) + ':' + two(d.getMinutes());
+  }
   function inviteLink() { return location.origin + location.pathname + '?invite=' + D.me.invite_code; }
 
   // Whether this person still needs the third-party age check. An older database without it means "no".
@@ -333,11 +360,35 @@
       if (e) { e.textContent = x.message; e.hidden = false; }
     });
   }
+  // Remembered phones (migration 0023): after the email code, this phone keeps a secret for that account,
+  // and its next logins skip the code for 30 days. The password is still needed.
+  function rememberedPhones() { var all = store(DEVICE_KEY); return all && typeof all === 'object' ? all : {}; }
+  function forgetPhone(userId) { var all = rememberedPhones(); delete all[userId]; store(DEVICE_KEY, all); }
+  function rememberPhone() {
+    var uid = session && session.user_id;
+    if (!uid) return Promise.resolve();
+    return rpc('two_step_remember_device').then(function (token) {
+      var all = rememberedPhones();
+      if (token) all[uid] = token; else delete all[uid];
+      store(DEVICE_KEY, all);
+    }, function () {});   // an older database without 0023: the code is just asked for next time
+  }
+  function useRememberedPhone() {
+    var uid = session && session.user_id, token = uid && rememberedPhones()[uid];
+    if (!token) return Promise.resolve(false);
+    return rpc('two_step_use_device', { p_token: token }).then(function (ok) {
+      if (!ok) { forgetPhone(uid); return false; }
+      return refreshSession().then(function () { return true; });   // a fresh sign-in token, now with full access
+    }, function () { return false; });
+  }
   function load(quiet) {
     if (session && ui.twoStep === undefined) {
       return loadTwoStep().then(function () {
         if (!ui.twoStep.needed) return load(quiet);
-        ui.booted = true; render(); return sendLoginCode();
+        return useRememberedPhone().then(function (skipped) {
+          if (skipped) { ui.twoStep = { needed: false }; return load(quiet); }
+          ui.booted = true; render(); return sendLoginCode();
+        });
       });
     }
     if (session && ui.twoStep.needed) { render(); return Promise.resolve(); }
@@ -430,6 +481,8 @@
     cross: '<path d="M6 6l12 12"/><path d="M18 6L6 18"/>',
     up: '<path d="M12 19V5"/><path d="M5 12l7-7 7 7"/>',
     down: '<path d="M12 5v14"/><path d="M5 12l7 7 7-7"/>',
+    lock: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
+    eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
     star: '<path d="M12 3l2.7 5.6 6.1.8-4.5 4.3 1.1 6.1L12 16.9 6.6 19.8l1.1-6.1L3.2 9.4l6.1-.8z"/>'
   };
   function svg(name, size) {
@@ -492,7 +545,7 @@
       '<div class="field"><label for="name">Your first name</label><input id="name" type="text" autocomplete="given-name" maxlength="24"></div>' +
       '<div class="field"><label for="dob">Date of birth</label><input id="dob" type="date" autocomplete="bday" min="1900-01-01"><span class="muted small">Frendzy is for people aged 18 and over. We only use this to check your age and do not keep it.</span></div>' +
       '<div class="field"><label for="join-user">Pick a username</label><input id="join-user" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="20"><span class="muted small">3 to 20 letters, numbers or _. Friends add you with it.</span></div>' +
-      '<div class="field"><label for="join-pass">Make a password</label><input id="join-pass" type="password" autocomplete="new-password" maxlength="72"><span class="muted small">At least 10 characters. You use it to log in on another phone.</span></div>' +
+      '<div class="field"><label for="join-pass">Make a password</label>' + passwordInput('join-pass', 'new-password') + '<span class="muted small">At least 10 characters. You use it to log in on another phone.</span></div>' +
       '<div class="field"><label for="join-email">Your email</label><input id="join-email" type="email" autocomplete="email" autocapitalize="none" spellcheck="false" maxlength="254"><span class="muted small">We email you a code to confirm it, and again whenever you log in on a new phone. Nobody else ever sees it.</span></div>' +
       (CAPTCHA_KEY ? '<div id="captcha"></div>' : '') +
       '<p id="join-error" class="error" hidden></p>' +
@@ -500,11 +553,16 @@
       '<p class="muted small">By continuing you agree to the <a href="terms.html">Terms</a> and <a href="privacy.html">Privacy Policy</a>.</p>' +
       '</form><button class="btn ghost" data-act="auth" data-v="login">I already have an account</button></div>';
   }
+  // A password box with an eye button that shows what was typed, so typos are easy to spot.
+  function passwordInput(id, autocomplete, keep) {
+    return '<div class="pw"><input id="' + id + '"' + (keep ? ' data-keep' : '') + ' type="password" autocomplete="' + autocomplete + '" maxlength="72">' +
+      '<button type="button" class="peek" data-act="peek" data-v="' + id + '" aria-label="Show password" aria-pressed="false">' + svg('eye', 20) + '</button></div>';
+  }
   function loginScreen() {
     return '<div class="stack" style="gap:24px;margin-block:auto">' + logo() + '<h1>Log in</h1>' +
       '<form id="login" class="stack" style="gap:16px" novalidate>' +
-      '<div class="field"><label for="login-user">Username</label><input id="login-user" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="20" value="' + esc(ui.loginName || '') + '"></div>' +
-      '<div class="field"><label for="login-pass">Password</label><input id="login-pass" type="password" autocomplete="current-password" maxlength="72"></div>' +
+      '<div class="field"><label for="login-user">Username</label><input id="login-user" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="20" value="' + esc(ui.loginName || store(LAST_USER_KEY) || '') + '"></div>' +
+      '<div class="field"><label for="login-pass">Password</label>' + passwordInput('login-pass', 'current-password') + '</div>' +
       (CAPTCHA_KEY ? '<div id="captcha"></div>' : '') +
       '<p id="login-error" class="error" hidden></p>' +
       '<button class="btn" type="submit" id="login-btn">Log in</button></form>' +
@@ -517,6 +575,7 @@
       '<p class="muted" id="ts-note">' + (ui.twoStep && ui.twoStep.hint ? 'We sent a 6-digit code to ' + esc(ui.twoStep.hint) + '.' : '') + '</p>' +
       '<form id="two-step" class="stack" style="gap:16px" novalidate>' +
       '<div class="field"><label for="ts-code">Code from the email</label><input id="ts-code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="7" spellcheck="false"></div>' +
+      '<label class="check"><input id="ts-remember" type="checkbox" checked> Remember this phone for 30 days</label>' +
       '<p id="ts-error" class="error" hidden></p>' +
       '<button class="btn" type="submit" id="ts-btn">Log in</button></form>' +
       '<button class="btn ghost" data-act="ts-resend">Send a new code</button>' +
@@ -554,7 +613,7 @@
       '<form id="recover" class="stack" style="gap:16px" novalidate>' +
       '<div class="field"><label for="rec-user">Username</label><input id="rec-user" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="20" value="' + esc(ui.loginName || '') + '"></div>' +
       '<div class="field"><label for="rec-code">Recovery code</label><input id="rec-code" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="24" placeholder="XXXX-XXXX-XXXX-XXXX"></div>' +
-      '<div class="field"><label for="rec-pass">New password</label><input id="rec-pass" type="password" autocomplete="new-password" maxlength="72"><span class="muted small">At least 10 characters.</span></div>' +
+      '<div class="field"><label for="rec-pass">New password</label>' + passwordInput('rec-pass', 'new-password') + '<span class="muted small">At least 10 characters.</span></div>' +
       (CAPTCHA_KEY && !session ? '<div id="captcha"></div>' : '') +
       '<p id="rec-error" class="error" hidden></p>' +
       '<button class="btn" type="submit" id="rec-btn">Set new password</button></form>' +
@@ -572,7 +631,7 @@
   function saveForm(username, askEmail) {
     return '<form id="save-account" class="stack" style="gap:12px" novalidate>' +
       '<div class="field"><label for="save-user">Username</label><input id="save-user" data-keep type="text" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="20" value="' + esc(username || '') + '"><span class="muted small">3 to 20 letters, numbers or _. Friends who know it can add you.</span></div>' +
-      '<div class="field"><label for="save-pass">' + (username ? 'New password' : 'Password') + '</label><input id="save-pass" data-keep type="password" autocomplete="new-password" maxlength="72"><span class="muted small">At least 10 characters.</span></div>' +
+      '<div class="field"><label for="save-pass">' + (username ? 'New password' : 'Password') + '</label>' + passwordInput('save-pass', 'new-password', true) + '<span class="muted small">At least 10 characters.</span></div>' +
       (askEmail ? emailField('Email') : '') +
       '<p id="save-error" class="error" hidden></p>' +
       '<button class="btn" type="submit" id="save-btn">' + (username ? 'Save and get a new recovery code' : 'Save my account') + '</button></form>';
@@ -619,7 +678,7 @@
           return '<div class="friend face' + (f.colour === 'off' ? ' away' : '') + '" style="--c:' + c + ';--h:' + hue(f.name) + '"><div class="face-pic">' + face(f.id, f.name) + '</div>' +
             '<div class="face-name">' + esc(first(f.name)) + '</div><div class="state" style="--c:' + (f.colour === 'off' ? 'var(--muted)' : COLORS[f.colour]) + '">' + LABELS[f.colour] + '</div></div>';
         }).join('') + '</div></section>';
-      var sesh = mySesh();
+      var sesh = liveSesh();
       if (s === 'on') h += '<button class="btn" data-act="go-sesh">' + (sesh ? 'Open tonight\'s sesh' : 'Start a sesh') + '</button>';
       else h += '<button class="btn" style="--c:var(--thinking);--cf:var(--ink)" data-act="tab" data-v="events">See what\'s on tonight</button>';
     }
@@ -785,7 +844,7 @@
       .sort(function (a, b) { return busyOf(b.ven) - busyOf(a.ven) || (b.ven.ratings || 0) - (a.ven.ratings || 0) || a.ven.name.localeCompare(b.ven.name); });
   }
   // Venue search on the Map tab: matches venue names and kinds anywhere, whatever the radius.
-  var SEARCH_MAX = 30;
+  var SEARCH_MAX = 30, SEARCH_LIST = 6;   // pins on the map, cards under the search box
   function fold(t) { return String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').trim(); }
   function searchHits() {
     var words = fold(ui.venueQuery).split(' ').filter(Boolean);
@@ -803,17 +862,22 @@
     });
     return hits;
   }
-  function searchList(hits) {
+  function searchList(hits, list) {   // list: the long list under the map (filters), else the few under the search box
     var what = ui.venueQuery && ui.venueQuery.trim() ? '<strong>' + esc(ui.venueQuery.trim()) + '</strong>' : '';
     if (ui.mapFilter) what = (what ? what + ' and ' : '') + '<strong>' + esc(filterName()) + '</strong>';
-    if (!hits.length) return '<p class="small" id="venue-count">No venues match ' + what + '.</p>';
-    return '<p class="small" id="venue-count"><strong>' + hits.length + ' venue' + (hits.length === 1 ? '' : 's') + '</strong> match' + (hits.length === 1 ? 'es' : '') +
-      (hits.length > SEARCH_MAX ? '<span class="muted">. Showing the first ' + SEARCH_MAX + '.</span>' : '') + '</p>' +
-      hits.slice(0, SEARCH_MAX).map(function (x) { return venueCard(x.ven, x.d, true); }).join('');
+    var count = list ? ' id="venue-count"' : '', max = list ? SEARCH_MAX : SEARCH_LIST;
+    if (!hits.length) return '<p class="small"' + count + '>No venues match ' + what + '.</p>';
+    return '<p class="small"' + count + '><strong>' + hits.length + ' venue' + (hits.length === 1 ? '' : 's') + '</strong> match' + (hits.length === 1 ? 'es' : '') +
+      (hits.length > max ? '<span class="muted">' + (list ? '. Showing the first ' + max + '.' : '. Showing the closest matches, so type more to narrow it down.') + '</span>' : '') + '</p>' +
+      hits.slice(0, max).map(function (x) { return venueCard(x.ven, x.d, true); }).join('');
+  }
+  function searchBox() {   // results sit right under the box, so they're visible above the phone keyboard
+    var hits = searchHits();
+    return hits ? searchList(hits, false) : '';
   }
   function venueList() {
-    var hits = searchHits() || filterHits();
-    if (hits) return searchList(hits);
+    var hits = filterHits();
+    if (hits) return searchList(hits, true);
     if (!geo.chosen) return '<div class="card" id="venue-count"><div style="font-weight:700">Choose where to look</div>' +
       '<p class="muted small">Tap the arrow on the map to search near you, or tap the map to pick a spot. Or search for a venue by name above.</p></div>';
     if (!pins) return D.venues.map(function (v) { return venueCard(v, null); }).join('');
@@ -853,7 +917,8 @@
     var h = '<div class="stack" style="gap:6px"><h1>Map</h1><p class="muted small">Pick how far you want to go.</p></div>' +
       '<div class="venue-search" role="search"><label for="venue-search" class="sr-only">Search venues</label>' + svg('search', 18) +
       '<input type="search" id="venue-search" data-keep placeholder="Search venues" autocomplete="off" enterkeyhint="search" value="' + esc(ui.venueQuery || '') + '">' +
-      (ui.venueQuery ? '<button class="back" data-act="clear-search" aria-label="Clear search">' + svg('close', 16) + '</button>' : '') + '</div>' + filterChips();
+      (ui.venueQuery ? '<button class="back" data-act="clear-search" aria-label="Clear search">' + svg('close', 16) + '</button>' : '') + '</div>' + filterChips() +
+      '<div class="stack search-results" id="search-results" aria-live="polite">' + searchBox() + '</div>';
     if (window.L) {
       h += '<div class="stack" style="gap:12px"><div class="map-box"><div id="map-slot" class="map big"></div>' + mapFriends() +
         '<button class="map-fab" data-act="locate" aria-label="' + (geo.busy ? 'Finding you' : 'Near me') + '" aria-pressed="' + geo.mine + '"' + (geo.busy ? ' disabled' : '') + '>' + svg('arrow', 20) + '</button></div>' + mapPick() +
@@ -1009,7 +1074,7 @@
       var inside = geo.chosen && km(geo.centre, at) <= ui.radiusKm;
       if (ui.mapPick !== ven.id && (show ? !show[ven.id] : !inside || !filterOk(ven))) return;
       keep[ven.id] = true;
-      var kind = ui.mapPick === ven.id ? 'goal' : inside ? 'near' : 'far';
+      var kind = ui.mapPick === ven.id ? 'goal' : inside || show ? 'near' : 'far';
       var st = openState(ven), open = st ? st.open : null, look = [kind, open, tagOf(ven), busyOf(ven)].join(':');
       var dot = M.dots[ven.id];
       if (!dot) {
@@ -1047,39 +1112,153 @@
     ui.venueQuery = v;
     clearTimeout(searchTimer);
     searchTimer = setTimeout(function () {
-      var list = document.getElementById('venue-list');
-      if (list) list.innerHTML = venueList();
+      var box = document.getElementById('search-results');
+      if (box) box.innerHTML = searchBox();
       M.fitHits = true; drawMap();
     }, 150);
   }
 
+  // Picking friends for a private sesh (migration 0024): when starting one, or inviting more to it.
+  function pickerHtml() {
+    var p = ui.picker, mine = mySesh(), skip = {};
+    if (p.mode === 'invite' && mine) {
+      (mine.invited || []).forEach(function (id) { skip[id] = true; });
+      mine.members.forEach(function (m) { skip[m.id] = true; });
+    }
+    var list = D.friends.filter(function (f) { return !skip[f.id]; });
+    var n = Object.keys(p.picked).length;
+    var h = '<div class="stack" style="gap:6px"><div class="eyebrow">' + svg('lock', 14) + ' Private sesh</div><h1>' + (p.mode === 'invite' ? 'Invite more friends' : 'Who\'s invited?') + '</h1>' +
+      '<p class="muted">Only the friends you pick can see this sesh and join it. Your other friends won\'t know it\'s on.</p></div>';
+    if (!list.length) {
+      h += '<p class="muted">' + (p.mode === 'invite' ? 'All your friends are already invited.' : 'Add some friends first, then you can pick who comes.') + '</p>';
+    } else {
+      h += pickRows(list, p.picked) + '<p class="muted small">Friends on red see it once they go green or amber.</p>';
+    }
+    h += '<button class="btn" data-act="picker-go"' + (n ? '' : ' disabled') + '>' +
+      (p.mode === 'invite' ? (n ? 'Invite ' + n : 'Pick friends to invite') : (n ? 'Start private sesh with ' + n : 'Pick at least one friend')) + '</button>' +
+      '<button class="btn ghost" data-act="picker-cancel">Cancel</button>';
+    return h;
+  }
+  function pickRows(list, picked) {
+    return '<div class="stack" style="gap:8px">' + list.map(function (f) {
+      var on = !!picked[f.id];
+      return '<button class="card pick-row' + (on ? ' picked' : '') + '" data-act="pick" data-v="' + esc(f.id) + '" aria-pressed="' + on + '">' +
+        avatar(f.name, COLORS[f.colour] || COLORS.off, false, f.id) +
+        '<span class="grow"><span style="font-weight:700">' + esc(f.name) + '</span><span class="muted small" style="display:block">' + esc(LABELS[f.colour] || 'Red') + '</span></span>' +
+        '<span class="pick-box">' + (on ? svg('tick', 18) : '') + '</span></button>';
+    }).join('') + '</div>';
+  }
+
+  // Planning a sesh for later (migration 0025): when, and for all friends or only the ones picked.
+  function planHtml() {
+    var p = ui.plan, n = Object.keys(p.picked).length, t = now();
+    var h = '<div class="stack" style="gap:6px"><div class="eyebrow">' + svg('clock', 14) + ' Plan a sesh</div><h1>When\'s it on?</h1>' +
+      '<p class="muted">Up to 2 weeks ahead. Friends can say they\'re in, vote on where to go and chat about it before it starts. It goes live at this time.</p></div>' +
+      '<div class="field"><label for="plan-at">Date and time</label><input id="plan-at" data-keep type="datetime-local" step="900" value="' + esc(p.at) + '"' +
+      ' min="' + localInput(t + 10 * 60000) + '" max="' + localInput(t + 14 * 86400000) + '"></div>' +
+      '<div class="stack" style="gap:8px"><h2>Who\'s it for?</h2><div class="row">' +
+      '<button class="btn small-btn' + (p.pick ? ' ghost' : '') + '" data-act="plan-who" data-v="all" aria-pressed="' + !p.pick + '">All my friends</button>' +
+      '<button class="btn small-btn' + (p.pick ? '' : ' ghost') + '" data-act="plan-who" data-v="pick" aria-pressed="' + !!p.pick + '">' + svg('lock', 14) + ' Pick friends</button></div>';
+    if (p.pick) {
+      h += D.friends.length ? '<p class="muted small">Only the friends you pick can see it and join. Friends on red see it once they go green or amber.</p>' + pickRows(D.friends, p.picked)
+        : '<p class="muted small">Add some friends first, then you can pick who comes.</p>';
+    } else {
+      h += '<p class="muted small">Your friends on green or amber can see it and join.</p>';
+    }
+    h += '</div><button class="btn" data-act="plan-go"' + (p.pick && !n ? ' disabled' : '') + '>' + (p.pick ? (n ? 'Plan it with ' + n : 'Pick at least one friend') : 'Plan it') + '</button>' +
+      '<button class="btn ghost" data-act="plan-cancel">Cancel</button>';
+    return h;
+  }
+  // The Planned list under the Sesh tab: seshes still to come that you're in or can join.
+  function plannedHtml(skipId) {
+    var list = plannedSeshes().filter(function (s) { return s.id !== skipId; });
+    var canPlan = D.me.colour !== 'off';
+    if (!list.length && !canPlan) return '';
+    var h = '<section class="stack" style="gap:10px;padding-top:18px;border-top:1px solid var(--line)"><h2>Planned</h2>';
+    h += list.map(function (s) {
+      return '<div class="card"><div class="row between"><div class="grow"><div class="eyebrow" style="color:var(--thinking)">' + esc(fmtWhen(s.starts_at)) + '</div>' +
+        '<div style="font-weight:700;font-size:17px">' + (s.mine ? 'Your sesh' : esc(first(s.creator_name)) + '\'s sesh') + '</div>' +
+        (s.private ? '<div class="small" style="color:var(--accent)">' + svg('lock', 12) + (s.mine ? ' Private' : ' Private, you\'re invited') + '</div>' : '') +
+        '<div class="muted small">' + s.members.length + ' in' + (s.locked_venue && venueById(s.locked_venue) ? ', going to ' + esc(venueById(s.locked_venue).name) : '') + '</div></div>' +
+        (s.am_member ? '<button class="btn small-btn ghost" data-act="open-sesh" data-v="' + esc(s.id) + '">Open</button>'
+          : '<button class="btn small-btn" data-act="join-planned" data-v="' + esc(s.id) + '">I\'m in</button>') + '</div></div>';
+    }).join('');
+    if (!list.length) h += '<p class="muted small">Nothing planned yet. Plan a sesh for later and your friends can say they\'re in.</p>';
+    if (canPlan) h += '<button class="btn ghost" data-act="plan-sesh">' + svg('clock', 16) + ' Plan a sesh for later</button>';
+    return h + '</section>';
+  }
+
+  // The private pres (pre-drinks) address (migration 0025). The database only sends the address to people who
+  // are in the sesh, from 4 hours before it starts; the host always sees it. It is never put on the map.
+  function presHtml(s) {
+    var p = s.pres, h;
+    if (s.mine && ui.presEdit === s.id) {
+      var at = p && p.at ? new Date(p.at) : null, two = function (n) { return (n < 10 ? '0' : '') + n; };
+      return '<div class="card"><h2>Pres</h2><div class="field"><label for="pres-address">Address</label><input id="pres-address" data-keep type="text" maxlength="200" autocomplete="off" placeholder="e.g. 12 Smith St, Northbridge" value="' + esc(p && p.address || '') + '"></div>' +
+        '<div class="field"><label for="pres-time">Pres from (optional)</label><input id="pres-time" data-keep type="time" step="900" value="' + (at ? two(at.getHours()) + ':' + two(at.getMinutes()) : '') + '"></div>' +
+        '<p class="muted small">Only the people who have said they\'re in see it, from 4 hours before the sesh starts. It\'s never shown on the map, and it\'s deleted with the sesh.</p>' +
+        '<div class="row"><button class="btn small-btn" data-act="pres-save">Save</button><button class="btn small-btn ghost" data-act="pres-cancel">Cancel</button>' +
+        (p ? '<button class="btn small-btn ghost" data-act="pres-remove">Remove</button>' : '') + '</div></div>';
+    }
+    if (!p) return s.mine ? '<button class="btn ghost" data-act="pres-edit">' + svg('home', 16) + ' Add a private pres address</button>' : '';
+    var when = p.at ? 'From ' + fmtTime(p.at) : '';
+    if (p.address) {
+      h = '<div class="card"><div class="row between"><div class="grow"><div class="eyebrow">' + svg('lock', 12) + ' Pres</div><div style="font-weight:700;font-size:17px">' + esc(p.address) + '</div>' +
+        (when ? '<div class="muted small">' + when + '</div>' : '') + '</div>' +
+        (s.mine ? '<button class="btn small-btn ghost" data-act="pres-edit">Edit</button>' : '') + '</div>' +
+        '<a class="btn small-btn ghost" style="display:inline-flex;align-items:center;justify-content:center;text-decoration:none;align-self:flex-start" target="_blank" rel="noopener" href="https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(p.address) + '">Directions</a>' +
+        (s.mine && new Date(p.shows_at).getTime() > now() ? '<p class="muted small">The people who are in see it from ' + esc(fmtWhen(p.shows_at).replace(/^(Today|Tomorrow)/, function (w) { return w.toLowerCase(); })) + '.</p>' : '<p class="muted small">Private: only the people in this sesh can see it.</p>') + '</div>';
+      return h;
+    }
+    return '<div class="card"><div class="eyebrow">' + svg('lock', 12) + ' Pres</div><div class="muted small">' + (when ? when + '. ' : '') +
+      esc(first(s.creator_name)) + ' added a private pres address. You\'ll see it from ' + esc(fmtWhen(p.shows_at).replace(/^(Today|Tomorrow)/, function (w) { return w.toLowerCase(); })) + '.</div></div>';
+  }
+
   function sesh() {
     var me = D.me, mine = mySesh();
-    var h = (mine && mine.locked_venue && venueById(mine.locked_venue) ? '<div class="bleed">' + miniSlot('route', mine.locked_venue) + '</div>' : '') +
-      '<div class="stack" style="gap:6px"><div class="eyebrow" style="color:var(--on)">' + (mine ? 'Live now' : 'Tonight') + '</div><h1>Tonight\'s sesh</h1></div>';
+    if (ui.picker) return pickerHtml();
+    if (ui.plan) return planHtml();
+    var later = isPlanned(mine), startMs = later ? new Date(mine.starts_at).getTime() : 0;
+    var h = later
+      ? '<button class="linkbtn" style="align-self:flex-start" data-act="sesh-back">' + svg('back', 16) + ' All seshes</button>' +
+        '<div class="stack" style="gap:6px"><div class="eyebrow" style="color:var(--thinking)">' + svg('clock', 14) + ' Planned' +
+        (startMs - now() < 86400000 ? ', starts in <span data-until="' + startMs + '">' + fmtLeft(startMs - now()) + '</span>' : '') + '</div>' +
+        '<h1>' + esc(fmtWhen(mine.starts_at)) + '</h1><p class="muted small">' + (mine.mine ? 'Your sesh' : esc(first(mine.creator_name)) + '\'s sesh') +
+        '. It goes live at this time and is deleted 8 hours after, with the votes and chat.</p></div>'
+      : (mine && mine.locked_venue && venueById(mine.locked_venue) ? '<div class="bleed">' + miniSlot('route', mine.locked_venue) + '</div>' : '') +
+        '<div class="stack" style="gap:6px"><div class="eyebrow" style="color:var(--on)">' + (mine ? 'Live now' : 'Tonight') + '</div><h1>Tonight\'s sesh</h1></div>';
     if (!mine) {
-      var others = D.seshes.filter(function (s) { return !s.am_member; });
+      var others = D.seshes.filter(function (s) { return !s.am_member && !isPlanned(s); });
       if (others.length) {
         h += '<div class="stack">' + others.map(function (s) {
           return '<div class="card"><div class="row between"><div class="grow"><div style="font-weight:700;font-size:17px">' + esc(first(s.creator_name)) + '\'s sesh</div>' +
+            (s.private ? '<div class="small" style="color:var(--accent)">' + svg('lock', 12) + ' Private, you\'re invited</div>' : '') +
             '<div class="muted small">' + s.members.length + ' in' + (s.locked_venue && venueById(s.locked_venue) ? ', going to ' + esc(venueById(s.locked_venue).name) : ', still choosing where') + '</div></div>' +
             '<button class="btn small-btn" data-act="join" data-v="' + esc(s.id) + '">Join</button></div></div>';
         }).join('') + '</div>';
       }
       if (me.colour === 'on') {
         h += '<p class="muted">' + (others.length ? 'Or start your own.' : 'Nobody has started one yet. Start a sesh and your friends on green or amber can join and vote on where to go.') + '</p>' +
-          '<button class="btn' + (others.length ? ' ghost' : '') + '" data-act="start-sesh">Start a sesh</button>';
+          '<button class="btn' + (others.length ? ' ghost' : '') + '" data-act="start-sesh">Start a sesh</button>' +
+          '<button class="btn ghost" data-act="private-sesh">' + svg('lock', 16) + ' Start a private sesh</button>';
       } else if (me.colour === 'thinking') {
         h += '<p class="muted">' + (others.length ? 'Go green to start your own.' : 'No sesh yet. Go green to start one.') + '</p><button class="btn" style="--c:var(--on);--cf:var(--ink)" data-act="status" data-v="on">Go green</button>';
       } else {
         h += '<p class="muted">You\'re red, so seshes are hidden. Go green to start one or see your friends\' plans.</p><button class="btn" style="--c:var(--on);--cf:var(--ink)" data-act="status" data-v="on">Go green</button>';
       }
-      return h;
+      return h + plannedHtml();
     }
 
     h += '<div class="card"><div class="avatars">' + mine.members.map(function (m) { return avatar(m.name || '?', 'var(--on)', false, m.id); }).join('') + '</div>' +
       '<div><div style="font-weight:700">' + mine.members.length + ' in</div><div class="muted small">' +
       esc(mine.members.map(function (m) { return m.id === me.id ? 'You' : first(m.name); }).join(', ')) + '</div></div></div>';
+    h += presHtml(mine);
+    if (mine.private) {
+      var asked = (mine.invited || []).length;
+      h += '<div class="card"><div class="row between"><div class="grow"><div style="font-weight:700">' + svg('lock', 14) + ' Private sesh</div><div class="muted small">' +
+        (mine.mine ? 'Only you and the ' + asked + ' friend' + (asked === 1 ? '' : 's') + ' you picked can see it.' : 'Only the friends ' + esc(first(mine.creator_name)) + ' picked can see it.') + '</div></div>' +
+        (mine.mine ? '<button class="btn small-btn ghost" data-act="invite-more">Invite</button>' : '') + '</div></div>';
+    }
 
     if (mine.locked_venue) {
       var lv = venueById(mine.locked_venue);
@@ -1111,10 +1290,16 @@
     }
     h += crawlHtml(mine);
     h += chatHtml(mine);
+    if (later) {
+      h += mine.mine
+        ? '<button class="btn" data-act="start-planned">Start it now</button><button class="btn ghost" data-act="end-sesh">Cancel the sesh</button>'
+        : '<button class="btn ghost" data-act="leave-sesh">Can\'t make it</button>';
+      return h;
+    }
     h += mine.mine
       ? '<button class="btn ghost" data-act="end-sesh">End the sesh</button>'
       : '<button class="btn ghost" data-act="leave-sesh">Leave the sesh</button>';
-    return h;
+    return h + plannedHtml(mine.id);
   }
 
   /* ---------- Sesh Map ----------
@@ -1298,7 +1483,7 @@
         return '<button class="chip" data-act="tag" data-v="' + t + '" aria-pressed="' + (ven.my_tags.indexOf(t) >= 0) + '">' + t + '</button>';
       }).join('') + '</div></div>';
     var mine = mySesh();
-    if (mine && !mine.locked_venue) h += '<button class="btn" data-act="suggest" data-v="' + esc(id) + '">Vote for this in tonight\'s sesh</button>';
+    if (mine && !mine.locked_venue) h += '<button class="btn" data-act="suggest" data-v="' + esc(id) + '">Vote for this in ' + (isPlanned(mine) ? 'your planned sesh' : 'tonight\'s sesh') + '</button>';
     if (mine) h += crawlButton(id, false);
     return h;
   }
@@ -1354,15 +1539,16 @@
     var me = D.me;
     var h = '<div class="row">' + '<div class="avatar" style="width:56px;height:56px;font-size:18px;--c:' + COLORS[me.colour] + '">' + face(me.id, me.name) + '</div><div class="grow"><h1 style="font-size:28px">' + esc(me.name) + '</h1><p class="muted small">Status: ' + LABELS[me.colour] + '</p></div></div>';
 
-    h += '<div class="card"><h2>Your photo</h2><div class="row"><div class="face-pic me" style="--c:' + COLORS[me.colour] + ';--h:' + hue(me.name) + '">' + face(me.id, me.name) + '</div>' +
+    h += '<p class="pill set-label">Settings</p>';
+    h += sec('photo', '<div class="card"><h2>Your photo</h2><div class="row"><div class="face-pic me" style="--c:' + COLORS[me.colour] + ';--h:' + hue(me.name) + '">' + face(me.id, me.name) + '</div>' +
       '<p class="muted small grow">Only your friends see it on your circle, never strangers or anyone you block. Use a photo of you.</p></div>' +
       '<input type="file" id="photo-file" accept="image/*" hidden>' +
       '<div class="row"><button class="btn small-btn" data-act="pick-photo"' + (ui.photoBusy ? ' disabled' : '') + '>' + (ui.photoBusy ? 'Saving...' : photos[me.id] ? 'Change photo' : 'Add a photo') + '</button>' +
-      (photos[me.id] && !ui.photoBusy ? '<button class="btn small-btn ghost" data-act="remove-photo">Remove</button>' : '') + '</div></div>';
+      (photos[me.id] && !ui.photoBusy ? '<button class="btn small-btn ghost" data-act="remove-photo">Remove</button>' : '') + '</div></div>', ui.photoBusy, photos[me.id] ? 'Added' : 'None yet');
 
-    h += '<div class="card"><h2>Add a friend</h2>' + addFriendForm() +
+    h += sec('add', '<div class="card"><h2>Add a friend</h2>' + addFriendForm() +
       '<p class="muted small">Not on Frendzy yet? Send them your invite link. When they sign up you get a friend request to accept.</p>' +
-      '<button class="btn ghost" data-act="share">Send your invite link</button>' + linkBox() + '</div>';
+      '<button class="btn ghost" data-act="share">Send your invite link</button>' + linkBox() + '</div>', !D.friends.length);
 
     if (DEALS_ON && D.staff_venues.length) {
       h += '<div class="card" style="border-color:var(--thinking)"><h2>Staff: confirm a deal code</h2><p class="muted small">Type the code from the customer\'s phone. Each code works once.</p>' +
@@ -1372,7 +1558,7 @@
     }
 
     if (D.friends.length || D.requests_out.length) {
-      h += '<div class="card"><h2>Your friends</h2>' +
+      h += sec('friends', '<div class="card"><h2>Your friends</h2>' +
         D.friends.map(function (f) {
           var asking = ui.confirm === 'unfriend:' + f.friendship, blocking = ui.confirm === 'block:' + f.id;
           return '<div class="row between"><div class="grow">' + esc(f.name) + (blocking ? '<div class="muted small">They won\'t see you or be able to add you again.</div>' : '') + '</div>' +
@@ -1385,31 +1571,28 @@
         D.requests_out.map(function (r) {
           return '<div class="row between"><div class="grow">' + esc(r.name) + '<div class="muted small">Waiting for them to accept</div></div>' +
             '<button class="btn small-btn ghost" data-act="unfriend" data-v="' + esc(r.friendship) + '">Cancel</button></div>';
-        }).join('') + '</div>';
+        }).join('') + '</div>', /^(unfriend|block):/.test(ui.confirm || ''), String(D.friends.length));
     }
 
-    h += safetyCard();
+    h += sec('safety', safetyCard(), false, ui.safety && ui.safety.women_only ? 'Women only on' : '');
 
     if (D.blocked && D.blocked.length) {
-      h += '<div class="card"><h2>Blocked people</h2>' + D.blocked.map(function (b) {
+      h += sec('blocked', '<div class="card"><h2>Blocked people</h2>' + D.blocked.map(function (b) {
         return '<div class="row between"><div class="grow">' + esc(b.name) + '</div><button class="btn small-btn ghost" data-act="unblock" data-v="' + esc(b.id) + '">Unblock</button></div>';
-      }).join('') + '</div>';
+      }).join('') + '</div>', false, String(D.blocked.length));
     }
 
-    h += '<div class="card"><h2>Put Frendzy on your home screen</h2><p class="muted small">On iPhone, tap the Share button in Safari, then Add to Home Screen. On Android, open the browser menu and tap Add to Home screen.</p></div>';
-
-    h += '<div class="card"><h2>About</h2><p class="small"><a href="privacy.html">Privacy Policy</a></p><p class="small"><a href="terms.html">Terms of use</a></p></div>';
 
     if (ui.account !== 'off' && ui.account !== undefined) {
       var a = ui.account;
       if (ui.emailStep) h += '<div class="card" style="border-color:var(--on)">' + emailCard() + '</div>';
       else if (ui.newCode) h += '<div class="card" style="border-color:var(--on)">' + codeCard() + '</div>';
       else if (a && !ui.editAccount) {
-        h += '<div class="card"><h2>Username and password</h2><p class="muted small">You\'re logged in as <strong>' + esc(a.username) + '</strong>. Use it to log in on another phone.</p>' +
+        h += sec('login', '<div class="card"><h2>Username and password</h2><p class="muted small">You\'re logged in as <strong>' + esc(a.username) + '</strong>. Use it to log in on another phone.</p>' +
           (a.email ? '<p class="muted small">New logins also need a code sent to <strong>' + esc(a.email) + '</strong>.</p>'
             : emailsOn() ? '<form id="add-email" class="stack" style="gap:12px" novalidate><p class="muted small">Add an email so every new login needs a code from it as well as your password.</p>' + emailField('Email for login codes') +
               '<p id="save-error" class="error" hidden></p><button class="btn small-btn" type="submit" id="save-btn">Send me a code</button></form>' : '') +
-          '<div class="row"><button class="btn small-btn ghost" data-act="edit-account">Change password</button><button class="btn small-btn ghost" data-act="logout">Log out</button></div></div>';
+          '<div class="row"><button class="btn small-btn ghost" data-act="edit-account">Change password</button><button class="btn small-btn ghost" data-act="logout">Log out</button></div></div>', false, a.username);
       } else {
         h += '<div class="card"><h2>' + (a ? 'Change password' : 'Keep your account') + '</h2>' +
           (a ? '' : '<p class="muted small">Right now your account only lives in this browser. Add a username and password so you can log in on a new phone.' + (emailsOn() ? ' Each new login will also need a code we email you.' : '') + '</p>') +
@@ -1417,12 +1600,25 @@
       }
     }
 
-    h += '<div class="card"><h2>Your account</h2><p class="muted small">' + (ui.account && ui.account !== 'off' ? 'You can log in on any phone with your username and password.' : 'Your account lives in this browser on this phone.') + ' If you work at a venue, give the organiser this ID so they can set you up as staff:</p>' +
+    h += sec('account', '<div class="card"><h2>Your account</h2><p class="muted small">' + (ui.account && ui.account !== 'off' ? 'You can log in on any phone with your username and password.' : 'Your account lives in this browser on this phone.') + ' If you work at a venue, give the organiser this ID so they can set you up as staff:</p>' +
       '<div class="linkbox" id="my-id">' + esc(me.id) + '</div>' +
       (ui.confirm === 'delete'
         ? '<p class="error">This removes your name, friends, votes and ratings for good.</p><div class="row"><button class="btn small-btn" style="--c:var(--off);--cf:var(--ink)" data-act="delete-account">Delete for good</button><button class="btn small-btn ghost" data-act="cancel-confirm">Keep my account</button></div>'
-        : '<button class="btn ghost" data-act="ask" data-v="delete">Delete my account</button>') + '</div>';
+        : '<button class="btn ghost" data-act="ask" data-v="delete">Delete my account</button>') + '</div>', ui.confirm === 'delete');
+
+    h += sec('install', '<div class="card"><h2>Put Frendzy on your home screen</h2><p class="muted small">On iPhone, tap the Share button in Safari, then Add to Home Screen. On Android, open the browser menu and tap Add to Home screen.</p></div>');
+    h += sec('about', '<div class="card"><h2>About</h2><p class="small"><a href="privacy.html">Privacy Policy</a></p><p class="small"><a href="terms.html">Terms of use</a></p>' +
+      (document.lastModified ? '<p class="muted small">App version from ' + esc(new Date(document.lastModified).toLocaleString([], { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' })) + '</p>' : '') + '</div>');
     return h;
+  }
+
+  // Settings are drop-down sections: a card whose title you tap to open or close it. Each remembers whether it's open
+  // while the screen redraws, and one with something waiting for you (a form step, a question) is always open.
+  function sec(key, card, force, hint) {
+    var m = card && /^<div class="card"( style="[^"]*")?><h2>([\s\S]*?)<\/h2>([\s\S]*)<\/div>$/.exec(card);
+    if (!m) return card || '';
+    return '<details class="card set" data-set="' + key + '"' + (m[1] || '') + (force || ui.sets[key] ? ' open' : '') + '><summary><h2>' + m[2] + '</h2>' +
+      (hint ? '<span class="muted small set-hint">' + esc(hint) + '</span>' : '') + '</summary><div class="set-body">' + m[3] + '</div></details>';
   }
 
   // Gender is optional and private. Women and non-binary people can turn on the women and non-binary only mode. Hidden if the database is older.
@@ -1531,7 +1727,8 @@
 
   var ACT = {
     tab: function (v) {
-      ui.tab = v; ui.screen = null; ui.confirm = null; ui.staffError = ''; go(true);
+      if (v === 'sesh' && ui.tab === 'sesh' && !ui.screen) ui.seshId = null;   // tapping Sesh again goes back from a planned sesh
+      ui.tab = v; ui.screen = null; ui.confirm = null; ui.staffError = ''; ui.picker = null; ui.plan = null; go(true);
       if (v === 'map' || v === 'venues') freshVenues(5 * 60000);
       if (v === 'map' && Date.now() - buzzAt > 60000) loadBuzz();
       if (v === 'map' || v === 'sesh' || v === 'events') loadPins().then(function () { if (ui.tab === v && !ui.screen) { if (M.map) M.fit = true; render(); } });
@@ -1560,13 +1757,73 @@
       act('set_status', { new_colour: v }, { on: 'You\'re green. Friends who are around can see it.', thinking: 'You\'re amber.', off: 'You\'re red. You\'re hidden.' }[v]);
     },
     'go-sesh': function () {
-      if (mySesh()) { ui.tab = 'sesh'; go(true); return; }
+      ui.seshId = null;
+      if (liveSesh()) { ui.tab = 'sesh'; go(true); return; }
       ACT['start-sesh']();
+    },
+    'private-sesh': function () { ui.picker = { mode: 'start', picked: {} }; go(true); },
+    'invite-more': function () { ui.picker = { mode: 'invite', picked: {} }; go(true); },
+    pick: function (id) {
+      var p = ui.picker || ui.plan;
+      if (!p) return;
+      if (p.picked[id]) delete p.picked[id]; else p.picked[id] = true;
+      go(false);
+    },
+    'plan-sesh': function () {   // starts at the next half hour, at least an hour from now
+      var t = new Date(now() + 3600000); t.setMinutes(t.getMinutes() < 30 ? 30 : 60, 0, 0);
+      ui.plan = { at: localInput(t.getTime()), pick: false, picked: {} }; go(true);
+    },
+    'plan-who': function (v) { if (ui.plan) { ui.plan.pick = v === 'pick'; go(false); } },
+    'plan-cancel': function () { ui.plan = null; go(true); },
+    'plan-go': function () {
+      var p = ui.plan, el = document.getElementById('plan-at'), ids = p ? Object.keys(p.picked) : [];
+      if (!p || !el) return;
+      var at = new Date(el.value);
+      if (!el.value || isNaN(at)) { toast('Pick a date and time.'); return; }
+      if (p.pick && !ids.length) return;
+      act('plan_sesh', { p_at: at.toISOString(), p_friends: p.pick ? ids : null },
+        p.pick ? 'Planned. Only the friends you picked can see it.' : 'Planned. Your friends can see it and say they\'re in.').then(function (r) {
+        if (r) { ui.plan = null; ui.seshId = r.id; ui.tab = 'sesh'; go(true); }
+      });
+    },
+    'pres-edit': function () { var s = mySesh(); if (s) { ui.presEdit = s.id; go(false); } },
+    'pres-cancel': function () { ui.presEdit = null; go(false); },
+    'pres-remove': function () {
+      var s = mySesh(); if (!s) return;
+      act('set_sesh_pres', { p_sesh: s.id, p_address: '', p_at: null }, 'Pres address removed.').then(function (r) { if (r) { ui.presEdit = null; go(false); } });
+    },
+    'pres-save': function () {
+      var s = mySesh(), a = document.getElementById('pres-address'), t = document.getElementById('pres-time');
+      if (!s || !a) return;
+      if (!a.value.trim()) { toast('Type the address first.'); return; }
+      var at = null;
+      if (t && t.value) {   // that time on the day of the sesh, or the evening before for a sesh after midnight
+        var start = new Date(s.starts_at), d = new Date(start), hm = t.value.split(':');
+        d.setHours(Number(hm[0]), Number(hm[1]), 0, 0);
+        if (d > start) d.setDate(d.getDate() - 1);
+        at = d.toISOString();
+      }
+      act('set_sesh_pres', { p_sesh: s.id, p_address: a.value.trim(), p_at: at }, 'Pres address saved. Only the people in the sesh can see it.').then(function (r) { if (r) { ui.presEdit = null; go(false); } });
+    },
+    'open-sesh': function (v) { ui.seshId = v; go(true); },
+    'sesh-back': function () { ui.seshId = null; go(true); },
+    'join-planned': function (v) { act('join_sesh', { p_sesh: v }, 'You\'re in. It goes live at the planned time.'); },
+    'start-planned': function () {
+      var s = mySesh(); if (!s) return;
+      act('start_planned_sesh', { p_sesh: s.id }, 'Sesh started. It\'s live now.').then(function (r) { if (r) { ui.seshId = null; go(true); } });
+    },
+    'picker-cancel': function () { ui.picker = null; go(true); },
+    'picker-go': function () {
+      var p = ui.picker, ids = p ? Object.keys(p.picked) : [], s = mySesh();
+      if (!ids.length) return;
+      var done = function (r) { if (r) { ui.picker = null; ui.tab = 'sesh'; go(true); } };
+      if (p.mode === 'invite' && s) act('invite_to_sesh', { p_sesh: s.id, p_friends: ids }, 'Invited. They can see the sesh now.').then(done);
+      else act('start_private_sesh', { p_friends: ids }, 'Private sesh started. Only the friends you picked can see it.').then(done);
     },
     'start-sesh': function () { act('start_sesh', {}, 'Sesh started. Friends who are around can join.').then(function () { ui.tab = 'sesh'; go(true); }); },
     join: function (v) { act('join_sesh', { p_sesh: v }, 'You\'re in.'); },
-    'leave-sesh': function () { var s = mySesh(); if (s) act('leave_sesh', { p_sesh: s.id }); },
-    'end-sesh': function () { var s = mySesh(); if (s) act('end_sesh', { p_sesh: s.id }, 'Sesh ended.'); },
+    'leave-sesh': function () { var s = mySesh(); if (s) { ui.seshId = null; act('leave_sesh', { p_sesh: s.id }); } },
+    'end-sesh': function () { var s = mySesh(); if (s) { ui.seshId = null; act('end_sesh', { p_sesh: s.id }, isPlanned(s) ? 'Planned sesh cancelled.' : 'Sesh ended.'); } },
     vote: function (v) {
       var s = mySesh(); if (!s) return;
       var mine = (s.votes.filter(function (x) { return x.user_id === D.me.id; })[0] || {}).venue_id;
@@ -1655,6 +1912,14 @@
     auth: function (v) { ui.auth = v || null; view.innerHTML = ''; render(); },
     'edit-account': function () { ui.editAccount = !ui.editAccount; go(false); },
     'ts-resend': function () { sendLoginCode(); },
+    peek: function (id) {
+      var input = document.getElementById(id), btn = input && input.parentNode.querySelector('.peek');
+      if (!input) return;
+      var show = input.type === 'password';
+      input.type = show ? 'text' : 'password';
+      btn.setAttribute('aria-pressed', String(show)); btn.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+      input.focus();
+    },
     'ts-recover': function () {
       session = null; store(SESSION_KEY, null); D = null; ui.twoStep = undefined; ui.auth = 'recover';
       view.innerHTML = ''; render();
@@ -1676,7 +1941,10 @@
       view.innerHTML = ''; render(); toast('Logged out. Log in again with your username and password.');
     },
     'delete-account': function () {
+      var goneId = session && session.user_id;
       act('delete_account', {}).then(function () {
+        if (goneId) forgetPhone(goneId);
+        store(LAST_USER_KEY, null);
         session = null; store(SESSION_KEY, null); D = null; VENUES = null; venuesAsked = false; seen = null; ui.confirm = null; ui.tab = 'home'; ui.screen = null; ui.account = undefined; ui.safety = undefined; ui.age = null; ui.twoStep = undefined; ui.emailStep = null;
         view.innerHTML = ''; render(); toast('Your account has been deleted.');
       });
@@ -1741,6 +2009,10 @@
     shrinkPhoto(file).then(savePhoto, function () { toast('That photo could not be opened. Try a different one.'); });
   });
   document.addEventListener('change', function (e) { if (e.target.id === 'radius' && M.map) { M.fit = true; drawMap(); } });   // zoom to the circle once the slider is let go
+  document.addEventListener('toggle', function (e) {   // remember which settings sections are open
+    var d = e.target;
+    if (d && d.classList && d.classList.contains('set')) ui.sets[d.getAttribute('data-set')] = d.open;
+  }, true);
   document.addEventListener('click', function (e) {
     if (swallowClick) return;
     var b = e.target.closest('[data-act]');
@@ -1797,6 +2069,7 @@
     if (!l) return Promise.resolve();
     return rpc('save_account', { p_username: l.username, p_password: l.password }).then(function (r) {
       ui.newCode = { code: r.recovery_code, username: r.username, after: 'home' };   // load() then reads the account
+      store(LAST_USER_KEY, r.username);
       // Then a code to confirm the email. The account is saved either way; the email can be added later on the You page.
       if (l.email) return emailCode('setup', { email: l.email }).then(function (sent) { ui.emailStep = { email: l.email, hint: sent.hint }; }, function (x) { toast(x.message); });
     }, function (e) { ui.tab = 'you'; toast(e.message + ' Pick another username below.'); });
@@ -1874,6 +2147,7 @@
       if (CAPTCHA_KEY && !captchaToken) return lfail('Wait a moment for the check above to finish, then try again.');
       lbtn.disabled = true; lerr.hidden = true;
       signInWithPassword(lu, lp, useCaptcha()).then(function () {
+        store(LAST_USER_KEY, lu.toLowerCase());
         // Straight after a recovery code, this login doesn't need the email code.
         var ticket = ui.ticket; ui.ticket = null;
         return ticket ? rpc('two_step_use_ticket', { p_ticket: ticket }).then(function (ok) { if (ok) return refreshSession(); }, function () {}) : null;
@@ -1911,11 +2185,15 @@
       var terr = document.getElementById('ts-error'), tbtn = document.getElementById('ts-btn');
       var tfail = function (msg) { terr.textContent = msg; terr.hidden = false; tbtn.disabled = false; };
       if (tc.length !== 6) return tfail('Enter the 6-digit code from the email.');
+      var keepPhone = document.getElementById('ts-remember').checked;
       tbtn.disabled = true; terr.hidden = true;
       rpc('two_step_check', { p_code: tc }).then(function (r) {
         if (!r || !r.ok) return tfail((r && r.message) || 'That didn\'t work. Try again.');
         // A fresh sign-in token, now with full access.
         return refreshSession().then(function () {
+          if (keepPhone) return rememberPhone();
+          if (session && session.user_id) forgetPhone(session.user_id);
+        }).then(function () {
           ui.twoStep = { needed: false }; document.activeElement && document.activeElement.blur(); view.innerHTML = '';
           return load().then(function () { if (D && D.me) return sendPendingInvite(); });
         });
@@ -1934,6 +2212,7 @@
         ui.emailStep = null; toast('Email confirmed. New logins will ask for a code from it.');
         document.activeElement && document.activeElement.blur(); render();
         emailRecovery();
+        rememberPhone();   // the phone that confirmed the email doesn't need a code at its next login
       }).catch(function (x) { efail(x.message); });
       return;
     }
@@ -1949,7 +2228,7 @@
       sbtn.disabled = true; serr.hidden = true;
       (adding ? Promise.resolve(null) : rpc('save_account', { p_username: su, p_password: sp })).then(function (r) {
         if (r) {
-          ui.account = { username: r.username }; ui.editAccount = false;
+          ui.account = { username: r.username }; ui.editAccount = false; store(LAST_USER_KEY, r.username);
           ui.newCode = { code: r.recovery_code, username: r.username, after: 'you' };
         }
         if (!em) return;
@@ -1969,7 +2248,7 @@
       fbtn.disabled = true;
       rpc('request_friend_by_username', { p_username: fname }).then(function (r) {
         if (!r || !r.ok) { ui.addFriendError = (r && r.message) || 'That didn\'t work. Try again.'; return; }
-        ui.addFriendError = ''; fu.value = '';
+        ui.addFriendError = ''; fu.value = ''; ui.sets.friends = true;   // open Your friends so the new request shows
         toast(r.state === 'accepted' ? 'You and ' + first(r.name) + ' are now friends.'
           : r.state === 'requested' ? 'Friend request sent to ' + first(r.name) + '.' : 'You and ' + first(r.name) + ' are already friends.');
         return load();

@@ -1,17 +1,17 @@
--- Checks the Sesh Map crawl stops (migration 0024). Runs after the earlier tests and reuses their helpers.
+-- Checks the Sesh Map crawl stops (migration 0027). Runs after the earlier tests and reuses their helpers.
 \set ON_ERROR_STOP on
 \set QUIET on
 \pset tuples_only on
 \pset format unaligned
 set client_min_messages = warning;
-\set org '''00000000-0000-0000-0000-0000000024a1'''
-\set mate '''00000000-0000-0000-0000-0000000024a2'''
-\set out '''00000000-0000-0000-0000-0000000024a3'''
-\set s '''20000000-0000-0000-0000-0000000024c1'''
-\set old '''20000000-0000-0000-0000-0000000024c2'''
-\set v1 '''10000000-0000-0000-0000-0000000024f1'''
-\set v2 '''10000000-0000-0000-0000-0000000024f2'''
-\set v3 '''10000000-0000-0000-0000-0000000024f3'''
+\set org '''00000000-0000-0000-0000-0000000026a1'''
+\set mate '''00000000-0000-0000-0000-0000000026a2'''
+\set out '''00000000-0000-0000-0000-0000000026a3'''
+\set s '''20000000-0000-0000-0000-0000000026c1'''
+\set old '''20000000-0000-0000-0000-0000000026c2'''
+\set v1 '''10000000-0000-0000-0000-0000000026f1'''
+\set v2 '''10000000-0000-0000-0000-0000000026f2'''
+\set v3 '''10000000-0000-0000-0000-0000000026f3'''
 insert into auth.users (id) values (:org), (:mate), (:out);
 insert into public.profiles (id, name, adult_confirmed_at) values (:org, 'Org', now()), (:mate, 'Mate', now()), (:out, 'Out', now());
 insert into public.venues (id, name) values (:v1, 'First Bar'), (:v2, 'Second Bar'), (:v3, 'Third Bar');
@@ -60,6 +60,17 @@ select public.expect_error(format('select public.crawl_add(%L, %L)', :old, :v1),
 reset role;
 set role anon;
 select public.expect_error(format('select public.sesh_crawl(%L)', :s), 'signed-out visitors cannot see stops');
+reset role;
+
+-- A sesh planned for tomorrow can have its crawl planned ahead, and it never makes a venue glow busy.
+reset role;
+insert into public.seshes (id, creator, created_at) values ('20000000-0000-0000-0000-0000000026c9', :org, now() + interval '1 day');
+insert into public.sesh_members (sesh_id, user_id) values ('20000000-0000-0000-0000-0000000026c9', :org), ('20000000-0000-0000-0000-0000000026c9', :mate);
+set role authenticated;
+select set_config('request.jwt.claim.sub', :mate, false) \g /dev/null
+select public.crawl_add('20000000-0000-0000-0000-0000000026c9', :v2) \g /dev/null
+select public.expect(jsonb_array_length(public.sesh_crawl('20000000-0000-0000-0000-0000000026c9')) = 1, 'a planned sesh can have its stops planned ahead');
+select public.expect(not exists (select 1 from jsonb_array_elements(public.api_buzz()) b where b ->> 'id' = :v2), 'crawl stops never make a venue glow busy');
 reset role;
 
 -- Ending the sesh deletes its stops with it.

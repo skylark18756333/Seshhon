@@ -123,6 +123,17 @@ The page's security policy uses `'self'`, so it needs no change for a new addres
 
 `supabase/migrations/0004_sesh_chat.sql` adds the self-erasing sesh chat with block and report. Run new migrations in the Supabase SQL editor in order.
 
+`supabase/migrations/0024_private_seshes.sql` adds private seshes: the person starting one picks which friends can see and
+join it, and can invite more later. Friends who weren't picked can't see it at all. Until it is run, starting a private
+sesh shows an error and ordinary seshes work as before.
+
+`supabase/migrations/0025_planned_seshes.sql` adds planned seshes: a sesh can be planned for a date and time up to 2 weeks
+ahead, for all friends or only picked ones. Friends can say they're in, vote and chat before it starts; it goes live at
+that time (or earlier with "Start it now") and is deleted 8 hours after its start time. Until it is run, planning a sesh
+shows an error and everything else works as before. The same migration lets the host add a private pres (pre-drinks)
+address to a sesh: only people who have said they're in see it, from 4 hours before the start; it is never on the map
+and is deleted with the sesh.
+
 If your project was set up before the age gate and sign up says it cannot find `public.api_sign_up(p_birth_date, p_name)`,
 paste `supabase/update.sql` into the Supabase SQL editor and press Run once. It adds migrations 0003 onwards.
 
@@ -168,6 +179,7 @@ and cannot go Green or Amber until they pass. Each person gets at most 5 attempt
 
 When someone saves a username and password, they also give an email address and confirm it with a
 6-digit code. After that, logging in on a new phone needs the password and a fresh code from that email.
+A phone that has had its code is remembered for 30 days, so logging back in there needs only the password.
 The email is private: it is never shown to anyone (the owner only sees a hint like f•••@gmail.com).
 Accounts saved before this keep logging in with just their password until they add an email on the You
 page. A recovery code still gets someone back in if they lose their email too.
@@ -175,11 +187,16 @@ page. A recovery code still gets someone back in if they lose their email too.
 - `supabase/migrations/0018_email_two_step.sql`: stores the email and hashed codes, and the login check.
 - `supabase/migrations/0022_email_recovery_code.sql`: lets the Edge Function email a copy of each new recovery
   code to the account's confirmed email. The code is still shown on screen, and only its hash is stored.
+- `supabase/migrations/0023_remember_this_phone.sql`: once the code has been typed on a phone, that phone's
+  next logins skip the code for 30 days (the password is still needed). The phone keeps a secret and the
+  database a hash of it. A new password, or using a recovery code, forgets every remembered phone. Without
+  this migration the app simply asks for the code every time.
 - `supabase/functions/email-code/`: the Edge Function that emails the codes. It holds the email service key.
 
 To switch it on, in this order:
 
-1. Run `supabase/migrations/0018_email_two_step.sql`, then `0022_email_recovery_code.sql`, in the Supabase SQL editor.
+1. Run `supabase/migrations/0018_email_two_step.sql`, then `0022_email_recovery_code.sql`, then
+   `0023_remember_this_phone.sql`, in the Supabase SQL editor.
 2. Make a free account with an email service. Brevo works without owning a web domain: add and verify a
    sender address under **Senders**, then create an API key under **SMTP & API**. (Resend also works,
    but needs a domain of your own.)

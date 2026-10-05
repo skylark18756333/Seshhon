@@ -71,7 +71,15 @@ async function signUp(p, name, link) {
   await tap(p, "I've saved it");
   await has(p, 'Your status');
 }
-async function tab(p, t) { await (t === 'You' ? p.page.locator('button.profile-btn') : p.page.locator(`nav button:has-text("${t}")`)).click(); }   // You is the profile button at the top right
+async function tab(p, t) {
+  await (t === 'You' ? p.page.locator('button.profile-btn') : p.page.locator(`nav button:has-text("${t}")`)).click();
+  if (t === 'You') await openSettings(p);
+}
+// Settings are drop-down sections. The checks open them all, as a person would tap each title.
+async function openSettings(p) {
+  await p.page.waitForSelector('details.set');
+  await p.page.evaluate(() => document.querySelectorAll('details.set:not([open]) > summary').forEach((s) => s.click()));
+}   // You is the profile button at the top right
 async function inviteOf(p) { await tab(p, 'You'); await tap(p, 'Send your invite link'); const l = await p.page.locator('#invite-link').innerText(); return l.slice(l.indexOf('?')); }
 
 try {
@@ -218,10 +226,12 @@ try {
   await ben.page.fill('#venue-search', 'bodega');
   ok(await has(ben, '1 venue matches') && await ben.page.locator('.leaflet-container .leaflet-marker-icon.leaflet-interactive').count() === 1, 'searching finds a venue by name before choosing where to look');
   await ben.page.fill('#venue-search', 'live music');
-  ok(await has(ben, 'The Paper Lantern') && !(await ben.page.locator('#venue-list').innerText()).includes('Bodega Nine'), 'search matches venue kinds too');
+  ok(await has(ben, 'The Paper Lantern') && !(await ben.page.locator('#search-results').innerText()).includes('Bodega Nine'), 'search matches venue kinds too');
+  const below = async (a, b) => (await ben.page.locator(a).boundingBox()).y < (await ben.page.locator(b).boundingBox()).y;
+  ok(await below('#search-results', '.leaflet-container'), 'search results show straight under the search box, above the map');
   await ben.page.waitForTimeout(5600);   // a background refresh must not wipe the search box
   ok(await ben.page.locator('#venue-search').inputValue() === 'live music', 'the search survives background refreshes');
-  await ben.page.locator('#venue-list').getByRole('button', { name: 'Show' }).first().click();
+  await ben.page.locator('#search-results').getByRole('button', { name: 'Show' }).first().click();
   ok(await ben.page.locator('#map-pick').count() === 1, 'Show puts a found venue under the map');
   await ben.page.evaluate(() => { document.getElementById('view').scrollTop = 0; });
   await ben.page.screenshot({ path: path.join(copy, 'map-search.png') });
@@ -353,8 +363,9 @@ try {
   console.log('Going Red hides you');
   await tab(cam, 'Home');
   { // drag the knob across the switch from Amber to Red, like a finger would
-    await cam.page.waitForSelector('#status-slide');
-    const box = await cam.page.locator('#status-slide').boundingBox(), y = box.y + box.height / 2;
+    let box = null;   // the screen can redraw between finding the switch and measuring it, so measure until it holds still
+    for (let i = 0; i < 20 && !box; i++) { await cam.page.waitForSelector('#status-slide'); box = await cam.page.locator('#status-slide').boundingBox(); }
+    const y = box.y + box.height / 2;
     await cam.page.mouse.move(box.x + box.width / 2, y); await cam.page.mouse.down();
     for (let i = 1; i <= 8; i++) await cam.page.mouse.move(box.x + box.width / 2 + (box.width / 3) * i / 8, y);
     await cam.page.mouse.up();
@@ -488,6 +499,19 @@ try {
   ok(await has(fay2, 'logged in as fay_99'), 'and it is the same account');
   await tap(fay2, 'Log out');
   ok(await has(fay2, 'I already have an account'), 'logging out goes back to the start');
+  await tap(fay2, 'I already have an account');
+  ok(await fay2.page.locator('#login-user').inputValue() === 'fay_99', 'next time, the username is already filled in');
+  await fay2.page.fill('#login-pass', 'longenough1');
+  await fay2.page.click('.peek');
+  ok(await fay2.page.locator('#login-pass').getAttribute('type') === 'text', 'the eye button shows the password');
+  await fay2.page.click('.peek');
+  ok(await fay2.page.locator('#login-pass').getAttribute('type') === 'password', 'and hides it again');
+  const emailsBefore = (await lastEmail()).code;
+  await tap(fay2, 'Log in');
+  ok(await has(fay2, 'Your status') && !(await has(fay2, 'Check your email', 300)), 'this phone was remembered, so logging back in skips the email code');
+  ok((await lastEmail()).code === emailsBefore, 'and no code is emailed');
+  await tab(fay2, 'You'); await tap(fay2, 'Log out');
+  await has(fay2, 'I already have an account');
   await tap(fay2, 'I already have an account'); await tap(fay2, 'Forgot your password?');
   await fay2.page.fill('#rec-user', 'fay_99'); await fay2.page.fill('#rec-code', 'AAAA-AAAA-AAAA-AAAA'); await fay2.page.fill('#rec-pass', 'brandnewpass');
   await tap(fay2, 'Set new password');
@@ -520,6 +544,66 @@ try {
   ok(await quin.page.waitForFunction(() => document.querySelectorAll('.friend.face .pic').length === 1, null, { timeout: 4000 }).then(() => true, () => false), 'his friend Quin sees his photo on his circle');
   await tap(pim, 'Remove');
   ok(await pim.page.waitForSelector('button.profile-btn img.pic', { state: 'detached', timeout: 6000 }).then(() => true, () => false), 'Pim can remove his photo');
+
+  console.log('Private sesh');
+  const rex = await phone('Rex');
+  await signUp(rex, 'Rex', pmLink);
+  await tab(pim, 'Home'); await has(pim, 'Rex wants to add you'); await tap(pim, 'Accept');
+  await tap(rex, 'Green');
+  await tab(pim, 'Sesh');
+  await tap(pim, 'Start a private sesh');
+  ok(await has(pim, "Who's invited?") && await has(pim, 'Pick at least one friend'), 'Pim picks who comes to a private sesh');
+  await pim.page.locator('.pick-row', { hasText: 'Quin' }).click();
+  ok(await has(pim, 'Start private sesh with 1'), 'picking Quin counts one');
+  if (process.env.SHOTS) await pim.page.screenshot({ path: process.env.SHOTS + '/private-pick.png' });
+  await tap(pim, 'Start private sesh with 1');
+  ok(await has(pim, 'Only you and the 1 friend you picked can see it'), 'the sesh says it is private');
+  await tab(quin, 'Sesh');
+  ok(await has(quin, "Private, you're invited"), 'Quin, who was picked, sees it');
+  await tap(quin, 'Join');
+  ok(await has(quin, 'Only the friends Pim picked can see it'), 'and joins it');
+  await tab(rex, 'Sesh');
+  ok(await has(rex, 'Nobody has started one yet') && !(await has(rex, "Pim's sesh", 500)), 'Rex, a friend who was not picked, does not see it');
+  await tab(pim, 'Sesh'); await tap(pim, 'Invite');
+  await pim.page.locator('.pick-row', { hasText: 'Rex' }).click();
+  ok(await pim.page.locator('.pick-row', { hasText: 'Quin' }).count() === 0, 'people already in it are not offered again');
+  await tap(pim, 'Invite 1');
+  ok(await has(pim, 'Only you and the 2 friends you picked can see it'), 'Pim invites Rex later');
+  await rex.page.reload(); await tab(rex, 'Sesh');
+  ok(await has(rex, "Private, you're invited"), 'and now Rex sees it');
+  if (process.env.SHOTS) await pim.page.screenshot({ path: process.env.SHOTS + '/private-sesh.png' });
+
+  console.log('Planned sesh');
+  await tab(quin, 'Sesh');
+  await tap(quin, 'Plan a sesh for later');
+  ok(await has(quin, "When's it on?"), 'Quin opens the planner');
+  const tomorrow8 = await quin.page.evaluate(() => { const d = new Date(); d.setDate(d.getDate() + 1); const t = (n) => String(n).padStart(2, '0'); return d.getFullYear() + '-' + t(d.getMonth() + 1) + '-' + t(d.getDate()) + 'T20:00'; });
+  await quin.page.fill('#plan-at', tomorrow8);
+  if (process.env.SHOTS) await quin.page.screenshot({ path: process.env.SHOTS + '/plan-sesh.png' });
+  await tap(quin, 'Plan it');
+  ok(await has(quin, 'Tomorrow, 8:00 pm') && await has(quin, 'Start it now'), 'Quin plans a sesh for 8 pm tomorrow');
+  if (process.env.SHOTS) await quin.page.screenshot({ path: process.env.SHOTS + '/planned-sesh.png' });
+  await tap(quin, 'Add a private pres address');
+  await quin.page.fill('#pres-address', '7 Hidden Lane, Leederville');
+  await quin.page.fill('#pres-time', '18:30');
+  await tap(quin, 'Save');
+  ok(await has(quin, '7 Hidden Lane, Leederville') && await has(quin, 'From 6:30 pm') && await has(quin, 'The people who are in see it from'), 'Quin adds a private pres address');
+  if (process.env.SHOTS) await quin.page.screenshot({ path: process.env.SHOTS + '/pres-host.png' });
+  await tab(pim, 'Sesh');
+  ok(await has(pim, "Quin's sesh") && await has(pim, 'Only you and the 2 friends you picked can see it'), 'Pim sees it under Planned, below his sesh tonight');
+  if (process.env.SHOTS) await pim.page.screenshot({ path: process.env.SHOTS + '/planned-list.png', fullPage: true });
+  await tap(pim, "I'm in");
+  await tap(pim, 'Open');
+  ok(await has(pim, "Can't make it") && await has(pim, '2 in'), 'says he is in, and opens it');
+  ok(await has(pim, "Quin added a private pres address") && !(await has(pim, '7 Hidden Lane', 500)), 'Pim knows there is a pres, but the address stays hidden until 4 hours before');
+  if (process.env.SHOTS) await pim.page.screenshot({ path: process.env.SHOTS + '/pres-guest.png' });
+  await tap(pim, 'All seshes');
+  ok(await has(pim, 'Only you and the 2 friends you picked can see it'), 'and goes back to his sesh tonight');
+  await tap(quin, 'Start it now');
+  ok(await has(quin, 'Live now') && await gone(quin, 'Start it now'), 'Quin starts it early and it goes live');
+  await tab(pim, 'Sesh'); await tap(pim, 'Open');
+  ok(await has(pim, '7 Hidden Lane, Leederville') && await has(pim, 'Directions'), 'once it is live, Pim, who is in, sees the pres address');
+  ok(!(await has(rex, '7 Hidden Lane', 500)), 'Rex, who is not in, never sees it');
 
   ok(consoleErrors.length === 0, 'no script errors on any phone' + (consoleErrors.length ? ': ' + consoleErrors.join('; ') : ''));
   await ana.page.screenshot({ path: path.join(copy, 'ana.png') });
