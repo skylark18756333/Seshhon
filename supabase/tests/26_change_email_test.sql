@@ -1,13 +1,13 @@
--- Checks for changing the login email (migration 0023). Runs after the earlier tests and reuses their helpers.
+-- Checks for changing the login email (migration 0026). Runs after the earlier tests and reuses their helpers.
 \set ON_ERROR_STOP on
 \set QUIET on
 \pset tuples_only on
 \pset format unaligned
 set client_min_messages = warning;
-\set u1 '''00000000-0000-0000-0000-0000000023a1'''
-\set u2 '''00000000-0000-0000-0000-0000000023a2'''
-\set s1 '''00000000-0000-0000-0000-0000000023b1'''
-\set s2 '''00000000-0000-0000-0000-0000000023b2'''
+\set u1 '''00000000-0000-0000-0000-0000000026a1'''
+\set u2 '''00000000-0000-0000-0000-0000000026a2'''
+\set s1 '''00000000-0000-0000-0000-0000000026b1'''
+\set s2 '''00000000-0000-0000-0000-0000000026b2'''
 insert into auth.users (id, is_anonymous) values (:u1, true), (:u2, true);
 insert into public.profiles (id, name, adult_confirmed_at) values (:u1, 'Vic', now()), (:u2, 'Wen', now());
 
