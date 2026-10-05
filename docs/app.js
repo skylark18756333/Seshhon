@@ -14,6 +14,7 @@
   var DEVICE_KEY = 'seshhon-remembered-phone';   // per account: the secret that lets this phone skip the email code (migration 0023)
   var LAST_USER_KEY = 'seshhon-last-username';   // filled in on the login screen next time
   var UNDERAGE_KEY = 'seshhon-under-18';
+  var TOUR_KEY = 'seshhon-tour-pending';   // set at sign-up, cleared once the walkthrough is finished or skipped, so a reload mid-tour shows it again
   var SIGNUP_KEY = 'seshhon-signup-waiting';   // name and date of birth, kept in this tab only while the age check runs
   var PROVIDER_NAMES = { yoti: 'Yoti', didit: 'Didit' };
 
@@ -1484,6 +1485,7 @@
         ? '<p class="error">This removes your name, friends, votes and ratings for good.</p><div class="row"><button class="btn small-btn" style="--c:var(--off);--cf:var(--ink)" data-act="delete-account">Delete for good</button><button class="btn small-btn ghost" data-act="cancel-confirm">Keep my account</button></div>'
         : '<button class="btn ghost" data-act="ask" data-v="delete">Delete my account</button>') + '</div>', ui.confirm === 'delete');
 
+    h += sec('tour', '<div class="card"><h2>How Frendzy works</h2><p class="muted small">A quick look at status, friends, seshes and the map.</p><button class="btn small-btn ghost" data-act="tour">Show the tour</button></div>');
     h += sec('install', '<div class="card"><h2>Put Frendzy on your home screen</h2><p class="muted small">On iPhone, tap the Share button in Safari, then Add to Home Screen. On Android, open the browser menu and tap Add to Home screen.</p></div>');
     h += sec('about', '<div class="card"><h2>About</h2><p class="small"><a href="privacy.html">Privacy Policy</a></p><p class="small"><a href="terms.html">Terms of use</a></p>' +
       (document.lastModified ? '<p class="muted small">App version from ' + esc(new Date(document.lastModified).toLocaleString([], { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' })) + '</p>' : '') + '</div>');
@@ -1600,6 +1602,13 @@
     if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(link).then(done, function () { toast('Copy the link shown below.'); });
     else toast('Copy the link shown below.');
     render();
+  }
+
+  // The walkthrough after sign-up (tour.js). It shows over the app until it is finished or skipped.
+  function showTour(fromSignUp) {
+    if (fromSignUp) store(TOUR_KEY, true);
+    if (!store(TOUR_KEY) || ui.newCode || !window.FrendzyTour || !D || !D.me || window.FrendzyTour.isOpen()) return;   // after the recovery code is saved, not over it
+    window.FrendzyTour.open({ name: first(D.me.name), onClose: function () { store(TOUR_KEY, null); } });
   }
 
   var ACT = {
@@ -1754,6 +1763,7 @@
       act('rate_venue', { p_venue: ven.id, p_stars: ven.my_stars, p_tags: tags }).then(function () { return freshVenues(0); });
     },
     share: shareInvite,
+    tour: function () { if (window.FrendzyTour) window.FrendzyTour.open({ name: first(D.me.name) }); },
     'pick-photo': function () { var f = document.getElementById('photo-file'); if (f) f.click(); },
     'remove-photo': function () { savePhoto(null); },
     'age-start': function () {
@@ -1806,9 +1816,10 @@
       if (after === 'login') { ui.loginName = ui.newCode.username; ui.auth = 'login'; }
       if (after === 'home') ui.tab = 'home';
       ui.newCode = null; view.innerHTML = ''; render();
+      if (after === 'home') showTour(false);
     },
     logout: function () {
-      session = null; store(SESSION_KEY, null); D = null; VENUES = null; venuesAsked = false; seen = null; lastKey = '';
+      session = null; store(SESSION_KEY, null); store(TOUR_KEY, null); D = null; VENUES = null; venuesAsked = false; seen = null; lastKey = '';
       ui.account = undefined; ui.safety = undefined; ui.age = null; ui.auth = null; ui.editAccount = false; ui.tab = 'home'; ui.screen = null; ui.confirm = null; ui.twoStep = undefined; ui.emailStep = null;
       view.innerHTML = ''; render(); toast('Logged out. Log in again with your username and password.');
     },
@@ -1817,7 +1828,7 @@
       act('delete_account', {}).then(function () {
         if (goneId) forgetPhone(goneId);
         store(LAST_USER_KEY, null);
-        session = null; store(SESSION_KEY, null); D = null; VENUES = null; venuesAsked = false; seen = null; ui.confirm = null; ui.tab = 'home'; ui.screen = null; ui.account = undefined; ui.safety = undefined; ui.age = null; ui.twoStep = undefined; ui.emailStep = null;
+        session = null; store(SESSION_KEY, null); store(TOUR_KEY, null); D = null; VENUES = null; venuesAsked = false; seen = null; ui.confirm = null; ui.tab = 'home'; ui.screen = null; ui.account = undefined; ui.safety = undefined; ui.age = null; ui.twoStep = undefined; ui.emailStep = null;
         view.innerHTML = ''; render(); toast('Your account has been deleted.');
       });
     }
@@ -1951,7 +1962,8 @@
       .then(function () { waiting(null); })
       .then(saveNewLogin)
       .then(sendPendingInvite)
-      .then(function () { document.activeElement && document.activeElement.blur(); view.innerHTML = ''; return load(); });
+      .then(function () { document.activeElement && document.activeElement.blur(); view.innerHTML = ''; return load(); })
+      .then(function () { showTour(true); });
   }
   // After the provider's page sends the person back (or they tap "check again").
   function finishAgeCheck() {
@@ -2178,7 +2190,7 @@
   if (API_URL && API_KEY) {
     if (session) load().then(function () {
       if (needsAgeCheck() && (backFromCheck || (ui.age.pending && (D && D.me || waiting())))) return finishAgeCheck();
-      if (D && D.me) return sendPendingInvite().then(function () { return load(true); });
+      if (D && D.me) { showTour(false); return sendPendingInvite().then(function () { return load(true); }); }
     });
     else { ui.booted = true; render(); }
   }

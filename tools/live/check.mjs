@@ -70,6 +70,10 @@ async function signUp(p, name, link) {
   await has(p, 'Save your recovery code');
   await tap(p, "I've saved it");
   await has(p, 'Your status');
+  await skipTour(p);
+}
+async function skipTour(p) {   // the walkthrough opens after every sign-up
+  try { await p.page.locator('.tour-skip').click({ timeout: 4000 }); await p.page.locator('.tour').waitFor({ state: 'detached', timeout: 4000 }); } catch {}
 }
 async function tab(p, t) {
   await (t === 'You' ? p.page.locator('button.profile-btn') : p.page.locator(`nav button:has-text("${t}")`)).click();
@@ -111,7 +115,25 @@ try {
   ok(await has(ana, 'Save your recovery code') && await has(ana, 'ana_1'), 'after confirming the email, signing up shows the username and a recovery code');
   ok(await has(ana, 'We also emailed it to a•••@example.com'), 'the recovery code is emailed to Ana as well');
   ok(await ana.page.evaluate(async () => { const r = await (await fetch('http://127.0.0.1:54330/__fake/last-email', { method: 'POST', headers: { apikey: 'test-anon-key' } })).json(); return r.recovery === document.getElementById('recovery-code').innerText.trim(); }), 'and the email holds the same code that is on screen');
+  ok(await ana.page.locator('.tour').count() === 0, 'the walkthrough waits until the recovery code is saved');
   await tap(ana, "I've saved it");
+  ok(await has(ana, 'Welcome, Ana.'), 'the walkthrough opens straight after sign-up');
+  ok(await ana.page.locator('#app[inert]').count() === 1, 'and the app behind it cannot be tapped');
+  await tap(ana, 'Show me');
+  ok(await has(ana, 'Slide to show you\'re up for it'), 'Next goes to the status step');
+  await ana.page.reload();
+  ok(await has(ana, 'Welcome, Ana.'), 'a reload part-way through shows the walkthrough again');
+  for (let i = 0; i < 5; i++) await ana.page.locator('[data-tour="next"]').click();
+  ok(await has(ana, "You're in control"), 'the last step is reached');
+  await tap(ana, "Let's go");
+  ok(await gone(ana, 'Welcome, Ana.') && (await ana.page.locator('#app[inert]').count()) === 0, "Let's go closes the walkthrough");
+  await ana.page.reload();
+  ok(await has(ana, 'Your status') && !(await has(ana, 'Welcome, Ana.', 1500)), 'and it does not come back after a reload');
+  await tab(ana, 'You'); await tap(ana, 'Show the tour');
+  ok(await has(ana, 'Welcome, Ana.'), 'the You page can show the walkthrough again');
+  await ana.page.keyboard.press('Escape');
+  ok(await gone(ana, 'Welcome, Ana.'), 'Escape closes it');
+  await tab(ana, 'Home');
   ok(await has(ana, "You're red."), 'Ana signs up and starts Red');
   ok(await has(ana, 'Add your friends'), 'a new person is told to add friends');
 
@@ -410,6 +432,8 @@ try {
   await ageSet({ outcome: 'passed' });
   await tap(eve, "I've finished, check again");
   ok(await has(eve, "You're red."), 'once the check passes, Eve is signed up');
+  ok(await has(eve, 'Welcome, Eve.'), 'and the walkthrough opens after the age check too');
+  await skipTour(eve);
   await tab(eve, 'You');
   ok(await has(eve, 'Keep your account'), 'the password is never stored during the check, so the You page asks for it again');
   await tab(eve, 'Home');
@@ -434,6 +458,7 @@ try {
   ok(await has(fay, 'We also emailed it to f•••@example.com') && (await lastEmail()).recovery === code1, 'Fay\'s recovery code is emailed to her too');
   ok(/^[A-Z2-9]{4}(-[A-Z2-9]{4}){3}$/.test(code1), 'the recovery code looks like XXXX-XXXX-XXXX-XXXX');
   await tap(fay, "I've saved it");
+  await skipTour(fay);
   await tab(fay, 'You');
   ok(await has(fay, 'logged in as fay_99'), 'Fay sees her username');
   ok(await has(fay, 'need a code sent to f•••@example.com'), 'and that new logins need an email code');
