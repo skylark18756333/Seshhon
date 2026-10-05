@@ -11,6 +11,15 @@ const tokens = new Map(); // access token -> user id
 const sessions = new Map(); // access or refresh token -> { sid, role }, like the session_id and role in a real token
 let lastEmail = null; // the latest email code "sent", for the test to read
 let ageOutcome = 'passed'; // what the pretend age check provider answers
+// Like Supabase with CAPTCHA protection on: sign-up and password log-in need a fresh human-check token,
+// and each token works once. The test's pretend Turnstile hands out tokens starting "fake-ts-".
+const usedCaptcha = new Set();
+function captchaProblem(body) {
+  const t = body.gotrue_meta_security && body.gotrue_meta_security.captcha_token;
+  if (!t || !String(t).startsWith('fake-ts-') || usedCaptcha.has(t)) return { error_code: 'captcha_failed', msg: 'captcha protection: request disallowed (' + (t ? 'timeout-or-duplicate' : 'no captcha response') + ')' };
+  usedCaptcha.add(t);
+  return null;
+}
 
 function lit(v) {
   if (v === null || v === undefined) return 'NULL';
@@ -49,15 +58,17 @@ http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
   if (req.headers.apikey !== KEY) return send(res, 401, { message: 'No API key' });
   if (url.pathname === '/auth/v1/signup') {
+    const bad = captchaProblem(body); if (bad) return send(res, 400, bad);
     const uid = crypto.randomUUID();
     await psql(`insert into auth.users (id, is_anonymous) values ('${uid}', true)`);
     return send(res, 200, await session(uid));
   }
   // Username and password log-in: the same check Supabase Auth does on the stored bcrypt hash.
   if (url.pathname === '/auth/v1/token' && url.searchParams.get('grant_type') === 'password') {
+    const bad = captchaProblem(body); if (bad) return send(res, 400, bad);
     const r = await psql(`select id from auth.users where lower(email) = lower(${lit(body.email)}) and email_confirmed_at is not null
       and encrypted_password = extensions.crypt(${lit(body.password)}, encrypted_password)`);
-    return r.out ? send(res, 200, await session(r.out)) : send(res, 400, { error: 'invalid_grant', error_description: 'Invalid login credentials' });
+    return r.out ? send(res, 200, await session(r.out)) : send(res, 400, { code: 400, error_code: 'invalid_credentials', msg: 'Invalid login credentials' });
   }
   if (url.pathname === '/auth/v1/token') {
     const uid = tokens.get(body.refresh_token);

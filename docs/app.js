@@ -81,8 +81,14 @@
         var json = null;
         try { json = text ? JSON.parse(text) : null; } catch (e) {}
         if (!res.ok) {
-          var err = new Error((json && (json.msg || json.message || json.error_description)) || 'Sign-in did not work. Try again.');
-          err.status = res.status;
+          var msg = (json && (json.msg || json.message || json.error_description)) || 'Sign-in did not work. Try again.';
+          var code = (json && (json.error_code || json.error)) || '';
+          // Supabase answers "captcha protection: request disallowed (...)" when the human check is missing, used or expired.
+          var captcha = code === 'captcha_failed' || /captcha/i.test(msg);
+          // Keep Supabase's reason in brackets (e.g. "invalid-input-secret" means the secret key in Supabase is wrong).
+          var why = (msg.match(/\(([^)]*)\)\s*$/) || [])[1];
+          var err = new Error(captcha ? 'The "are you human" check didn\'t go through. Wait for it to finish, then try again.' + (why ? ' (' + why + ')' : '') : msg);
+          err.status = res.status; err.code = captcha ? 'captcha_failed' : code;
           throw err;
         }
         return json;
@@ -100,7 +106,8 @@
       email: loginEmail(username), password: password,
       gotrue_meta_security: captchaToken ? { captcha_token: captchaToken } : {}
     }).then(saveSession, function (e) {
-      if (e.status === 400) throw new Error('That username and password don\'t match.');
+      // Only a wrong username or password is reported as one; a failed human check says so instead.
+      if (e.code === 'invalid_credentials' || e.code === 'invalid_grant' || /invalid login credentials/i.test(e.message)) throw new Error('That username and password don\'t match.');
       throw e;
     });
   }
@@ -118,17 +125,40 @@
       s.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
       s.async = true;
       s.onload = function () { captchaLoading = false; mountCaptcha(); };
-      s.onerror = function () { captchaLoading = false; };
+      s.onerror = function () {
+        captchaLoading = false;
+        var b = document.getElementById('captcha');
+        if (b && !b.childNodes.length) b.innerHTML = '<p class="error">The "are you human" check couldn\'t load. Check your internet connection, then reload the page.</p>';
+      };
       document.head.appendChild(s);
       return;
     }
+    // A new screen means a new box: drop the old check, whose box is gone, so its answer can't be mixed up with this one.
+    if (captchaWidget !== null) { try { window.turnstile.remove(captchaWidget); } catch (e) {} captchaWidget = null; }
     captchaToken = '';
     captchaWidget = window.turnstile.render(box, {
       sitekey: CAPTCHA_KEY,
       callback: function (t) { captchaToken = t; },
       'expired-callback': function () { captchaToken = ''; },
-      'error-callback': function () { captchaToken = ''; }
+      // Turnstile shows its own message and tries again. The code (e.g. 110200 = this web address isn't on the
+      // widget's hostname list in Cloudflare) goes in the browser console to help find the problem.
+      'error-callback': function (code) { captchaToken = ''; if (window.console) console.warn('Turnstile error ' + code); }
     });
+  }
+  // Waits for the human check to finish (it can take a few seconds, or ask for a tap) instead of turning the person away.
+  function captchaReady(btn) {
+    if (!CAPTCHA_KEY) return Promise.resolve('');
+    if (captchaToken) return Promise.resolve(useCaptcha());
+    var label = btn && btn.textContent;
+    if (btn) btn.textContent = 'Checking you\'re human…';
+    var started = Date.now();
+    return new Promise(function (resolve, reject) {
+      (function wait() {
+        if (captchaToken) return resolve(useCaptcha());
+        if (Date.now() - started > 30000) return reject(new Error('The "are you human" check didn\'t finish. If it asks you to tap it, tap it, then try again.'));
+        setTimeout(wait, 200);
+      })();
+    }).then(function (t) { if (btn) btn.textContent = label; return t; }, function (e) { if (btn) btn.textContent = label; throw e; });
   }
   function useCaptcha() {   // a token works once, so get a fresh one for any retry
     var t = captchaToken;
@@ -2135,9 +2165,8 @@
       if (jp.length < 10) return fail('Use a password of at least 10 characters.');
       var je = document.getElementById('join-email').value.trim();
       if (!/^[^@\s]+@[^@\s]+\.[A-Za-z]{2,}$/.test(je)) return fail('Enter your email address. Login codes go there.');
-      if (CAPTCHA_KEY && !session && !captchaToken) return fail('Wait a moment for the check above to finish, then try again.');
       btn.disabled = true; err.hidden = true;
-      (session ? Promise.resolve() : signInAnonymously(useCaptcha()))
+      (session ? Promise.resolve() : captchaReady(btn).then(signInAnonymously))
         // An older database without username_free() just skips this early check; save_account still refuses a taken name.
         .then(function () { return rpc('username_free', { p_username: ju }).catch(function (x) { if (x.missing) return true; throw x; }); })
         .then(function (free) {
@@ -2156,9 +2185,8 @@
       var lerr = document.getElementById('login-error'), lbtn = document.getElementById('login-btn');
       var lfail = function (msg) { lerr.textContent = msg; lerr.hidden = false; lbtn.disabled = false; };
       if (!lu || !lp) return lfail('Enter your username and password.');
-      if (CAPTCHA_KEY && !captchaToken) return lfail('Wait a moment for the check above to finish, then try again.');
       lbtn.disabled = true; lerr.hidden = true;
-      signInWithPassword(lu, lp, useCaptcha()).then(function () {
+      captchaReady(lbtn).then(function (t) { return signInWithPassword(lu, lp, t); }).then(function () {
         store(LAST_USER_KEY, lu.toLowerCase());
         // Straight after a recovery code, this login doesn't need the email code.
         var ticket = ui.ticket; ui.ticket = null;
@@ -2176,9 +2204,8 @@
       var rfail = function (msg) { rerr.textContent = msg; rerr.hidden = false; rbtn.disabled = false; };
       if (!ru || !rc.trim()) return rfail('Enter your username and recovery code.');
       if (rp.length < 10) return rfail('Use a password of at least 10 characters.');
-      if (CAPTCHA_KEY && !session && !captchaToken) return rfail('Wait a moment for the check above to finish, then try again.');
       rbtn.disabled = true; rerr.hidden = true;
-      (session ? Promise.resolve() : signInAnonymously(useCaptcha()))
+      (session ? Promise.resolve() : captchaReady(rbtn).then(signInAnonymously))
         .then(function () { return rpc('recover_account', { p_username: ru, p_code: rc, p_password: rp }); })
         .then(function (r) {
           if (!r || !r.ok) return rfail((r && r.message) || 'That didn\'t work. Try again.');
