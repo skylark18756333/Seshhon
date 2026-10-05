@@ -30,6 +30,7 @@ jobs:
         working-directory: mobile
         run: |
           npm ci
+          npm run bundle-web
           eas init --non-interactive --force
           if ! eas build --platform android --profile preview --non-interactive --wait --json > builds.json 2> build-log.txt; then
             cat build-log.txt

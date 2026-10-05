@@ -16,11 +16,14 @@
     "typescript": "~6.0.3"
   },
   "scripts": {
+    "bundle-web": "node scripts/bundle-web.mjs",
+    "prestart": "node scripts/bundle-web.mjs",
     "start": "expo start",
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "pretypecheck": "node scripts/bundle-web.mjs"
   },
   "private": true
 }

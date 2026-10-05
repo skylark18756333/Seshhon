@@ -1,8 +1,11 @@
 # Frendzy phone app (iPhone and Android)
 
-This folder is the app that goes in the App Store and Google Play. It is a native shell around the live
-web app in `docs/`, so the phone app and the web link always show the same thing, and a fix to `docs/`
-reaches every phone without a store update.
+This folder is the app that goes in the App Store and Google Play. Its screens are the web app in `docs/`,
+packed into the app when it is built (`npm run bundle-web`, which writes `web/app-html.generated.ts`), so
+it opens on its own without loading the website. It still uses the same database over the internet.
+
+Because the screens travel inside the app, a change to `docs/` reaches phones only with the next app build.
+Build a new version after web changes, especially ones that go with a database change.
 
 The shell adds the parts a web page can't do well on a phone:
 
@@ -14,7 +17,8 @@ The shell adds the parts a web page can't do well on a phone:
 - "Near me" on the map, using the phone's location (it asks first)
 - proper icon, splash screen, and notch / home-bar spacing
 
-The page it loads is set in `app.json` under `extra.webUrl`. The name people see is "Frendzy" (`app.json` > `name`).
+The packed page runs as if it were at the address in `app.json` > `extra.webUrl` (frendzy.au), so logins,
+the human check and invite links work exactly as on the web. The name people see is "Frendzy" (`app.json` > `name`).
 The hidden IDs (`com.seshhon.app`, the `seshhon://` link) keep the old name; they can't be changed once the app is in a store,
 and nobody sees them.
 

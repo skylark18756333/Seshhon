@@ -1,13 +1,15 @@
-// Frendzy phone app: a native shell around the live web app in docs/.
+// Frendzy phone app. The screens are the web app in docs/, packed into the app by scripts/bundle-web.mjs, so
+// the app opens on its own without loading the website. It still talks to the same database over the internet.
+// The page is shown as if it were at frendzy.au, so logins, the human check and invite links work as on the web.
 // The shell adds what a web page can't do well on a phone: the native share sheet, the Android back
 // button, opening outside links in the browser, invite links, and a proper screen when there is no signal.
-// Everything else (sign-up, friends, status, sesh chat) is the live web app, so it stays in one place.
 import Constants from 'expo-constants';
 import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { BackHandler, Linking, Platform, Pressable, Share, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { WebView, type WebViewMessageEvent, type WebViewNavigation } from 'react-native-webview';
+import APP_HTML from './web/app-html.generated';
 
 const BG = '#050506';
 const FG = '#F4F1EA';
@@ -44,16 +46,18 @@ function pageFor(invite: string | null): string {
 
 function Shell() {
   const web = useRef<WebView>(null);
-  const [uri, setUri] = useState<string | null>(null);
+  // The address the packed page pretends to be at (frendzy.au, plus ?invite=... when opened from an invite).
+  const [page, setPage] = useState<string | null>(null);
+  const [opens, setOpens] = useState(0);
   const [canGoBack, setCanGoBack] = useState(false);
   const [failed, setFailed] = useState(false);
 
   // Open on the invite the app was launched with, and follow invite links tapped while it is open.
   useEffect(() => {
-    Linking.getInitialURL().then((url) => setUri(pageFor(inviteFrom(url)))).catch(() => setUri(WEB_URL));
+    Linking.getInitialURL().then((url) => setPage(pageFor(inviteFrom(url)))).catch(() => setPage(WEB_URL));
     const sub = Linking.addEventListener('url', ({ url }) => {
       const invite = inviteFrom(url);
-      if (invite) { setFailed(false); setUri(pageFor(invite) + '#' + Date.now()); }
+      if (invite) { setFailed(false); setPage(pageFor(invite)); setOpens((n) => n + 1); }
     });
     return () => sub.remove();
   }, []);
@@ -81,13 +85,19 @@ function Shell() {
   const onNavigate = useCallback((req: WebViewNavigation & { isTopFrame?: boolean }) => {
     if (req.isTopFrame === false) return true;
     const url = req.url;
-    if (url === 'about:blank') return true;
-    if (url.startsWith(WEB_ORIGIN + WEB_PATH) || url === WEB_ORIGIN + WEB_PATH.replace(/\/$/, '')) return true;
+    if (url === 'about:blank' || url === page) return true;
+    // Coming back to the app's own address (e.g. from the age check): show the packed page again, not the website.
+    const own = WEB_ORIGIN + WEB_PATH;
+    if (url === own.replace(/\/$/, '') || url.startsWith(own + '?') || url.startsWith(own + '#')) {
+      setPage(url); setOpens((n) => n + 1);
+      return false;
+    }
+    if (url.startsWith(own)) return true;
     // The 18+ age check runs on the provider's page; it stays in the app so it can send the person back here.
     if (AGE_CHECK_HOSTS.some((h) => url.startsWith(h))) return true;
     Linking.openURL(url).catch(() => {});
     return false;
-  }, []);
+  }, [page]);
 
   if (failed) {
     return (
@@ -101,12 +111,13 @@ function Shell() {
     );
   }
 
-  if (!uri) return <View style={styles.fill} />;
+  if (!page) return <View style={styles.fill} />;
 
   return (
     <WebView
+      key={opens}
       ref={web}
-      source={{ uri }}
+      source={{ html: APP_HTML, baseUrl: page }}
       style={styles.fill}
       containerStyle={styles.fill}
       originWhitelist={['https://*', 'http://*', 'about:*']}

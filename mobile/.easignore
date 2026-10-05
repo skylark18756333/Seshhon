@@ -1,3 +1,6 @@
+# Used by Expo instead of the .gitignore files when uploading a build. Same list, except the packed
+# screens (web/app-html.generated.ts), which the build needs.
+
 # Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
 
 # dependencies
@@ -46,6 +49,3 @@ yarn-error.*
 *.keystore
 *.mobileprovision
 *.p12
-
-# Made from docs/ by scripts/bundle-web.mjs before every build
-web/app-html.generated.ts
