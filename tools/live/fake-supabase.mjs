@@ -135,12 +135,18 @@ http.createServer(async (req, res) => {
   }
   const m = url.pathname.match(/^\/rest\/v1\/rpc\/([a-z_]+)$/);
   if (m) {
-    const uid = tokens.get((req.headers.authorization || '').replace('Bearer ', ''));
-    if (!uid) return send(res, 401, { message: 'JWT expired' });
     const args = Object.entries(body).map(([k, v]) => `${k} := ${lit(v)}`).join(', ');
-    const { sid, role } = sessions.get((req.headers.authorization || '').replace('Bearer ', ''));
-    const claims = JSON.stringify({ sub: uid, role, session_id: sid });
-    const sql = `begin; set local role ${role}; select set_config('request.jwt.claim.sub', '${uid}', true), set_config('request.jwt.claims', ${lit(claims)}, true); select to_jsonb(public.${m[1]}(${args})); commit;`;
+    let sql;
+    if (!req.headers.authorization) {
+      // Like PostgREST, a call with only the apikey runs as the signed-out "anon" role.
+      sql = `begin; set local role anon; select to_jsonb(public.${m[1]}(${args})); commit;`;
+    } else {
+      const uid = tokens.get(req.headers.authorization.replace('Bearer ', ''));
+      if (!uid) return send(res, 401, { message: 'JWT expired' });
+      const { sid, role } = sessions.get(req.headers.authorization.replace('Bearer ', ''));
+      const claims = JSON.stringify({ sub: uid, role, session_id: sid });
+      sql = `begin; set local role ${role}; select set_config('request.jwt.claim.sub', '${uid}', true), set_config('request.jwt.claims', ${lit(claims)}, true); select to_jsonb(public.${m[1]}(${args})); commit;`;
+    }
     const r = await psql(sql);
     if (r.code !== 0) {
       const msg = (r.err.match(/ERROR:\s+(.*)/) || [, r.err])[1];

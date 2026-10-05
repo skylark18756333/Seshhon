@@ -111,6 +111,21 @@
       throw e;
     });
   }
+  // Logging in with the confirmed email instead (migration 0028): the database gives back the username behind
+  // the email, but only to someone with the right password, so it never shows whether an email has an account.
+  function emailLoginName(email, password) {
+    return fetch(API_URL + '/rest/v1/rpc/email_login_name', {
+      method: 'POST',
+      headers: { apikey: API_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ p_email: email, p_password: password })
+    }).then(function (res) {
+      return res.json().catch(function () { return null; }).then(function (r) {
+        if (res.status === 404) throw new Error('Logging in with your email isn\'t switched on yet. Use your username for now.');
+        if (!res.ok || !r || !r.ok) throw new Error((r && r.message) || 'That didn\'t work. Try again.');
+        return r.username;
+      });
+    });
+  }
 
   // The human check on sign-up (Cloudflare Turnstile), so bots can't make accounts in bulk.
   // Only used when config.js has a captchaSiteKey, and Supabase Auth has CAPTCHA protection switched on.
@@ -604,12 +619,12 @@
   function loginScreen() {
     return '<div class="stack" style="gap:24px;margin-block:auto">' + logo() + '<h1>Log in</h1>' +
       '<form id="login" class="stack" style="gap:16px" novalidate>' +
-      '<div class="field"><label for="login-user">Username</label><input id="login-user" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="20" value="' + esc(ui.loginName || store(LAST_USER_KEY) || '') + '"></div>' +
+      '<div class="field"><label for="login-user">Username or email</label><input id="login-user" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="254" value="' + esc(ui.loginName || store(LAST_USER_KEY) || '') + '"></div>' +
       '<div class="field"><label for="login-pass">Password</label>' + passwordInput('login-pass', 'current-password') + '</div>' +
       (CAPTCHA_KEY ? '<div id="captcha"></div>' : '') +
       '<p id="login-error" class="error" hidden></p>' +
       '<button class="btn" type="submit" id="login-btn">Log in</button></form>' +
-      '<button class="btn ghost" data-act="auth" data-v="recover">Forgot your password?</button>' +
+      '<button class="btn ghost" data-act="auth" data-v="recover">Forgot your password? Use your recovery code</button>' +
       '<button class="btn ghost" data-act="auth" data-v="">Back</button></div>';
   }
   // After the password, a login on an account with email codes waits here for the code.
@@ -654,7 +669,7 @@
     return '<div class="stack" style="gap:24px;margin-block:auto">' + logo() + '<h1>Use your recovery code</h1>' +
       '<p class="muted">Enter the recovery code you saved when you made your password, and choose a new password.</p>' +
       '<form id="recover" class="stack" style="gap:16px" novalidate>' +
-      '<div class="field"><label for="rec-user">Username</label><input id="rec-user" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="20" value="' + esc(ui.loginName || '') + '"></div>' +
+      '<div class="field"><label for="rec-user">Username or email</label><input id="rec-user" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="254" value="' + esc(ui.loginName || '') + '"></div>' +
       '<div class="field"><label for="rec-code">Recovery code</label><input id="rec-code" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="24" placeholder="XXXX-XXXX-XXXX-XXXX"></div>' +
       '<div class="field"><label for="rec-pass">New password</label>' + passwordInput('rec-pass', 'new-password') + '<span class="muted small">At least 10 characters.</span></div>' +
       (CAPTCHA_KEY && !session ? '<div id="captcha"></div>' : '') +
@@ -2439,9 +2454,11 @@
       var lu = document.getElementById('login-user').value.trim(), lp = document.getElementById('login-pass').value;
       var lerr = document.getElementById('login-error'), lbtn = document.getElementById('login-btn');
       var lfail = function (msg) { lerr.textContent = msg; lerr.hidden = false; lbtn.disabled = false; };
-      if (!lu || !lp) return lfail('Enter your username and password.');
+      if (!lu || !lp) return lfail('Enter your username or email, and your password.');
       lbtn.disabled = true; lerr.hidden = true;
-      captchaReady(lbtn).then(function (t) { return signInWithPassword(lu, lp, t); }).then(function () {
+      captchaReady(lbtn).then(function (t) {
+        return (lu.indexOf('@') > 0 ? emailLoginName(lu, lp) : Promise.resolve(lu)).then(function (name) { return signInWithPassword(name, lp, t); });
+      }).then(function () {
         store(LAST_USER_KEY, lu.toLowerCase());
         // Straight after a recovery code, this login doesn't need the email code.
         var ticket = ui.ticket; ui.ticket = null;
@@ -2457,7 +2474,7 @@
       var ru = document.getElementById('rec-user').value.trim(), rc = document.getElementById('rec-code').value, rp = document.getElementById('rec-pass').value;
       var rerr = document.getElementById('rec-error'), rbtn = document.getElementById('rec-btn');
       var rfail = function (msg) { rerr.textContent = msg; rerr.hidden = false; rbtn.disabled = false; };
-      if (!ru || !rc.trim()) return rfail('Enter your username and recovery code.');
+      if (!ru || !rc.trim()) return rfail('Enter your username or email, and your recovery code.');
       if (rp.length < 10) return rfail('Use a password of at least 10 characters.');
       rbtn.disabled = true; rerr.hidden = true;
       (session ? Promise.resolve() : captchaReady(rbtn).then(signInAnonymously))

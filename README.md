@@ -200,12 +200,17 @@ page. A recovery code still gets someone back in if they lose their email too.
   next logins skip the code for 30 days (the password is still needed). The phone keeps a secret and the
   database a hash of it. A new password, or using a recovery code, forgets every remembered phone. Without
   this migration the app simply asks for the code every time.
+- `supabase/migrations/0028_login_with_email.sql`: logging in, or using a recovery code, with the confirmed email
+  instead of the username. The database only gives back the username behind an email to someone who also typed
+  the right password, so it never shows whether an email has an account. Wrong tries are limited to 10 an hour
+  per email, and only hashes of emails are kept with them.
 - `supabase/functions/email-code/`: the Edge Function that emails the codes. It holds the email service key.
 
 To switch it on, in this order:
 
 1. Run `supabase/migrations/0018_email_two_step.sql`, then `0022_email_recovery_code.sql`, then
-   `0023_remember_this_phone.sql` and `0026_change_email.sql`, in the Supabase SQL editor.
+   `0023_remember_this_phone.sql`, `0026_change_email.sql` and `0028_login_with_email.sql`, in the
+   Supabase SQL editor.
 2. Make a free account with an email service. Brevo works without owning a web domain: add and verify a
    sender address under **Senders**, then create an API key under **SMTP & API**. (Resend also works,
    but needs a domain of your own.)
