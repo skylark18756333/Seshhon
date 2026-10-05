@@ -5,14 +5,21 @@
   "dependencies": {
     "expo": "~57.0.26",
     "expo-constants": "~57.0.20",
+    "expo-font": "~57.0.4",
+    "expo-linear-gradient": "~57.0.2",
+    "expo-secure-store": "~57.0.4",
     "expo-status-bar": "~57.0.1",
     "react": "19.2.3",
     "react-native": "0.86.3",
     "react-native-safe-area-context": "~5.7.0",
+    "react-native-svg": "^15.15.4",
     "react-native-webview": "13.16.1"
   },
   "devDependencies": {
+    "@expo/metro-runtime": "~57.0.16",
     "@types/react": "~19.2.2",
+    "react-dom": "19.2.3",
+    "react-native-web": "~0.21.0",
     "typescript": "~6.0.3"
   },
   "scripts": {

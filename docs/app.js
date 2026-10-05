@@ -31,8 +31,22 @@
     try {
       if (value === undefined) return JSON.parse(localStorage.getItem(key) || 'null');
       if (value === null) localStorage.removeItem(key); else localStorage.setItem(key, JSON.stringify(value));
+      // In the phone app the app itself keeps the sign-in, so it hears about every change: sign-up, login,
+      // a refreshed token, log out. On the website there is no phone app listening and nothing happens.
+      if (key === SESSION_KEY && window.ReactNativeWebView) {
+        if (!value) toldNative = false;   // signed out: the app waits to be told when the next sign-up is finished
+        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'session', session: value }));
+      }
     } catch (e) {}
     return null;
+  }
+  // The phone app shows its own Home screen, but only once this page is past sign-up, the login code and the
+  // age check — until then it keeps showing this page, so none of those steps is cut off. Nothing on the website.
+  var toldNative = false;
+  function tellNative() {
+    if (!window.ReactNativeWebView || toldNative) return;
+    toldNative = true;
+    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ready' }));
   }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
   function initials(n) { var p = String(n || '?').trim().split(/\s+/); return esc(((p[0] || '?').charAt(0) + (p[1] ? p[1].charAt(0) : '')).toUpperCase()); }
@@ -1940,6 +1954,7 @@
     mountMini();
     mountCrawl();
     tabs.hidden = false;
+    tellNative();
     var requests = D.requests_in.length;
     var tabList = role() === 'venue' ? VENUE_TABS : [['home', 'Home'], ['sesh', 'Sesh'], ['map', 'Map'], ['venues', 'Venues'], ['events', 'Events']];
     if (role() === 'admin') tabList = tabList.concat([['admin', 'Admin']]);
@@ -2615,6 +2630,12 @@
   });
 
   /* ---------- start ---------- */
+  // The phone app has its own Home screen and opens this page for the other tabs: it says which tab to start
+  // on, and asks for another one when a tab is tapped. Nothing of this happens on the website.
+  if (window.ReactNativeWebView) {
+    if (window.SESHHON_TAB) ui.tab = String(window.SESHHON_TAB);
+    window.FrendzyNative = { go: function (tab) { ACT.tab(String(tab)); } };
+  }
   try {
     var params = new URLSearchParams(location.search), invite = params.get('invite'), backFromCheck = params.has('age_check');
     if (invite) store(INVITE_KEY, invite.slice(0, 16));
