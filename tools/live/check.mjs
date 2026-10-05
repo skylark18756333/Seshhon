@@ -28,7 +28,7 @@ const api = spawn('node', [path.join(here, 'fake-supabase.mjs'), sock, dbPort, '
 const web = http.createServer((req, res) => {
   const p = new URL(req.url, 'http://x').pathname;
   if (p === '/config.js') { res.setHeader('Content-Type', 'text/javascript'); // Serve the real docs/config.js, only swapping the address and key, so a misnamed setting is caught here.
-    return res.end(fs.readFileSync(path.join(root, 'docs/config.js'), 'utf8').replace(/url: '[^']*'/, `url: '${API}'`).replace(/key: '[^']*'/, "key: 'test-anon-key'").replace(/pollMs: \d+/, 'pollMs: 600, chatPollMs: 500').replace(/deals: (true|false)/, 'deals: ' + dealsOn).replace(/captchaSiteKey: '[^']*'/, "captchaSiteKey: ''").replace(/googleRatings: (true|false)/, 'googleRatings: true')); }
+    return res.end(fs.readFileSync(path.join(root, 'docs/config.js'), 'utf8').replace(/url: '[^']*'/, `url: '${API}'`).replace(/key: '[^']*'/, "key: 'test-anon-key'").replace(/pollMs: \d+/, 'pollMs: 600, chatPollMs: 500').replace(/deals: (true|false)/, 'deals: ' + dealsOn).replace(/captchaSiteKey: '[^']*'/, "captchaSiteKey: 'test-site-key'").replace(/googleRatings: (true|false)/, 'googleRatings: true')); }
   const f = path.join(root, 'docs', p === '/' ? 'index.html' : p);
   if (f === path.join(root, 'docs/index.html')) { // The security policy must allow the real Supabase address; here it is swapped for the stand-in.
     const html = fs.readFileSync(f, 'utf8'), live = fs.readFileSync(path.join(root, 'docs/config.js'), 'utf8').match(/url: '([^']*)'/)[1];
@@ -47,6 +47,17 @@ const tile = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQV
 async function phone(name) {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 780 }, timezoneId: 'Australia/Perth' });
   await ctx.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
+  // A pretend Cloudflare Turnstile at the real address (so the security policy is tested too). Like the real one,
+  // it hands out a one-time token a moment after it appears, and a new one after a reset.
+  await ctx.route(/challenges\.cloudflare\.com\/turnstile/, (r) => r.fulfill({ contentType: 'text/javascript', body: `(() => {
+    const w = {}; let n = 0, k = 0;
+    const issue = (id) => setTimeout(() => { const x = w[id]; if (x && x.el.isConnected) x.opts.callback('fake-ts-' + Date.now() + '-' + (++k)); }, 150);
+    window.turnstile = {
+      render(el, opts) { if (!el.isConnected) throw new Error('turnstile: box not on the page'); const id = 'w' + (++n); w[id] = { el, opts }; el.innerHTML = '<div class="fake-turnstile">Human check</div>'; issue(id); return id; },
+      reset(id) { if (!w[id]) throw new Error('turnstile: unknown widget'); issue(id); },
+      remove(id) { delete w[id]; }
+    };
+  })();` }));
   await ctx.route(/tile\.openstreetmap\.org/, (r) => r.fulfill({ contentType: 'image/png', body: tile }));
   const page = await ctx.newPage();
   page.on('pageerror', (e) => consoleErrors.push(name + ': ' + e.message));
@@ -70,6 +81,10 @@ async function signUp(p, name, link) {
   await has(p, 'Save your recovery code');
   await tap(p, "I've saved it");
   await has(p, 'Your status');
+  await skipTour(p);
+}
+async function skipTour(p) {   // the walkthrough opens after every sign-up
+  try { await p.page.locator('.tour-skip').click({ timeout: 4000 }); await p.page.locator('.tour').waitFor({ state: 'detached', timeout: 4000 }); } catch {}
 }
 async function tab(p, t) {
   await (t === 'You' ? p.page.locator('button.profile-btn') : p.page.locator(`nav button:has-text("${t}")`)).click();
@@ -111,7 +126,25 @@ try {
   ok(await has(ana, 'Save your recovery code') && await has(ana, 'ana_1'), 'after confirming the email, signing up shows the username and a recovery code');
   ok(await has(ana, 'We also emailed it to a•••@example.com'), 'the recovery code is emailed to Ana as well');
   ok(await ana.page.evaluate(async () => { const r = await (await fetch('http://127.0.0.1:54330/__fake/last-email', { method: 'POST', headers: { apikey: 'test-anon-key' } })).json(); return r.recovery === document.getElementById('recovery-code').innerText.trim(); }), 'and the email holds the same code that is on screen');
+  ok(await ana.page.locator('.tour').count() === 0, 'the walkthrough waits until the recovery code is saved');
   await tap(ana, "I've saved it");
+  ok(await has(ana, 'Welcome, Ana.'), 'the walkthrough opens straight after sign-up');
+  ok(await ana.page.locator('#app[inert]').count() === 1, 'and the app behind it cannot be tapped');
+  await tap(ana, 'Show me');
+  ok(await has(ana, 'Slide to show you\'re up for it'), 'Next goes to the status step');
+  await ana.page.reload();
+  ok(await has(ana, 'Welcome, Ana.'), 'a reload part-way through shows the walkthrough again');
+  for (let i = 0; i < 5; i++) await ana.page.locator('[data-tour="next"]').click();
+  ok(await has(ana, "You're in control"), 'the last step is reached');
+  await tap(ana, "Let's go");
+  ok(await gone(ana, 'Welcome, Ana.') && (await ana.page.locator('#app[inert]').count()) === 0, "Let's go closes the walkthrough");
+  await ana.page.reload();
+  ok(await has(ana, 'Your status') && !(await has(ana, 'Welcome, Ana.', 1500)), 'and it does not come back after a reload');
+  await tab(ana, 'You'); await tap(ana, 'Show the tour');
+  ok(await has(ana, 'Welcome, Ana.'), 'the You page can show the walkthrough again');
+  await ana.page.keyboard.press('Escape');
+  ok(await gone(ana, 'Welcome, Ana.'), 'Escape closes it');
+  await tab(ana, 'Home');
   ok(await has(ana, "You're red."), 'Ana signs up and starts Red');
   ok(await has(ana, 'Add your friends'), 'a new person is told to add friends');
 
@@ -164,6 +197,28 @@ try {
   ok(!(await text(ben)).includes('Lock in'), 'only the organiser can lock in');
   await tap(ana, 'Lock in Bodega Nine');
   ok(await has(ben, 'Locked in', 10000) && (await text(ben)).includes('Bodega Nine'), 'Ben sees it locked in');
+
+  console.log('Sesh Map');
+  ok(await has(ana, 'Sesh Map') && await has(ana, 'Add stops from the map'), 'the sesh has an empty Sesh Map to plan a crawl');
+  const addStop = async (p, query, name) => {
+    await tab(p, 'Map'); await p.page.fill('#venue-search', query); await has(p, '1 venue matches');
+    await p.page.locator(`.leaflet-container .leaflet-marker-icon[title="${name}"]`).dispatchEvent('click');
+    await tap(p, 'Add to the Sesh Map'); await has(p, 'Added to the Sesh Map');
+    await p.page.locator('#map-pick [aria-label="Close"]').click();
+    await p.page.fill('#venue-search', '');
+  };
+  await addStop(ana, 'bodega', 'Bodega Nine');
+  await addStop(cam, 'lowtide', 'Lowtide Bar');
+  await tab(cam, 'Sesh');
+  ok(await has(cam, '2 stops') && await cam.page.locator('#crawl .stop-title').allInnerTexts().then((t) => t.join('|') === 'Bodega Nine|Lowtide Bar'), 'Cam sees both stops in order');
+  ok(await cam.page.locator('#crawl .leaflet-marker-icon').count() === 2 && await cam.page.locator('#crawl .crawl-line').count() === 1, 'the stops are numbered pins joined by a line');
+  ok(await cam.page.locator('[data-act="crawl-up"]').count() === 0 && await cam.page.locator('[data-act="crawl-remove"]').count() === 1, 'Cam cannot reorder, and can only remove the stop they added');
+  await tab(ana, 'Sesh');
+  await ana.page.getByRole('button', { name: 'Move Lowtide Bar earlier' }).click();
+  ok(await cam.page.waitForFunction(() => [...document.querySelectorAll('#crawl .stop-title')].map((e) => e.innerText).join('|') === 'Lowtide Bar|Bodega Nine', null, { timeout: 4000 }).then(() => true, () => false), 'Ana moves Lowtide first and Cam sees the new order');
+  await ana.page.getByRole('button', { name: 'Done with Lowtide Bar' }).click();
+  ok(await has(cam, 'Next stop'), 'ticking off the first stop shows the next stop');
+  ok(execSync(`psql -X -tA -h ${sock} -p ${dbPort} -U postgres -d postgres -c "select count(*) from public.crawl_stops"`, { encoding: 'utf8' }).trim() === '2', 'the stops are saved');
 
   console.log('Chat');
   const say = async (p, text) => { await p.page.fill('#chat-input', text); await tap(p, 'Send'); };
@@ -334,6 +389,7 @@ try {
   await tap(ana, 'End the sesh');
   ok(await has(ana, 'Nobody has started one yet') || await has(ana, 'Start a sesh'), 'Ana ends the sesh');
   ok(execSync(`psql -X -tA -h ${sock} -p ${dbPort} -U postgres -d postgres -c "select count(*) from public.messages"`, { encoding: 'utf8' }).trim() === '0', 'every message is erased from the database');
+  ok(execSync(`psql -X -tA -h ${sock} -p ${dbPort} -U postgres -d postgres -c "select count(*) from public.crawl_stops"`, { encoding: 'utf8' }).trim() === '0', 'the Sesh Map is erased with the sesh');
   await tab(cam, 'Sesh');
   ok(await gone(cam, 'Yes please'), 'Cam no longer sees the chat');
 
@@ -400,7 +456,7 @@ try {
   await eve.page.goto(`http://127.0.0.1:${WEB_PORT}/`);
   await eve.page.fill('#name', 'Eve'); await eve.page.fill('#dob', '1999-02-03');
   await eve.page.fill('#join-user', 'eve_live'); await eve.page.fill('#join-pass', 'longenough1'); await eve.page.fill('#join-email', 'eve@example.com'); await tap(eve, 'Get started');
-  ok(await has(eve, 'Quick age check') && await has(eve, 'Yoti checks your age with a quick selfie'), 'with the check switched on, sign-up asks for the age check');
+  ok(await has(eve, 'Quick age check') && await has(eve, 'Didit checks your age with a quick selfie'), 'with the check switched on, sign-up asks for the age check');
   await tap(eve, 'Start age check');
   ok(await has(eve, "couldn't confirm you're 18"), 'a failed check is explained and Eve is not let in');
   ok(!eve.page.url().includes('age_check'), 'the return address is tidied away');
@@ -410,6 +466,8 @@ try {
   await ageSet({ outcome: 'passed' });
   await tap(eve, "I've finished, check again");
   ok(await has(eve, "You're red."), 'once the check passes, Eve is signed up');
+  ok(await has(eve, 'Welcome, Eve.'), 'and the walkthrough opens after the age check too');
+  await skipTour(eve);
   await tab(eve, 'You');
   ok(await has(eve, 'Keep your account'), 'the password is never stored during the check, so the You page asks for it again');
   await tab(eve, 'Home');
@@ -434,6 +492,7 @@ try {
   ok(await has(fay, 'We also emailed it to f•••@example.com') && (await lastEmail()).recovery === code1, 'Fay\'s recovery code is emailed to her too');
   ok(/^[A-Z2-9]{4}(-[A-Z2-9]{4}){3}$/.test(code1), 'the recovery code looks like XXXX-XXXX-XXXX-XXXX');
   await tap(fay, "I've saved it");
+  await skipTour(fay);
   await tab(fay, 'You');
   ok(await has(fay, 'logged in as fay_99'), 'Fay sees her username');
   ok(await has(fay, 'need a code sent to f•••@example.com'), 'and that new logins need an email code');
@@ -457,7 +516,12 @@ try {
   await fay2.page.fill('#login-user', 'fay_99'); await fay2.page.fill('#login-pass', 'wrongpassword');
   await tap(fay2, 'Log in');
   ok(await has(fay2, "don't match"), 'a wrong password is turned away');
-  await fay2.page.fill('#login-pass', 'longenough1'); await tap(fay2, 'Log in');
+  await fay2.page.evaluate(() => { document.getElementById('login-error').textContent = ''; });
+  await tap(fay2, 'Log in');
+  ok(await has(fay2, "don't match") && !(await has(fay2, "didn't go through", 300)), 'a second try straight away gets a fresh human check');
+  await tap(fay2, 'Back'); await tap(fay2, 'I already have an account');   // a new screen gets a new check
+  await fay2.page.fill('#login-user', 'fay_99'); await fay2.page.fill('#login-pass', 'longenough1');
+  await tap(fay2, 'Log in');   // straight away: it waits for the human check instead of refusing
   ok(await has(fay2, 'Check your email') && await has(fay2, 'sent a 6-digit code to f•••@example.com'), 'the right password then asks for a code from her email');
   await fay2.page.reload();
   ok(await has(fay2, 'Check your email') && !(await has(fay2, 'Your status', 800)), 'reloading the page does not skip the code');

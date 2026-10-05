@@ -14,6 +14,7 @@
   var DEVICE_KEY = 'seshhon-remembered-phone';   // per account: the secret that lets this phone skip the email code (migration 0023)
   var LAST_USER_KEY = 'seshhon-last-username';   // filled in on the login screen next time
   var UNDERAGE_KEY = 'seshhon-under-18';
+  var TOUR_KEY = 'seshhon-tour-pending';   // set at sign-up, cleared once the walkthrough is finished or skipped, so a reload mid-tour shows it again
   var SIGNUP_KEY = 'seshhon-signup-waiting';   // name and date of birth, kept in this tab only while the age check runs
   var PROVIDER_NAMES = { yoti: 'Yoti', didit: 'Didit' };
 
@@ -80,8 +81,14 @@
         var json = null;
         try { json = text ? JSON.parse(text) : null; } catch (e) {}
         if (!res.ok) {
-          var err = new Error((json && (json.msg || json.message || json.error_description)) || 'Sign-in did not work. Try again.');
-          err.status = res.status;
+          var msg = (json && (json.msg || json.message || json.error_description)) || 'Sign-in did not work. Try again.';
+          var code = (json && (json.error_code || json.error)) || '';
+          // Supabase answers "captcha protection: request disallowed (...)" when the human check is missing, used or expired.
+          var captcha = code === 'captcha_failed' || /captcha/i.test(msg);
+          // Keep Supabase's reason in brackets (e.g. "invalid-input-secret" means the secret key in Supabase is wrong).
+          var why = (msg.match(/\(([^)]*)\)\s*$/) || [])[1];
+          var err = new Error(captcha ? 'The "are you human" check didn\'t go through. Wait for it to finish, then try again.' + (why ? ' (' + why + ')' : '') : msg);
+          err.status = res.status; err.code = captcha ? 'captcha_failed' : code;
           throw err;
         }
         return json;
@@ -99,7 +106,8 @@
       email: loginEmail(username), password: password,
       gotrue_meta_security: captchaToken ? { captcha_token: captchaToken } : {}
     }).then(saveSession, function (e) {
-      if (e.status === 400) throw new Error('That username and password don\'t match.');
+      // Only a wrong username or password is reported as one; a failed human check says so instead.
+      if (e.code === 'invalid_credentials' || e.code === 'invalid_grant' || /invalid login credentials/i.test(e.message)) throw new Error('That username and password don\'t match.');
       throw e;
     });
   }
@@ -117,17 +125,40 @@
       s.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
       s.async = true;
       s.onload = function () { captchaLoading = false; mountCaptcha(); };
-      s.onerror = function () { captchaLoading = false; };
+      s.onerror = function () {
+        captchaLoading = false;
+        var b = document.getElementById('captcha');
+        if (b && !b.childNodes.length) b.innerHTML = '<p class="error">The "are you human" check couldn\'t load. Check your internet connection, then reload the page.</p>';
+      };
       document.head.appendChild(s);
       return;
     }
+    // A new screen means a new box: drop the old check, whose box is gone, so its answer can't be mixed up with this one.
+    if (captchaWidget !== null) { try { window.turnstile.remove(captchaWidget); } catch (e) {} captchaWidget = null; }
     captchaToken = '';
     captchaWidget = window.turnstile.render(box, {
       sitekey: CAPTCHA_KEY,
       callback: function (t) { captchaToken = t; },
       'expired-callback': function () { captchaToken = ''; },
-      'error-callback': function () { captchaToken = ''; }
+      // Turnstile shows its own message and tries again. The code (e.g. 110200 = this web address isn't on the
+      // widget's hostname list in Cloudflare) goes in the browser console to help find the problem.
+      'error-callback': function (code) { captchaToken = ''; if (window.console) console.warn('Turnstile error ' + code); }
     });
+  }
+  // Waits for the human check to finish (it can take a few seconds, or ask for a tap) instead of turning the person away.
+  function captchaReady(btn) {
+    if (!CAPTCHA_KEY) return Promise.resolve('');
+    if (captchaToken) return Promise.resolve(useCaptcha());
+    var label = btn && btn.textContent;
+    if (btn) btn.textContent = 'Checking you\'re human…';
+    var started = Date.now();
+    return new Promise(function (resolve, reject) {
+      (function wait() {
+        if (captchaToken) return resolve(useCaptcha());
+        if (Date.now() - started > 30000) return reject(new Error('The "are you human" check didn\'t finish. If it asks you to tap it, tap it, then try again.'));
+        setTimeout(wait, 200);
+      })();
+    }).then(function (t) { if (btn) btn.textContent = label; return t; }, function (e) { if (btn) btn.textContent = label; throw e; });
   }
   function useCaptcha() {   // a token works once, so get a fresh one for any retry
     var t = captchaToken;
@@ -407,6 +438,7 @@
       if (data.me && !data.legacyVenues && !venuesAsked) loadVenues().then(function () { render(); });
       if (data.me && !pins && !pinsAsked) { pinsAsked = true; loadPins().then(function () { render(); }); }   // venue distances for the sesh vote list
       if (!quiet || key !== lastKey) { lastKey = key; render(); }
+      if (data.me) loadCrawl().then(function (changed) { if (changed) render(); });
       // Photos change rarely: fetch them when the friend list changes, and otherwise once a minute.
       var pk = data.me ? JSON.stringify([data.me.id].concat((data.friends || []).map(function (f) { return f.id; }))) : '';
       if (pk && (pk !== photosKey || Date.now() - photosAt > 60000)) {
@@ -478,6 +510,8 @@
     tick: '<path d="M4.5 12.5l5 5L19.5 7"/>',
     query: '<path d="M8.5 8.5a3.5 3.5 0 1 1 5.2 3c-1.1.7-1.7 1.4-1.7 2.7v.6"/><circle cx="12" cy="19" r=".6"/>',
     cross: '<path d="M6 6l12 12"/><path d="M18 6L6 18"/>',
+    up: '<path d="M12 19V5"/><path d="M5 12l7-7 7 7"/>',
+    down: '<path d="M12 5v14"/><path d="M5 12l7 7 7-7"/>',
     lock: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
     eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
     star: '<path d="M12 3l2.7 5.6 6.1.8-4.5 4.3 1.1 6.1L12 16.9 6.6 19.8l1.1-6.1L3.2 9.4l6.1-.8z"/>'
@@ -948,7 +982,8 @@
       ratingRow(ven) +
       here.map(dealBanner).join('') +
       '<div class="row"><button class="btn small-btn" data-act="venue" data-v="' + esc(ven.id) + '">Open venue</button>' +
-      (mine && !mine.locked_venue ? '<button class="btn small-btn ghost" data-act="suggest" data-v="' + esc(ven.id) + '">Vote for it</button>' : '') + '</div></div>';
+      (mine && !mine.locked_venue ? '<button class="btn small-btn ghost" data-act="suggest" data-v="' + esc(ven.id) + '">Vote for it</button>' : '') + '</div>' +
+      (mine ? crawlButton(ven.id, true) : '') + '</div>';
   }
   // Ratings on the card under a tapped pin: SeshOn's own average, Google's, and tap-a-star to rate.
   function ratingRow(ven) {
@@ -1284,6 +1319,7 @@
         h += '<p class="muted small">' + esc(first(mine.creator_name)) + ' started this sesh and locks in the venue.</p>';
       }
     }
+    h += crawlHtml(mine);
     h += chatHtml(mine);
     if (later) {
       h += mine.mine
@@ -1295,6 +1331,122 @@
       ? '<button class="btn ghost" data-act="end-sesh">End the sesh</button>'
       : '<button class="btn ghost" data-act="leave-sesh">Leave the sesh</button>';
     return h + plannedHtml(mine.id);
+  }
+
+  /* ---------- Sesh Map ----------
+     A crawl planned for tonight's sesh: venues as numbered stops, in order, on a small map. Only people in the
+     sesh see it, and it is deleted with the sesh. Stops are venues only: nobody's location is used or shown. */
+  var crawl = { sesh: null, stops: [], key: '', off: false };   // off: the database doesn't have the Sesh Map yet
+  var CRAWL_MAX = 12;
+  var CR = { el: null, map: null, layers: null, key: '' };
+  function loadCrawl() {
+    var s = mySesh();
+    if (!s || crawl.off) {
+      var had = crawl.key !== '';
+      crawl.sesh = null; crawl.stops = []; crawl.key = '';
+      return Promise.resolve(had);
+    }
+    return rpc('sesh_crawl', { p_sesh: s.id }).then(function (list) {
+      list = Array.isArray(list) ? list : [];
+      var key = s.id + JSON.stringify(list), changed = key !== crawl.key;
+      crawl.sesh = s.id; crawl.stops = list; crawl.key = key;
+      return changed;
+    }, function (e) {
+      if (e.missing) { crawl.off = true; return true; }
+      return false;
+    });
+  }
+  function crawlStops() { var s = mySesh(); return s && crawl.sesh === s.id ? crawl.stops : []; }
+  function crawlStopOf(venueId) { return crawlStops().filter(function (c) { return c.venue_id === venueId; })[0] || null; }
+  function crawlRun(fn, venueId, extra, okMsg) {
+    var s = mySesh(); if (!s) return;
+    var args = { p_sesh: s.id, p_venue: venueId };
+    Object.keys(extra).forEach(function (k) { args[k] = extra[k]; });
+    act(fn, args, okMsg).then(function (list) {
+      if (!Array.isArray(list) || !mySesh() || mySesh().id !== s.id) return;
+      crawl.sesh = s.id; crawl.stops = list; crawl.key = s.id + JSON.stringify(list);
+      render();
+    });
+  }
+  // "Add to the Sesh Map" on a venue, or which stop it already is.
+  function crawlButton(venueId, small) {
+    if (crawl.off) return '';
+    var c = crawlStopOf(venueId), cls = 'btn' + (small ? ' small-btn' : '') + ' ghost';
+    if (c) return '<button class="' + cls + '" data-act="tab" data-v="sesh">Stop ' + c.position + ' on the Sesh Map</button>';
+    if (crawlStops().length >= CRAWL_MAX) return '';
+    return '<button class="' + cls + '" data-act="crawl-add" data-v="' + esc(venueId) + '">Add to the Sesh Map</button>';
+  }
+  function stopIcon(n, done) {
+    return L.divIcon({ className: '', iconSize: [34, 34], iconAnchor: [17, 17],
+      html: '<span class="stop-num' + (done ? ' done' : '') + '">' + (done ? svg('tick', 16) : n) + '</span>' });
+  }
+  function crawlHtml(mine) {
+    if (crawl.off) return '';
+    var stops = crawlStops(), boss = mine.mine;
+    var h = '<div class="stack" style="gap:12px" id="crawl"><div class="row between"><h2>Sesh Map</h2><span class="muted small">' +
+      (stops.length ? stops.length + ' stop' + (stops.length === 1 ? '' : 's') : 'Plan a crawl') + '</span></div>';
+    if (!stops.length) {
+      return h + '<p class="muted small">Doing a pub crawl? Add the places you want to hit from the map. Everyone in the sesh sees the stops here, in order.</p>' +
+        '<button class="btn ghost" data-act="tab" data-v="map">Add stops from the map</button></div>';
+    }
+    if (window.L && pins) h += '<div class="bleed"><div id="crawl-slot" class="map crawl"></div></div>';
+    var started = stops.some(function (c) { return c.done; }), next = (stops.filter(function (c) { return !c.done; })[0] || {}).venue_id;
+    var prev = null, total = 0;
+    h += '<div class="stack">' + stops.map(function (c, i) {
+      var ven = venueById(c.venue_id), at = pins && pins[c.venue_id], step = '';
+      if (at && prev) { var d = km(prev.at, at); total += d; step = fmtKm(d) + ' from stop ' + prev.n; }
+      if (at) prev = { at: at, n: c.position };
+      var isNext = started && c.venue_id === next, id = esc(c.venue_id), name = ven ? ven.name : 'A venue';
+      var tools = '';
+      if (boss) {
+        tools += '<button class="back" data-act="crawl-up" data-v="' + id + '" aria-label="Move ' + esc(name) + ' earlier"' + (i === 0 ? ' disabled' : '') + '>' + svg('up', 18) + '</button>' +
+          '<button class="back" data-act="crawl-down" data-v="' + id + '" aria-label="Move ' + esc(name) + ' later"' + (i === stops.length - 1 ? ' disabled' : '') + '>' + svg('down', 18) + '</button>' +
+          '<button class="back" data-act="crawl-done" data-v="' + id + '" aria-label="' + (c.done ? 'Not done yet: ' : 'Done with ') + esc(name) + '" aria-pressed="' + !!c.done + '">' + svg('tick', 18) + '</button>';
+      }
+      if (boss || c.mine) tools += '<button class="back" data-act="crawl-remove" data-v="' + id + '" aria-label="Remove ' + esc(name) + '">' + svg('close', 16) + '</button>';
+      return '<div class="card crawl-stop' + (c.done ? ' done' : '') + (isNext ? ' lead' : '') + '"><div class="row">' +
+        '<span class="stop-num' + (c.done ? ' done' : '') + '" aria-hidden="true">' + (c.done ? svg('tick', 16) : c.position) + '</span>' +
+        '<button class="grow stop-name" data-act="venue" data-v="' + id + '">' + (isNext ? '<span class="eyebrow" style="color:var(--on)">Next stop</span>' : '') +
+        '<span class="stop-title">' + esc(name) + '</span><span class="muted small">' + esc([ven && ven.kind, ven ? hoursLine(ven) : '', step].filter(Boolean).join(', ')) + '</span></button></div>' +
+        (tools ? '<div class="row crawl-tools">' + tools + '</div>' : '') + '</div>';
+    }).join('') + '</div>';
+    if (total) h += '<p class="muted small">About ' + fmtKm(total) + ' from the first stop to the last, as the crow flies.</p>';
+    if (stops.length < CRAWL_MAX) h += '<button class="btn ghost" data-act="tab" data-v="map">Add more stops from the map</button>';
+    if (!boss) h += '<p class="muted small">' + esc(first(mine.creator_name)) + ' started this sesh, so they set the order and tick off stops.</p>';
+    return h + '</div>';
+  }
+  function mountCrawl() {
+    var slot = document.getElementById('crawl-slot');
+    if (!slot || !window.L) return;
+    var spots = crawlStops().map(function (c) { return { c: c, at: pins && pins[c.venue_id], ven: venueById(c.venue_id) }; }).filter(function (x) { return x.at; });
+    if (!spots.length) { slot.hidden = true; return; }
+    if (!CR.map) {
+      CR.el = document.createElement('div');
+      CR.map = L.map(CR.el, { center: spots[0].at, zoom: 15, scrollWheelZoom: false, dragging: !L.Browser.mobile, attributionControl: true });
+      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>'
+      }).addTo(CR.map);
+      CR.map.attributionControl.setPrefix(false);
+      CR.layers = L.layerGroup().addTo(CR.map);
+    }
+    CR.el.className = slot.className;
+    CR.el.setAttribute('aria-label', 'Sesh Map: ' + spots.map(function (x) { return x.c.position + '. ' + (x.ven ? x.ven.name : 'A venue'); }).join(', '));
+    slot.parentNode.replaceChild(CR.el, slot);
+    CR.map.invalidateSize();
+    var key = JSON.stringify(spots.map(function (x) { return [x.c.venue_id, x.c.position, x.c.done]; }));
+    if (CR.key === key) return;   // same stops: leave the map where the person moved it
+    CR.key = key;
+    CR.layers.clearLayers();
+    // Straight dotted lines between stops, in order: the order of the crawl, not a walking route.
+    L.polyline(spots.map(function (x) { return x.at; }), { className: 'crawl-line', weight: 5, opacity: 0.9, dashArray: '0.1 11', lineCap: 'round', interactive: false }).addTo(CR.layers);
+    spots.forEach(function (x) {
+      var mk = L.marker(x.at, { icon: stopIcon(x.c.position, x.c.done), title: x.ven ? x.ven.name : '', alt: x.ven ? x.ven.name : '', zIndexOffset: x.c.done ? 0 : 500 - x.c.position }).addTo(CR.layers);
+      if (spots.length <= 6 && x.ven) mk.bindTooltip(esc(x.ven.name), { permanent: true, direction: 'right', offset: [16, 0], className: 'tag' });
+      mk.on('click', function () { ACT.venue(x.c.venue_id); });
+    });
+    if (spots.length === 1) CR.map.setView(spots[0].at, 16, { animate: false });
+    else CR.map.fitBounds(L.latLngBounds(spots.map(function (x) { return x.at; })), { animate: false, paddingTopLeft: [40, 40], paddingBottomRight: [spots.length <= 6 ? 130 : 40, 40], maxZoom: 17 });
   }
 
   function dealLabel(d) {
@@ -1363,6 +1515,7 @@
       }).join('') + '</div></div>';
     var mine = mySesh();
     if (mine && !mine.locked_venue) h += '<button class="btn" data-act="suggest" data-v="' + esc(id) + '">Vote for this in ' + (isPlanned(mine) ? 'your planned sesh' : 'tonight\'s sesh') + '</button>';
+    if (mine) h += crawlButton(id, false);
     return h;
   }
   // The week's hours on a venue page, and for staff at that venue, a box to change them.
@@ -1489,6 +1642,7 @@
         ? '<p class="error">This removes your name, friends, votes and ratings for good.</p><div class="row"><button class="btn small-btn" style="--c:var(--off);--cf:var(--ink)" data-act="delete-account">Delete for good</button><button class="btn small-btn ghost" data-act="cancel-confirm">Keep my account</button></div>'
         : '<button class="btn ghost" data-act="ask" data-v="delete">Delete my account</button>') + '</div>', ui.confirm === 'delete');
 
+    h += sec('tour', '<div class="card"><h2>How Frendzy works</h2><p class="muted small">A quick look at status, friends, seshes and the map.</p><button class="btn small-btn ghost" data-act="tour">Show the tour</button></div>');
     h += sec('install', '<div class="card"><h2>Put Frendzy on your home screen</h2><p class="muted small">On iPhone, tap the Share button in Safari, then Add to Home Screen. On Android, open the browser menu and tap Add to Home screen.</p></div>');
     h += sec('about', '<div class="card"><h2>About</h2><p class="small"><a href="privacy.html">Privacy Policy</a></p><p class="small"><a href="terms.html">Terms of use</a></p>' +
       (document.lastModified ? '<p class="muted small">App version from ' + esc(new Date(document.lastModified).toLocaleString([], { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' })) + '</p>' : '') + '</div>');
@@ -1572,6 +1726,7 @@
     view.innerHTML = html;
     mountMap();
     mountMini();
+    mountCrawl();
     tabs.hidden = false;
     var requests = D.requests_in.length;
     var tabList = [['home', 'Home'], ['sesh', 'Sesh'], ['map', 'Map'], ['venues', 'Venues'], ['events', 'Events']];
@@ -1605,6 +1760,13 @@
     if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(link).then(done, function () { toast('Copy the link shown below.'); });
     else toast('Copy the link shown below.');
     render();
+  }
+
+  // The walkthrough after sign-up (tour.js). It shows over the app until it is finished or skipped.
+  function showTour(fromSignUp) {
+    if (fromSignUp) store(TOUR_KEY, true);
+    if (!store(TOUR_KEY) || ui.newCode || !window.FrendzyTour || !D || !D.me || window.FrendzyTour.isOpen()) return;   // after the recovery code is saved, not over it
+    window.FrendzyTour.open({ name: first(D.me.name), onClose: function () { store(TOUR_KEY, null); } });
   }
 
   var ACT = {
@@ -1716,6 +1878,11 @@
       var s = mySesh(); if (!s) return;
       act('cast_vote', { p_sesh: s.id, p_venue: v }).then(function () { ui.screen = null; ui.tab = 'sesh'; go(true); });
     },
+    'crawl-add': function (v) { crawlRun('crawl_add', v, {}, 'Added to the Sesh Map.'); },
+    'crawl-remove': function (v) { crawlRun('crawl_remove', v, {}, 'Stop removed.'); },
+    'crawl-up': function (v) { crawlRun('crawl_move', v, { p_step: -1 }); },
+    'crawl-down': function (v) { crawlRun('crawl_move', v, { p_step: 1 }); },
+    'crawl-done': function (v) { var c = crawlStopOf(v); if (c) crawlRun('crawl_done', v, { p_done: !c.done }); },
     'map-pick': function (v) {
       ui.mapPick = v || null; render();
       if (v && M.map && pins && pins[v] && !M.map.getBounds().pad(-0.1).contains(pins[v])) M.map.setView(pins[v], Math.max(M.map.getZoom(), 15), { animate: false });
@@ -1759,6 +1926,7 @@
       act('rate_venue', { p_venue: ven.id, p_stars: ven.my_stars, p_tags: tags }).then(function () { return freshVenues(0); });
     },
     share: shareInvite,
+    tour: function () { if (window.FrendzyTour) window.FrendzyTour.open({ name: first(D.me.name) }); },
     'pick-photo': function () { var f = document.getElementById('photo-file'); if (f) f.click(); },
     'remove-photo': function () { savePhoto(null); },
     'age-start': function () {
@@ -1812,9 +1980,10 @@
       if (after === 'login') { ui.loginName = ui.newCode.username; ui.auth = 'login'; }
       if (after === 'home') ui.tab = 'home';
       ui.newCode = null; view.innerHTML = ''; render();
+      if (after === 'home') showTour(false);
     },
     logout: function () {
-      session = null; store(SESSION_KEY, null); D = null; VENUES = null; venuesAsked = false; seen = null; lastKey = '';
+      session = null; store(SESSION_KEY, null); store(TOUR_KEY, null); D = null; VENUES = null; venuesAsked = false; seen = null; lastKey = '';
       ui.account = undefined; ui.safety = undefined; ui.age = null; ui.auth = null; ui.editAccount = false; ui.tab = 'home'; ui.screen = null; ui.confirm = null; ui.twoStep = undefined; ui.emailStep = null; ui.changeEmail = false;
       view.innerHTML = ''; render(); toast('Logged out. Log in again with your username and password.');
     },
@@ -1823,7 +1992,7 @@
       act('delete_account', {}).then(function () {
         if (goneId) forgetPhone(goneId);
         store(LAST_USER_KEY, null);
-        session = null; store(SESSION_KEY, null); D = null; VENUES = null; venuesAsked = false; seen = null; ui.confirm = null; ui.tab = 'home'; ui.screen = null; ui.account = undefined; ui.safety = undefined; ui.age = null; ui.twoStep = undefined; ui.emailStep = null; ui.changeEmail = false;
+        session = null; store(SESSION_KEY, null); store(TOUR_KEY, null); D = null; VENUES = null; venuesAsked = false; seen = null; ui.confirm = null; ui.tab = 'home'; ui.screen = null; ui.account = undefined; ui.safety = undefined; ui.age = null; ui.twoStep = undefined; ui.emailStep = null; ui.changeEmail = false;
         view.innerHTML = ''; render(); toast('Your account has been deleted.');
       });
     }
@@ -1957,7 +2126,8 @@
       .then(function () { waiting(null); })
       .then(saveNewLogin)
       .then(sendPendingInvite)
-      .then(function () { document.activeElement && document.activeElement.blur(); view.innerHTML = ''; return load(); });
+      .then(function () { document.activeElement && document.activeElement.blur(); view.innerHTML = ''; return load(); })
+      .then(function () { showTour(true); });
   }
   // After the provider's page sends the person back (or they tap "check again").
   function finishAgeCheck() {
@@ -2001,9 +2171,8 @@
       if (jp.length < 10) return fail('Use a password of at least 10 characters.');
       var je = document.getElementById('join-email').value.trim();
       if (!/^[^@\s]+@[^@\s]+\.[A-Za-z]{2,}$/.test(je)) return fail('Enter your email address. Login codes go there.');
-      if (CAPTCHA_KEY && !session && !captchaToken) return fail('Wait a moment for the check above to finish, then try again.');
       btn.disabled = true; err.hidden = true;
-      (session ? Promise.resolve() : signInAnonymously(useCaptcha()))
+      (session ? Promise.resolve() : captchaReady(btn).then(signInAnonymously))
         // An older database without username_free() just skips this early check; save_account still refuses a taken name.
         .then(function () { return rpc('username_free', { p_username: ju }).catch(function (x) { if (x.missing) return true; throw x; }); })
         .then(function (free) {
@@ -2022,9 +2191,8 @@
       var lerr = document.getElementById('login-error'), lbtn = document.getElementById('login-btn');
       var lfail = function (msg) { lerr.textContent = msg; lerr.hidden = false; lbtn.disabled = false; };
       if (!lu || !lp) return lfail('Enter your username and password.');
-      if (CAPTCHA_KEY && !captchaToken) return lfail('Wait a moment for the check above to finish, then try again.');
       lbtn.disabled = true; lerr.hidden = true;
-      signInWithPassword(lu, lp, useCaptcha()).then(function () {
+      captchaReady(lbtn).then(function (t) { return signInWithPassword(lu, lp, t); }).then(function () {
         store(LAST_USER_KEY, lu.toLowerCase());
         // Straight after a recovery code, this login doesn't need the email code.
         var ticket = ui.ticket; ui.ticket = null;
@@ -2042,9 +2210,8 @@
       var rfail = function (msg) { rerr.textContent = msg; rerr.hidden = false; rbtn.disabled = false; };
       if (!ru || !rc.trim()) return rfail('Enter your username and recovery code.');
       if (rp.length < 10) return rfail('Use a password of at least 10 characters.');
-      if (CAPTCHA_KEY && !session && !captchaToken) return rfail('Wait a moment for the check above to finish, then try again.');
       rbtn.disabled = true; rerr.hidden = true;
-      (session ? Promise.resolve() : signInAnonymously(useCaptcha()))
+      (session ? Promise.resolve() : captchaReady(rbtn).then(signInAnonymously))
         .then(function () { return rpc('recover_account', { p_username: ru, p_code: rc, p_password: rp }); })
         .then(function (r) {
           if (!r || !r.ok) return rfail((r && r.message) || 'That didn\'t work. Try again.');
@@ -2192,7 +2359,7 @@
   if (API_URL && API_KEY) {
     if (session) load().then(function () {
       if (needsAgeCheck() && (backFromCheck || (ui.age.pending && (D && D.me || waiting())))) return finishAgeCheck();
-      if (D && D.me) return sendPendingInvite().then(function () { return load(true); });
+      if (D && D.me) { showTour(false); return sendPendingInvite().then(function () { return load(true); }); }
     });
     else { ui.booted = true; render(); }
   }

@@ -137,6 +137,10 @@ try {
   await has(ana, 'Legend! See you there');
   await shot(ana, '3-sesh.png', 0);
   await shot(ana, '4-chat.png', 'end');
+  // A Sesh Map with three stops, the first ticked off.
+  execSync(`psql -X -q -h ${sock} -p ${dbPort} -U postgres -d postgres -c "insert into public.crawl_stops (sesh_id, venue_id, position, added_by, done) select s.id, v.id, v.n, s.creator, v.n = 1 from public.seshes s, (values ('a0000000-0000-4000-8000-000000000003'::uuid, 1), ('a0000000-0000-4000-8000-000000000001'::uuid, 2), ('a0000000-0000-4000-8000-000000000002'::uuid, 3)) v(id, n)"`);
+  await has(ana, 'Next stop');
+  await shot(ana, '3b-sesh-map.png', await ana.page.evaluate(() => document.getElementById('crawl').offsetTop - 70));
   await tab(ana, 'Venues');
   await ana.page.locator('.card', { hasText: 'The Paper Lantern' }).getByRole('button', { name: 'Open' }).click();
   await has(ana, 'Rate this venue');
