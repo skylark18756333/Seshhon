@@ -342,6 +342,14 @@
   function loadAccount() {
     return rpc('my_account').then(function (a) { ui.account = a || null; }, function () { ui.account = 'off'; });
   }
+  // Account type: user, venue or admin. An older database without roles means everyone is a user.
+  function loadRole() {
+    return rpc('my_role').then(function (r) {
+      ui.role = r || { role: 'user' };
+      if (role() === 'venue' && VENUE_TABS.concat([['you']]).map(function (t) { return t[0]; }).indexOf(ui.tab) < 0) { ui.tab = 'vhome'; ui.screen = null; }
+      if (role() === 'venue') return loadVenueData();
+    }, function () { ui.role = 'off'; });
+  }
   var photos = {}, photosKey = '', photosAt = 0;
   function loadPhotos() {
     return rpc('friend_photos').then(function (p) { photos = p || {}; photosAt = Date.now(); }, function () { photosAt = Date.now(); });
@@ -424,7 +432,7 @@
     }
     if (session && ui.twoStep.needed) { render(); return Promise.resolve(); }
     return (session && !ui.age ? loadAge() : Promise.resolve()).then(function () { return rpc('api_state'); }).then(function (data) {
-      if (data && data.me && ui.account === undefined) return Promise.all([loadAccount(), loadSafety()]).then(function () { return data; });
+      if (data && data.me && ui.account === undefined) return Promise.all([loadAccount(), loadSafety(), loadRole()]).then(function () { return data; });
       return data;
     }).then(function (data) {
       ui.offline = false;
@@ -505,6 +513,10 @@
     arrow: '<path d="M21 3L3 10.5l7.5 3 3 7.5z"/>',
     search: '<circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/>',
     clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+    vhome: '<path d="M3 9l1.5-5h15L21 9"/><path d="M3 9h18v2a3 3 0 0 1-6 0 3 3 0 0 1-6 0 3 3 0 0 1-6 0z"/><path d="M5 13v8h14v-8"/>',
+    vevents: '<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>',
+    vdeals: '<path d="M3 12V3h9l9 9-9 9z"/><circle cx="8" cy="8" r="1.5"/>',
+    admin: '<path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/>',
     fork: '<path d="M7 3v8"/><path d="M4 3v5a3 3 0 0 0 6 0V3"/><path d="M7 11v10"/><path d="M17 21V3c-2.5 1-4 4-4 8h4"/>',
     // Status lamps: a tick for green (out), a question mark for amber (maybe), a cross for red (off)
     tick: '<path d="M4.5 12.5l5 5L19.5 7"/>',
@@ -1506,6 +1518,7 @@
     h += hoursBlock(ven);
     var here = D.deals.filter(function (d) { return d.venue_id === id; });
     if (DEALS_ON) h += '<div class="stack" style="gap:12px"><h2>Deals here</h2>' + (here.length ? here.map(dealBanner).join('') : '<p class="muted small">No deals here right now.</p>') + '</div>';
+    if (role() === 'venue') return h;
     h += '<div class="stack" style="gap:12px;padding-top:18px;border-top:1px solid var(--line)"><h2>Rate this venue</h2>' +
       '<div class="stars" role="group" aria-label="Star rating">' + [1, 2, 3, 4, 5].map(function (n) {
         return '<button class="star" data-act="star" data-v="' + n + '" aria-label="' + n + ' star' + (n > 1 ? 's' : '') + '" aria-pressed="' + (ven.my_stars >= n) + '"><svg width="30" height="30" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true">' + ICON.star + '</svg></button>';
@@ -1568,6 +1581,7 @@
 
   function you() {
     var me = D.me;
+    if (role() === 'venue') return venueYou();
     var h = '<div class="row">' + '<div class="avatar" style="width:56px;height:56px;font-size:18px;--c:' + COLORS[me.colour] + '">' + face(me.id, me.name) + '</div><div class="grow"><h1 style="font-size:28px">' + esc(me.name) + '</h1><p class="muted small">Status: ' + LABELS[me.colour] + '</p></div></div>';
 
     h += '<p class="pill set-label">Settings</p>';
@@ -1606,6 +1620,7 @@
     }
 
     h += sec('safety', safetyCard(), false, ui.safety && ui.safety.women_only ? 'Women only on' : '');
+    h += sec('venue', claimCard(), !!(ui.claimOpen || ui.claimError), ui.role && ui.role.claim && ui.role.claim.status === 'pending' ? 'Waiting for Frendzy' : '');
 
     if (D.blocked && D.blocked.length) {
       h += sec('blocked', '<div class="card"><h2>Blocked people</h2>' + D.blocked.map(function (b) {
@@ -1613,6 +1628,13 @@
       }).join('') + '</div>', false, String(D.blocked.length));
     }
 
+
+    return h + accountCards(me);
+  }
+
+  // The account section at the bottom of the You page, for every kind of account.
+  function accountCards(me) {
+    var h = '';
 
     if (ui.account !== 'off' && ui.account !== undefined) {
       var a = ui.account;
@@ -1636,17 +1658,21 @@
       }
     }
 
-    h += sec('account', '<div class="card"><h2>Your account</h2><p class="muted small">' + (ui.account && ui.account !== 'off' ? 'You can log in on any phone with your username and password.' : 'Your account lives in this browser on this phone.') + ' If you work at a venue, give the organiser this ID so they can set you up as staff:</p>' +
+    h += sec('account', '<div class="card"><h2>Your account</h2><p class="muted small">' + (ui.account && ui.account !== 'off' ? 'You can log in on any phone with your username and password.' : 'Your account lives in this browser on this phone.') + ' If Frendzy staff ask for your account ID, it\'s this:</p>' +
       '<div class="linkbox" id="my-id">' + esc(me.id) + '</div>' +
       (ui.confirm === 'delete'
         ? '<p class="error">This removes your name, friends, votes and ratings for good.</p><div class="row"><button class="btn small-btn" style="--c:var(--off);--cf:var(--ink)" data-act="delete-account">Delete for good</button><button class="btn small-btn ghost" data-act="cancel-confirm">Keep my account</button></div>'
         : '<button class="btn ghost" data-act="ask" data-v="delete">Delete my account</button>') + '</div>', ui.confirm === 'delete');
 
-    h += sec('tour', '<div class="card"><h2>How Frendzy works</h2><p class="muted small">A quick look at status, friends, seshes and the map.</p><button class="btn small-btn ghost" data-act="tour">Show the tour</button></div>');
+    if (role() !== 'venue') h += sec('tour', '<div class="card"><h2>How Frendzy works</h2><p class="muted small">A quick look at status, friends, seshes and the map.</p><button class="btn small-btn ghost" data-act="tour">Show the tour</button></div>');
     h += sec('install', '<div class="card"><h2>Put Frendzy on your home screen</h2><p class="muted small">On iPhone, tap the Share button in Safari, then Add to Home Screen. On Android, open the browser menu and tap Add to Home screen.</p></div>');
     h += sec('about', '<div class="card"><h2>About</h2><p class="small"><a href="privacy.html">Privacy Policy</a></p><p class="small"><a href="terms.html">Terms of use</a></p>' +
       (document.lastModified ? '<p class="muted small">App version from ' + esc(new Date(document.lastModified).toLocaleString([], { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' })) + '</p>' : '') + '</div>');
     return h;
+  }
+  function venueYou() {
+    var me = D.me;
+    return '<div class="stack" style="gap:6px"><div class="eyebrow">Venue account</div><h1 style="font-size:28px">' + esc(me.name) + '</h1></div>' + accountCards(me);
   }
 
   // Settings are drop-down sections: a card whose title you tap to open or close it. Each remembers whether it's open
@@ -1675,6 +1701,176 @@
         '<button class="btn small-btn' + (sf.women_only ? ' ghost' : '') + '" data-act="women-only" data-v="' + (sf.women_only ? 'off' : 'on') + '" aria-pressed="' + !!sf.women_only + '">' + (sf.women_only ? 'Turn off' : 'Turn on') + '</button>';
     }
     return h + '</div>';
+  }
+
+  /* ---------- account types: venue page and admin page ---------- */
+  // ui.role comes from my_role(): { role: 'user' | 'venue' | 'admin', venues, claim }. An older database means everyone is a user.
+  function role() { return ui.role && ui.role.role || 'user'; }
+  var VENUE_TABS = [['vhome', 'Venue'], ['vevents', 'Events'], ['vdeals', 'Deals']];
+  function loadVenueData() {
+    return rpc('venue_overview').then(function (v) { ui.vdata = v || []; }, function (x) { ui.vdata = ui.vdata || []; toast(x.message); });
+  }
+  function loadAdminData() {
+    return rpc('admin_overview').then(function (a) { ui.adata = a; }, function (x) { toast(x.message); });
+  }
+  function myVenue() {
+    var list = ui.vdata || [];
+    return list.filter(function (v) { return v.id === ui.vpick; })[0] || list[0] || null;
+  }
+  function venuePicker() {
+    var list = ui.vdata || [];
+    if (list.length < 2) return '';
+    return '<div class="chips">' + list.map(function (v) {
+      var on = myVenue() && myVenue().id === v.id;
+      return '<button class="chip" data-act="vpick" data-v="' + esc(v.id) + '" aria-pressed="' + on + '">' + esc(v.name) + '</button>';
+    }).join('') + '</div>';
+  }
+  function venueHome() {
+    if (!ui.vdata) return '<p class="muted">Loading your venue...</p>';
+    var v = myVenue();
+    if (!v) return '<div class="card"><h2>No venue yet</h2><p class="muted small">Frendzy hasn\'t linked a venue to this account. Contact the Frendzy team.</p></div>';
+    var events = v.deals.filter(function (d) { return d.type === 'Events'; }), deals = v.deals.filter(function (d) { return d.type !== 'Events'; });
+    var live = function (l) { return l.filter(function (d) { return d.active; }).length; };
+    return '<div class="stack" style="gap:6px"><div class="eyebrow">Venue account</div><h1>' + esc(v.name) + '</h1><p class="muted small">' + esc(v.kind || '') + '</p></div>' + venuePicker() +
+      '<div class="tiles"><div class="card" style="gap:2px"><div class="muted small">Events listed</div><div class="tile-num">' + live(events) + '</div></div>' +
+      '<div class="card" style="gap:2px"><div class="muted small">Deals listed</div><div class="tile-num">' + live(deals) + '</div></div></div>' +
+      '<div class="card"><h2>Opening hours</h2><p class="muted small">' + (v.hours ? esc(v.hours) : 'Not set yet.') + '</p>' +
+      '<button class="btn small-btn" data-act="venue" data-v="' + esc(v.id) + '">See your public page and change hours</button></div>' +
+      '<div class="card"><h2>About venue accounts</h2><p class="muted small">This account is just for your venue. It can\'t go green, add friends or join seshes, and customers never see who runs it. Use a personal account for going out.</p></div>';
+  }
+  function fmtSpan(d) { return fmtClock(d.start_time) + ' to ' + fmtClock(d.end_time); }
+  function venueItems(isEvents) {
+    if (!ui.vdata) return '<p class="muted">Loading your venue...</p>';
+    var v = myVenue();
+    if (!v) return venueHome();
+    var list = v.deals.filter(function (d) { return (d.type === 'Events') === isEvents; });
+    var h = '<div class="stack" style="gap:6px"><h1>' + (isEvents ? 'Events' : 'Deals') + '</h1><p class="muted small">' +
+      (isEvents ? 'Gigs, quiz nights and live music at ' + esc(v.name) + '. They show on the Events tab and your venue page.'
+        : 'Food, entry and drink deals at ' + esc(v.name) + '.' + (DEALS_ON ? '' : ' Deals are not shown to customers yet; you can set them up now.')) + '</p></div>' + venuePicker();
+    if (!isEvents && DEALS_ON) {
+      h += '<div class="card" style="border-color:var(--thinking)"><h2>Confirm a deal code</h2><p class="muted small">Type the code from the customer\'s phone. Each code works once.</p>' +
+        '<form id="staff" class="stack" novalidate><div class="field"><label for="staff-code">Deal code</label><input id="staff-code" type="text" autocomplete="off" autocapitalize="characters" placeholder="SESH-0000" maxlength="12"></div>' +
+        (ui.staffError ? '<p class="error" id="staff-error">' + esc(ui.staffError) + '</p>' : '') +
+        '<button class="btn" style="--c:var(--zest);--cf:var(--ink)" type="submit">Confirm code</button></form></div>';
+    }
+    if (ui.editDeal) return h + dealForm(isEvents, ui.editDeal === 'new' ? null : v.deals.filter(function (d) { return d.id === ui.editDeal; })[0]);
+    h += '<button class="btn" data-act="deal-edit" data-v="new">' + (isEvents ? 'Add an event' : 'Add a deal') + '</button>';
+    if (!list.length) return h + '<p class="muted small">Nothing listed yet.</p>';
+    return h + '<div class="stack" style="gap:12px">' + list.map(function (d) {
+      var asking = ui.confirm === 'deal-delete:' + d.id;
+      return '<div class="card"' + (d.active ? '' : ' style="opacity:.6"') + '><div class="row between"><span class="sub">' + esc(isEvents ? 'Event' : d.type) + '</span><span class="small muted">' + fmtSpan(d) + '</span></div>' +
+        '<div class="big">' + esc(d.title) + '</div>' +
+        (d.active ? '' : '<p class="muted small">Paused. Customers can\'t see it.</p>') +
+        (!isEvents && DEALS_ON ? '<p class="muted small">Used tonight: ' + Number(d.used_tonight || 0) + '</p>' : '') +
+        (asking
+          ? '<div class="row"><button class="btn small-btn" style="--c:var(--off);--cf:var(--ink)" data-act="deal-delete" data-v="' + esc(d.id) + '">Delete</button><button class="btn small-btn ghost" data-act="cancel-confirm">Keep</button></div>'
+          : '<div class="row"><button class="btn small-btn ghost" data-act="deal-edit" data-v="' + esc(d.id) + '">Edit</button>' +
+            '<button class="btn small-btn ghost" data-act="deal-toggle" data-v="' + esc(d.id) + '">' + (d.active ? 'Pause' : 'Show again') + '</button>' +
+            '<button class="btn small-btn ghost" data-act="ask" data-v="deal-delete:' + esc(d.id) + '">Delete</button></div>') + '</div>';
+    }).join('') + '</div>';
+  }
+  function dealForm(isEvents, d) {
+    var type = d ? d.type : isEvents ? 'Events' : 'Food';
+    var h = '<form id="deal-form" class="card stack" style="gap:12px" novalidate><h2>' + (d ? 'Change ' : 'Add ') + (isEvents ? 'event' : 'deal') + '</h2>';
+    if (!isEvents) {
+      h += '<div class="field"><label for="deal-type">Kind</label><select id="deal-type" data-keep>' + ['Food', 'Drinks', 'Entry'].map(function (t) {
+        return '<option value="' + t + '"' + (t === type ? ' selected' : '') + '>' + t + '</option>';
+      }).join('') + '</select></div>';
+    }
+    h += '<div class="field"><label for="deal-title">' + (isEvents ? 'What\'s on' : 'The deal') + '</label><input id="deal-title" data-keep type="text" maxlength="80" value="' + esc(d ? d.title : '') + '" placeholder="' + (isEvents ? 'Trivia night from 7pm' : 'Free share plate for groups of 4+') + '"></div>' +
+      '<div class="row"><div class="field grow"><label for="deal-start">Starts</label><input id="deal-start" data-keep type="time" value="' + esc(d ? d.start_time : '17:00') + '"></div>' +
+      '<div class="field grow"><label for="deal-end">Ends</label><input id="deal-end" data-keep type="time" value="' + esc(d ? d.end_time : '21:00') + '"></div></div>' +
+      '<p class="muted small">Same night only: it has to finish by midnight (use 23:59).</p>';
+    if (!isEvents) {
+      h += '<label class="row"><input id="deal-alcohol" type="checkbox"' + ((ui.dealAlc != null ? ui.dealAlc : d && d.is_alcohol) ? ' checked' : '') + '> <span>This deal includes alcohol</span></label>' +
+        '<div class="field"><label for="deal-discount">Discount % (optional)</label><input id="deal-discount" data-keep type="number" inputmode="numeric" min="0" max="100" value="' + esc(d && d.discount_pct != null ? d.discount_pct : '') + '"></div>' +
+        '<p class="muted small">WA liquor rules: alcohol deals can be at most 50% off, last at most an hour and must finish by 7pm. Frendzy never lists 2-for-1, free or bottomless drinks, or shots.</p>';
+    }
+    return h + (ui.dealError ? '<p class="error">' + esc(ui.dealError) + '</p>' : '') +
+      '<div class="row"><button class="btn small-btn" type="submit">Save</button><button class="btn small-btn ghost" type="button" data-act="deal-edit" data-v="">Cancel</button></div></form>';
+  }
+
+  // On a normal account's You page: ask Frendzy to make this account a venue's account.
+  function claimCard() {
+    if (role() !== 'user' || !ui.role || ui.role === 'off') return '';
+    var c = ui.role.claim;
+    var h = '<div class="card"><h2>Run a venue?</h2>';
+    if (c && c.status === 'pending' && !ui.claimOpen) {
+      return h + '<p class="muted small">You asked to run <strong>' + esc(c.venue_name) + '</strong>. The Frendzy team will call to check, then switch this account over.</p>' +
+        '<button class="btn small-btn ghost" data-act="claim-cancel">Cancel the request</button></div>';
+    }
+    if (c && c.status === 'rejected' && !ui.claimOpen) {
+      h += '<p class="muted small">Your request for <strong>' + esc(c.venue_name) + '</strong> wasn\'t approved.' + (c.note ? ' ' + esc(c.note) : '') + '</p>';
+    }
+    if (!ui.claimOpen) {
+      return h + '<p class="muted small">Venue accounts list events and deals for their venue. Use a separate account for your venue: once approved, this account loses its friends and can\'t go out on a sesh.</p>' +
+        '<button class="btn small-btn" data-act="claim-open">Set up a venue account</button></div>';
+    }
+    var picked = ui.claimVenue && venueById(ui.claimVenue);
+    h += '<form id="claim-form" class="stack" style="gap:12px" novalidate>' +
+      (picked
+        ? '<div class="row between"><span>Venue: <strong>' + esc(picked.name) + '</strong></span><button class="btn small-btn ghost" type="button" data-act="claim-pick" data-v="">Change</button></div>'
+        : '<div class="field"><label for="claim-search">Which venue?</label><input id="claim-search" data-keep type="text" autocomplete="off" maxlength="60" placeholder="Start typing its name" value="' + esc(ui.claimQuery || '') + '"></div>' +
+          '<div id="claim-hits" class="stack" style="gap:6px">' + claimHits() + '</div>') +
+      '<div class="field"><label for="claim-contact">Your name</label><input id="claim-contact" data-keep type="text" autocomplete="name" maxlength="60"></div>' +
+      '<div class="field"><label for="claim-phone">Phone number</label><input id="claim-phone" data-keep type="tel" autocomplete="tel" maxlength="20"><span class="muted small">Frendzy calls to check you run the venue. Deleted once we decide.</span></div>' +
+      '<div class="field"><label for="claim-abn">ABN (optional)</label><input id="claim-abn" data-keep type="text" inputmode="numeric" maxlength="14"></div>' +
+      '<div class="field"><label for="claim-message">Anything else (optional)</label><input id="claim-message" data-keep type="text" maxlength="300"></div>' +
+      (ui.claimError ? '<p class="error">' + esc(ui.claimError) + '</p>' : '') +
+      '<div class="row"><button class="btn small-btn" type="submit">Send request</button><button class="btn small-btn ghost" type="button" data-act="claim-close">Cancel</button></div></form>';
+    return h + '</div>';
+  }
+
+  function claimHits() {
+    var q = String(ui.claimQuery || '').trim().toLowerCase();
+    if (q.length < 2) return '';
+    var hits = (D.venues || []).filter(function (v) { return String(v.name).toLowerCase().indexOf(q) >= 0; }).slice(0, 6);
+    if (!hits.length) return '<p class="muted small">No venue by that name. Contact the Frendzy team to have it added.</p>';
+    return hits.map(function (v) { return '<button class="btn small-btn ghost" type="button" data-act="claim-pick" data-v="' + esc(v.id) + '">' + esc(v.name) + (v.kind ? ' <span class="muted small">' + esc(v.kind) + '</span>' : '') + '</button>'; }).join('');
+  }
+
+  // Frendzy staff only. The database refuses all of this for anyone else.
+  function adminPage() {
+    var a = ui.adata;
+    var h = '<div class="stack" style="gap:6px"><div class="eyebrow">Frendzy staff</div><h1>Admin</h1></div>';
+    if (!a) return h + '<p class="muted">Loading...</p>';
+    var c = a.counts || {};
+    h += '<div class="tiles"><div class="card" style="gap:2px"><div class="muted small">People</div><div class="tile-num">' + Number(c.people || 0) + '</div></div>' +
+      '<div class="card" style="gap:2px"><div class="muted small">Live seshes</div><div class="tile-num">' + Number(c.live_seshes || 0) + '</div></div></div>' +
+      '<div class="tiles"><div class="card" style="gap:2px"><div class="muted small">Venue accounts</div><div class="tile-num">' + Number(c.venue_accounts || 0) + '</div></div>' +
+      '<div class="card" style="gap:2px"><div class="muted small">Live deals and events</div><div class="tile-num">' + Number(c.live_deals || 0) + '</div></div></div>';
+
+    h += '<div class="card"><h2>Venue requests</h2>' + (a.claims.length ? a.claims.map(function (r) {
+      var rejecting = ui.confirm === 'reject:' + r.id;
+      return '<div class="stack" style="gap:6px;padding-top:10px;border-top:1px solid var(--line)"><div><strong>' + esc(r.venue_name) + '</strong> for ' + esc(r.user_name) + '</div>' +
+        '<div class="small">' + esc(r.contact_name) + ', <a href="tel:' + esc(r.phone) + '">' + esc(r.phone) + '</a>' + (r.abn ? ', ABN ' + esc(r.abn) : '') + '</div>' +
+        (r.message ? '<div class="small muted">' + esc(r.message) + '</div>' : '') +
+        (r.venue_has_account ? '<div class="small" style="color:var(--thinking)">This venue already has a venue account.</div>' : '') +
+        (rejecting
+          ? '<div class="field"><label for="reject-note">Note for them (optional)</label><input id="reject-note" data-keep type="text" maxlength="200"></div>' +
+            '<div class="row"><button class="btn small-btn" style="--c:var(--off);--cf:var(--ink)" data-act="claim-decide" data-v="no:' + esc(r.id) + '">Turn down</button><button class="btn small-btn ghost" data-act="cancel-confirm">Back</button></div>'
+          : '<div class="row"><button class="btn small-btn" data-act="claim-decide" data-v="yes:' + esc(r.id) + '">Approve</button><button class="btn small-btn ghost" data-act="ask" data-v="reject:' + esc(r.id) + '">Turn down</button></div>') + '</div>';
+    }).join('') : '<p class="muted small">No requests waiting.</p>') + '<p class="muted small">Call the number and check they run the venue before approving.</p></div>';
+
+    h += '<div class="card"><h2>Venue accounts</h2>' + (a.venue_accounts.length ? a.venue_accounts.map(function (v) {
+      var key = 'unlink:' + v.user_id + ':' + v.venue_id, asking = ui.confirm === key;
+      return '<div class="row between"><div class="grow">' + esc(v.venue_name) + '<div class="muted small">' + esc(v.user_name) + '</div></div>' +
+        (asking ? '<button class="btn small-btn" style="--c:var(--off);--cf:var(--ink)" data-act="unlink" data-v="' + esc(v.user_id + ':' + v.venue_id) + '">Remove</button><button class="btn small-btn ghost" data-act="cancel-confirm">Keep</button>'
+          : '<button class="btn small-btn ghost" data-act="ask" data-v="' + esc(key) + '">Remove</button>') + '</div>';
+    }).join('') : '<p class="muted small">None yet.</p>') + '</div>';
+
+    h += '<div class="card"><h2>Live deals and events</h2>' + (a.deals.length ? a.deals.map(function (d) {
+      return '<div class="row between"><div class="grow">' + esc(d.title) + '<div class="muted small">' + esc(d.venue_name + ', ' + d.type + ', ' + fmtSpan(d)) + '</div></div>' +
+        '<button class="btn small-btn ghost" data-act="admin-pause" data-v="' + esc(d.id) + '">Pause</button></div>';
+    }).join('') : '<p class="muted small">Nothing live.</p>') + '</div>';
+
+    h += '<div class="card"><h2>Reported messages</h2>' + (a.reports.length ? a.reports.map(function (r) {
+      return '<div class="stack" style="gap:4px;padding-top:10px;border-top:1px solid var(--line)"><div class="small"><strong>' + esc(r.reported_name || 'Deleted account') + '</strong>: ' + esc(r.message_body) + '</div>' +
+        (r.reason ? '<div class="small muted">Reason: ' + esc(r.reason) + '</div>' : '') +
+        '<div class="row"><button class="btn small-btn ghost" data-act="report-dismiss" data-v="' + esc(r.id) + '">Dismiss</button></div></div>';
+    }).join('') : '<p class="muted small">No reports.</p>') + '</div>';
+
+    return h + '<p class="muted small">Admin access is given only by Frendzy, in the Supabase SQL Editor. It can\'t be switched on from the app.</p>';
   }
 
   /* ---------- render ---------- */
@@ -1722,14 +1918,16 @@
     var html;
     if (ui.screen && ui.screen.type === 'venue') html = venue(ui.screen.id);
     else if (ui.screen && ui.screen.type === 'redeem') html = redeem(ui.screen.id);
-    else html = topBar() + { home: home, sesh: sesh, map: mapTab, venues: venues, events: events, you: you }[ui.tab]();
+    else html = topBar() + ({ home: home, sesh: sesh, map: mapTab, venues: venues, events: events, you: you, admin: adminPage,
+      vhome: venueHome, vevents: function () { return venueItems(true); }, vdeals: function () { return venueItems(false); } }[ui.tab] || home)();
     view.innerHTML = html;
     mountMap();
     mountMini();
     mountCrawl();
     tabs.hidden = false;
     var requests = D.requests_in.length;
-    var tabList = [['home', 'Home'], ['sesh', 'Sesh'], ['map', 'Map'], ['venues', 'Venues'], ['events', 'Events']];
+    var tabList = role() === 'venue' ? VENUE_TABS : [['home', 'Home'], ['sesh', 'Sesh'], ['map', 'Map'], ['venues', 'Venues'], ['events', 'Events']];
+    if (role() === 'admin') tabList = tabList.concat([['admin', 'Admin']]);
     tabs.style.gridTemplateColumns = 'repeat(' + tabList.length + ', minmax(0, 1fr))';
     tabs.innerHTML = tabList.map(function (t) {
       return '<button data-act="tab" data-v="' + t[0] + '"' + (ui.tab === t[0] && !ui.screen ? ' aria-current="page"' : '') + '>' + svg(t[0], 22) + '<span>' + t[1] + '</span>' +
@@ -1774,6 +1972,9 @@
       if (v === 'sesh' && ui.tab === 'sesh' && !ui.screen) ui.seshId = null;   // tapping Sesh again goes back from a planned sesh
       ui.tab = v; ui.screen = null; ui.confirm = null; ui.staffError = ''; ui.picker = null; ui.plan = null; go(true);
       if (v === 'map' || v === 'venues') freshVenues(5 * 60000);
+      if (v === 'vhome' || v === 'vevents' || v === 'vdeals') { ui.editDeal = null; loadVenueData().then(render); }
+      if (v === 'admin') loadAdminData().then(render);
+      if (v === 'you' && role() === 'user') loadRole().then(render);
       if (v === 'map' && Date.now() - buzzAt > 60000) loadBuzz();
       if (v === 'map' || v === 'sesh' || v === 'events') loadPins().then(function () { if (ui.tab === v && !ui.screen) { if (M.map) M.fit = true; render(); } });
     },
@@ -1954,6 +2155,31 @@
     unfriend: function (v) { ui.confirm = null; act('answer_friend', { p_friendship: v, p_accept: false }); },
     ask: function (v) { ui.confirm = v; go(false); },
     'cancel-confirm': function () { ui.confirm = null; go(false); },
+    vpick: function (v) { ui.vpick = v; ui.editDeal = null; go(false); },
+    'deal-edit': function (v) { ui.editDeal = v || null; ui.dealError = ''; ui.dealAlc = null; ui.confirm = null; go(!!v); },
+    'deal-toggle': function (v) {
+      var ven = myVenue(), d = ven && ven.deals.filter(function (x) { return x.id === v; })[0];
+      if (!d) return;
+      act('venue_save_deal', { p_deal: d.id, p_venue: ven.id, p_type: d.type, p_title: d.title, p_start: d.start_time, p_end: d.end_time, p_is_alcohol: d.is_alcohol, p_discount: d.discount_pct, p_active: !d.active },
+        d.active ? 'Paused.' : 'Showing again.').then(loadVenueData).then(render);
+    },
+    'deal-delete': function (v) { ui.confirm = null; act('venue_delete_deal', { p_deal: v }, 'Deleted.').then(loadVenueData).then(render); },
+    'claim-open': function () { ui.claimOpen = true; ui.claimError = ''; ui.claimVenue = null; ui.claimQuery = ''; freshVenues(5 * 60000); go(false); },
+    'claim-close': function () { ui.claimOpen = false; go(false); },
+    'claim-pick': function (v) { ui.claimVenue = v || null; if (!v) ui.claimQuery = ''; go(false); },
+    'claim-cancel': function () { act('cancel_venue_claim', {}, 'Request cancelled.').then(function (r) { if (r) { ui.role = r; render(); } }); },
+    'claim-decide': function (v) {
+      var parts = v.split(':'), note = document.getElementById('reject-note');
+      ui.confirm = null;
+      act('admin_decide_claim', { p_claim: parts[1], p_approve: parts[0] === 'yes', p_note: note ? note.value : null }, parts[0] === 'yes' ? 'Approved. It\'s now a venue account.' : 'Turned down.')
+        .then(function (r) { if (r) { ui.adata = r; render(); } });
+    },
+    unlink: function (v) {
+      var parts = v.split(':'); ui.confirm = null;
+      act('admin_remove_venue_account', { p_user: parts[0], p_venue: parts[1] }, 'Removed.').then(function (r) { if (r) { ui.adata = r; render(); } });
+    },
+    'admin-pause': function (v) { act('admin_pause_deal', { p_deal: v }, 'Paused.').then(function (r) { if (r) { ui.adata = r; render(); } }); },
+    'report-dismiss': function (v) { act('admin_dismiss_report', { p_report: v }, 'Dismissed.').then(function (r) { if (r) { ui.adata = r; render(); } }); },
     auth: function (v) { ui.auth = v || null; view.innerHTML = ''; render(); },
     'edit-account': function () { ui.editAccount = !ui.editAccount; go(false); },
     'ts-resend': function () { sendLoginCode(); },
@@ -1984,7 +2210,7 @@
     },
     logout: function () {
       session = null; store(SESSION_KEY, null); store(TOUR_KEY, null); D = null; VENUES = null; venuesAsked = false; seen = null; lastKey = '';
-      ui.account = undefined; ui.safety = undefined; ui.age = null; ui.auth = null; ui.editAccount = false; ui.tab = 'home'; ui.screen = null; ui.confirm = null; ui.twoStep = undefined; ui.emailStep = null; ui.changeEmail = false;
+      ui.account = undefined; ui.role = undefined; ui.vdata = null; ui.adata = null; ui.safety = undefined; ui.age = null; ui.auth = null; ui.editAccount = false; ui.tab = 'home'; ui.screen = null; ui.confirm = null; ui.twoStep = undefined; ui.emailStep = null; ui.changeEmail = false;
       view.innerHTML = ''; render(); toast('Logged out. Log in again with your username and password.');
     },
     'delete-account': function () {
@@ -1992,7 +2218,7 @@
       act('delete_account', {}).then(function () {
         if (goneId) forgetPhone(goneId);
         store(LAST_USER_KEY, null);
-        session = null; store(SESSION_KEY, null); store(TOUR_KEY, null); D = null; VENUES = null; venuesAsked = false; seen = null; ui.confirm = null; ui.tab = 'home'; ui.screen = null; ui.account = undefined; ui.safety = undefined; ui.age = null; ui.twoStep = undefined; ui.emailStep = null; ui.changeEmail = false;
+        session = null; store(SESSION_KEY, null); store(TOUR_KEY, null); D = null; VENUES = null; venuesAsked = false; seen = null; ui.confirm = null; ui.tab = 'home'; ui.screen = null; ui.account = undefined; ui.role = undefined; ui.vdata = null; ui.adata = null; ui.safety = undefined; ui.age = null; ui.twoStep = undefined; ui.emailStep = null; ui.changeEmail = false;
         view.innerHTML = ''; render(); toast('Your account has been deleted.');
       });
     }
@@ -2048,6 +2274,7 @@
   document.addEventListener('input', function (e) {
     if (e.target.id === 'radius') setRadius(e.target.value);
     if (e.target.id === 'venue-search') setSearch(e.target.value);
+    if (e.target.id === 'claim-search') { ui.claimQuery = e.target.value; var ch = document.getElementById('claim-hits'); if (ch) ch.innerHTML = claimHits(); }
   });
   document.addEventListener('change', function (e) {
     if (e.target.id !== 'photo-file' || !e.target.files || !e.target.files[0]) return;
@@ -2159,6 +2386,28 @@
       act('set_venue_hours', { p_venue: ven.id, p_hours: val }, 'Hours saved.').then(function () { return freshVenues(0); });
       return;
     }
+    if (e.target.id === 'deal-form') {
+      var dv = myVenue(), isEv = ui.tab === 'vevents', val2 = function (id) { var el = document.getElementById(id); return el ? el.value : ''; };
+      if (!dv) return;
+      var alc = document.getElementById('deal-alcohol'), disc = val2('deal-discount').trim();
+      var old = ui.editDeal && ui.editDeal !== 'new' ? dv.deals.filter(function (x) { return x.id === ui.editDeal; })[0] : null;
+      rpc('venue_save_deal', {
+        p_deal: old ? old.id : null, p_venue: dv.id, p_type: isEv ? 'Events' : val2('deal-type'), p_title: val2('deal-title').trim(),
+        p_start: val2('deal-start'), p_end: val2('deal-end'), p_is_alcohol: !!(alc && alc.checked), p_discount: disc === '' ? null : Number(disc), p_active: old ? old.active : true
+      }).then(function () {
+        ui.editDeal = null; ui.dealError = ''; ui.dealAlc = null; toast(isEv ? 'Event saved.' : 'Deal saved.');
+        return loadVenueData().then(function () { go(true); });
+      }).catch(function (x) { ui.dealError = x.message; ui.dealAlc = !!(alc && alc.checked); render(); });
+      return;
+    }
+    if (e.target.id === 'claim-form') {
+      if (!ui.claimVenue) { ui.claimError = 'Pick your venue from the list.'; render(); return; }
+      var cv = function (id) { return document.getElementById(id).value; };
+      rpc('claim_venue', { p_venue: ui.claimVenue, p_contact: cv('claim-contact'), p_phone: cv('claim-phone'), p_abn: cv('claim-abn'), p_message: cv('claim-message') }).then(function (r) {
+        ui.role = r; ui.claimOpen = false; ui.claimError = ''; toast('Request sent. The Frendzy team will be in touch.'); render();
+      }).catch(function (x) { ui.claimError = x.message; render(); });
+      return;
+    }
     if (e.target.id === 'join') {
       var name = document.getElementById('name').value.trim(), dob = document.getElementById('dob').value;
       var ju = document.getElementById('join-user').value.trim().toLowerCase(), jp = document.getElementById('join-pass').value;
@@ -2198,7 +2447,7 @@
         var ticket = ui.ticket; ui.ticket = null;
         return ticket ? rpc('two_step_use_ticket', { p_ticket: ticket }).then(function (ok) { if (ok) return refreshSession(); }, function () {}) : null;
       }).then(function () {
-        D = null; VENUES = null; venuesAsked = false; lastKey = ''; ui.auth = null; ui.loginName = ''; ui.account = undefined; ui.safety = undefined; ui.age = null; ui.twoStep = undefined; ui.emailStep = null; ui.changeEmail = false;
+        D = null; VENUES = null; venuesAsked = false; lastKey = ''; ui.auth = null; ui.loginName = ''; ui.account = undefined; ui.role = undefined; ui.vdata = null; ui.adata = null; ui.safety = undefined; ui.age = null; ui.twoStep = undefined; ui.emailStep = null; ui.changeEmail = false;
         document.activeElement && document.activeElement.blur(); view.innerHTML = '';
         return load().then(function () { if (D && D.me) return sendPendingInvite(); });
       }).catch(function (x) { lfail(x.message); });
