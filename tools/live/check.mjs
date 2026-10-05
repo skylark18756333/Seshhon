@@ -567,6 +567,20 @@ try {
   await fay2.page.fill('#login-pass', 'brandnewpass'); await tap(fay2, 'Log in');
   ok(await has(fay2, 'Your status'), 'and the new password works, without an email code straight after a recovery');
 
+  console.log('Change email');
+  execSync(`psql -X -q -h ${sock} -p ${dbPort} -U postgres -c "delete from private.two_step_sends"`);   // Fay has used her 5 emails this hour
+  await tab(fay2, 'You');
+  await tap(fay2, 'Change email');
+  ok(await has(fay2, 'codes keep going to f•••@example.com'), 'changing the email keeps the old one until the new one is confirmed');
+  await fay2.page.fill('#save-email', 'fay@new.example.com'); await tap(fay2, 'Send me a code');
+  ok(await has(fay2, 'Confirm your email') && await has(fay2, 'f•••@new.example.com') && (await lastEmail()).email === 'fay@new.example.com', 'a code goes to the new email');
+  await fay2.page.fill('#ec-code', (await lastEmail()).code); await tap(fay2, 'Confirm email');
+  ok(await has(fay2, 'Save your recovery code') && await has(fay2, 'We also emailed it to f•••@new.example.com'), 'once confirmed, a fresh recovery code is shown and emailed to the new address');
+  const code3 = (await fay2.page.locator('#recovery-code').innerText()).trim();
+  ok(code3 !== code2 && (await lastEmail()).recovery === code3, 'the emailed code is the new one');
+  await tap(fay2, "I've saved it");
+  ok(await has(fay2, 'need a code sent to f•••@new.example.com'), 'new logins now need a code from the new email');
+
   console.log('Profile photos');
   const pim = await phone('Pim'), quin = await phone('Quin');
   await signUp(pim, 'Pim');

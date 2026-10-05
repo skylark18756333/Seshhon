@@ -192,6 +192,8 @@ Accounts saved before this keep logging in with just their password until they a
 page. A recovery code still gets someone back in if they lose their email too.
 
 - `supabase/migrations/0018_email_two_step.sql`: stores the email and hashed codes, and the login check.
+- `supabase/migrations/0026_change_email.sql`: changing the email from the You page. The new address is confirmed
+  with a code, then a fresh recovery code is made and emailed there.
 - `supabase/migrations/0022_email_recovery_code.sql`: lets the Edge Function email a copy of each new recovery
   code to the account's confirmed email. The code is still shown on screen, and only its hash is stored.
 - `supabase/migrations/0023_remember_this_phone.sql`: once the code has been typed on a phone, that phone's
@@ -203,7 +205,7 @@ page. A recovery code still gets someone back in if they lose their email too.
 To switch it on, in this order:
 
 1. Run `supabase/migrations/0018_email_two_step.sql`, then `0022_email_recovery_code.sql`, then
-   `0023_remember_this_phone.sql`, in the Supabase SQL editor.
+   `0023_remember_this_phone.sql` and `0026_change_email.sql`, in the Supabase SQL editor.
 2. Make a free account with an email service. Brevo works without owning a web domain: add and verify a
    sender address under **Senders**, then create an API key under **SMTP & API**. (Resend also works,
    but needs a domain of your own.)
