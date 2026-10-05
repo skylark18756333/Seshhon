@@ -106,5 +106,7 @@ select public.expect(not exists (
 select public.expect(not exists (
   select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
   where n.nspname = 'public' and has_function_privilege('anon', p.oid, 'execute') and p.proname not in ('expect', 'expect_error')
-), 'signed-out visitors cannot call any function');
+    -- logging in with an email happens before there is a sign-in; it only answers with the right password (0028)
+    and p.proname <> 'email_login_name'
+), 'signed-out visitors cannot call any function except the email log-in lookup');
 select 'ALL SECURITY CHECKS PASSED';

@@ -553,7 +553,7 @@ try {
   ok((await lastEmail()).code === emailsBefore, 'and no code is emailed');
   await tab(fay2, 'You'); await tap(fay2, 'Log out');
   await has(fay2, 'I already have an account');
-  await tap(fay2, 'I already have an account'); await tap(fay2, 'Forgot your password?');
+  await tap(fay2, 'I already have an account'); await tap(fay2, 'Forgot your password? Use your recovery code');
   await fay2.page.fill('#rec-user', 'fay_99'); await fay2.page.fill('#rec-code', 'AAAA-AAAA-AAAA-AAAA'); await fay2.page.fill('#rec-pass', 'brandnewpass');
   await tap(fay2, 'Set new password');
   ok(await has(fay2, "recovery code don't match"), 'a wrong recovery code is turned away');
@@ -580,6 +580,37 @@ try {
   ok(code3 !== code2 && (await lastEmail()).recovery === code3, 'the emailed code is the new one');
   await tap(fay2, "I've saved it");
   ok(await has(fay2, 'need a code sent to f•••@new.example.com'), 'new logins now need a code from the new email');
+
+  console.log('Log in with email');
+  await tap(fay2, 'Log out');
+  await tap(fay2, 'I already have an account');
+  ok(await has(fay2, 'Username or email'), 'the log-in form takes a username or an email');
+  await fay2.page.fill('#login-user', 'nobody@example.com'); await fay2.page.fill('#login-pass', 'brandnewpass');
+  await tap(fay2, 'Log in');
+  ok(await has(fay2, "That email and password don't match."), 'an email with no account gets the same answer as a wrong password');
+  await fay2.page.fill('#login-user', 'fay@new.example.com'); await fay2.page.fill('#login-pass', 'wrongpassword');
+  await tap(fay2, 'Log in');
+  ok(await has(fay2, "That email and password don't match."), 'a wrong password with Fay\'s email is turned away');
+  await fay2.page.fill('#login-user', 'fay@example.com'); await fay2.page.fill('#login-pass', 'brandnewpass');
+  await tap(fay2, 'Log in');
+  ok(await has(fay2, "That email and password don't match."), 'her old email no longer logs in');
+  await fay2.page.fill('#login-user', ' Fay@New.Example.com '); await fay2.page.fill('#login-pass', 'brandnewpass');
+  await tap(fay2, 'Log in');
+  ok(await has(fay2, 'Your status') || await has(fay2, 'Check your email'), 'her confirmed email and password log her in');
+  if (await has(fay2, 'Check your email', 300)) { await fay2.page.fill('#ts-code', (await lastEmail()).code); await tap(fay2, 'Log in'); }
+  await tab(fay2, 'You');
+  ok(await has(fay2, 'logged in as fay_99'), 'and it is her account');
+  await tap(fay2, 'Log out');
+  await tap(fay2, 'I already have an account'); await tap(fay2, 'Forgot your password? Use your recovery code');
+  await fay2.page.fill('#rec-user', 'fay@new.example.com'); await fay2.page.fill('#rec-code', code2); await fay2.page.fill('#rec-pass', 'anotherpass1');
+  await tap(fay2, 'Set new password');
+  ok(await has(fay2, "That email and recovery code don't match."), 'a replaced recovery code doesn\'t work with the email either');
+  await fay2.page.fill('#rec-code', code3); await tap(fay2, 'Set new password');
+  ok(await has(fay2, 'Save your recovery code'), 'her email and recovery code set a new password');
+  await tap(fay2, "I've saved it");
+  ok(await fay2.page.locator('#login-user').inputValue() === 'fay_99', 'then the log-in form shows her username');
+  await fay2.page.fill('#login-pass', 'anotherpass1'); await tap(fay2, 'Log in');
+  ok(await has(fay2, 'Your status'), 'and the new password works');
 
   console.log('Profile photos');
   const pim = await phone('Pim'), quin = await phone('Quin');
@@ -656,7 +687,8 @@ try {
   ok(await has(pim, 'Only you and the 2 friends you picked can see it'), 'and goes back to his sesh tonight');
   await tap(quin, 'Start it now');
   ok(await has(quin, 'Live now') && await gone(quin, 'Start it now'), 'Quin starts it early and it goes live');
-  await tab(pim, 'Sesh'); await tap(pim, 'Open');
+  // Once it is live it may be Pim's only sesh, and then the app opens it straight away.
+  await tab(pim, 'Sesh'); if (!(await has(pim, 'Directions', 1500))) await tap(pim, 'Open');
   ok(await has(pim, '7 Hidden Lane, Leederville') && await has(pim, 'Directions'), 'once it is live, Pim, who is in, sees the pres address');
   ok(!(await has(rex, '7 Hidden Lane', 500)), 'Rex, who is not in, never sees it');
 
