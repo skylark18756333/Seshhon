@@ -1734,7 +1734,10 @@
     return rpc('venue_overview').then(function (v) { ui.vdata = v || []; }, function (x) { ui.vdata = ui.vdata || []; toast(x.message); });
   }
   function loadAdminData() {
-    return rpc('admin_overview').then(function (a) { ui.adata = a; }, function (x) { toast(x.message); });
+    return Promise.all([
+      rpc('admin_overview').then(function (a) { ui.adata = a; }, function (x) { toast(x.message); }),
+      rpc('admin_removed_accounts').then(function (r) { ui.removed = r || []; }, function () { ui.removed = null; })
+    ]);
   }
   function myVenue() {
     var list = ui.vdata || [];
@@ -1898,7 +1901,8 @@
       return '<div class="stack" style="gap:6px;padding-top:8px;border-top:1px solid var(--line)"><div class="row between"><div class="grow">' + esc(u.name) +
         '<div class="muted small">' + esc([u.username ? '@' + u.username : 'No username', kinds[u.role] || ''].filter(Boolean).join(', ')) + '</div></div>' +
         (u.me || u.role === 'admin' ? '' : asking ? '' : '<button class="btn small-btn ghost" data-act="ask" data-v="del-account:' + esc(u.id) + '">Delete</button>') + '</div>' +
-        (asking ? '<p class="error">This deletes ' + esc(u.name) + '\'s account and everything in it, for good.</p><div class="row"><button class="btn small-btn" style="--c:var(--off);--cf:var(--ink)" data-act="del-account" data-v="' + esc(u.id) + '">Delete for good</button><button class="btn small-btn ghost" data-act="cancel-confirm">Keep</button></div>' : '') + '</div>';
+        (asking ? '<p class="error">This deletes ' + esc(u.name) + '\'s account and everything in it, for good. They can\'t sign up again with the same username or email.</p>' +
+          '<div class="field"><label for="del-reason">Why? (kept on record)</label><input id="del-reason" data-keep type="text" maxlength="200" placeholder="Which rule they broke"></div><div class="row"><button class="btn small-btn" style="--c:var(--off);--cf:var(--ink)" data-act="del-account" data-v="' + esc(u.id) + '">Delete for good</button><button class="btn small-btn ghost" data-act="cancel-confirm">Keep</button></div>' : '') + '</div>';
     }).join('');
   }
   var findTimer = null;
@@ -1911,6 +1915,16 @@
     }).catch(function (x) { toast(x.message); });
   }
 
+  function removedAccounts() {
+    var list = ui.removed;
+    if (!list) return '';
+    return '<div class="card"><h2>Removed accounts</h2>' + (list.length ? list.map(function (r) {
+      return '<div class="stack" style="gap:4px;padding-top:8px;border-top:1px solid var(--line)"><div class="small">' + esc(r.reason) + '</div>' +
+        '<div class="row between"><span class="muted small">' + esc(new Date(r.removed_at).toLocaleDateString('en-AU')) + (r.removed_by ? ' by ' + esc(r.removed_by) : '') + (r.blocked ? '' : ', allowed back') + '</span>' +
+        (r.blocked ? '<button class="btn small-btn ghost" data-act="allow-back" data-v="' + esc(r.id) + '">Allow back</button>' : '') + '</div></div>';
+    }).join('') : '<p class="muted small">Nobody has been removed.</p>') + '</div>';
+  }
+
   function adminPage() {
     var a = ui.adata;
     var h = '<div class="stack" style="gap:6px"><div class="eyebrow">Frendzy staff</div><h1>Admin</h1></div>';
@@ -1921,7 +1935,7 @@
       '<div class="tiles"><div class="card" style="gap:2px"><div class="muted small">Venue accounts</div><div class="tile-num">' + Number(c.venue_accounts || 0) + '</div></div>' +
       '<div class="card" style="gap:2px"><div class="muted small">Live deals and events</div><div class="tile-num">' + Number(c.live_deals || 0) + '</div></div></div>';
 
-    h += adminAccounts();
+    h += adminAccounts() + removedAccounts();
 
     h += '<div class="card"><h2>Venue requests</h2>' + (a.claims.length ? a.claims.map(function (r) {
       var rejecting = ui.confirm === 'reject:' + r.id;
@@ -2268,13 +2282,16 @@
     'new-venue': function (v) { ui.newVenue = v || null; if (!v) ui.newVenueQuery = ''; go(false); },
     'made-done': function () { ui.madeAccount = null; go(false); },
     'del-account': function (v) {
+      var why = String((document.getElementById('del-reason') || {}).value || '').trim();
+      if (why.length < 3) { toast('Say why this account is being removed.'); return; }
       ui.confirm = null;
-      act('admin_delete_account', { p_user: v }, 'Account deleted.').then(function (r) {
+      act('admin_delete_account', { p_user: v, p_reason: why }, 'Account deleted.').then(function (r) {
         if (!r) return;
         ui.found = (ui.found || []).filter(function (u) { return u.id !== v; });
         return loadAdminData().then(render);
       });
     },
+    'allow-back': function (v) { act('admin_allow_back', { p_id: v }, 'They can sign up again.').then(function (r) { if (r) loadAdminData().then(render); }); },
     'report-dismiss': function (v) { act('admin_dismiss_report', { p_report: v }, 'Dismissed.').then(function (r) { if (r) { ui.adata = r; render(); } }); },
     auth: function (v) { ui.auth = v || null; view.innerHTML = ''; render(); },
     'edit-account': function () { ui.editAccount = !ui.editAccount; go(false); },
@@ -2306,7 +2323,7 @@
     },
     logout: function () {
       session = null; store(SESSION_KEY, null); store(TOUR_KEY, null); D = null; VENUES = null; venuesAsked = false; seen = null; lastKey = '';
-      ui.account = undefined; ui.role = undefined; ui.vdata = null; ui.adata = null; ui.madeAccount = null; ui.found = null; ui.findQuery = ''; ui.safety = undefined; ui.hides = undefined; ui.age = null; ui.auth = null; ui.editAccount = false; ui.tab = 'home'; ui.screen = null; ui.confirm = null; ui.twoStep = undefined; ui.emailStep = null; ui.changeEmail = false;
+      ui.account = undefined; ui.role = undefined; ui.vdata = null; ui.adata = null; ui.removed = null; ui.madeAccount = null; ui.found = null; ui.findQuery = ''; ui.safety = undefined; ui.hides = undefined; ui.age = null; ui.auth = null; ui.editAccount = false; ui.tab = 'home'; ui.screen = null; ui.confirm = null; ui.twoStep = undefined; ui.emailStep = null; ui.changeEmail = false;
       view.innerHTML = ''; render(); toast('Logged out. Log in again with your username and password.');
     },
     'delete-account': function () {
@@ -2314,7 +2331,7 @@
       act('delete_account', {}).then(function () {
         if (goneId) forgetPhone(goneId);
         store(LAST_USER_KEY, null);
-        session = null; store(SESSION_KEY, null); store(TOUR_KEY, null); D = null; VENUES = null; venuesAsked = false; seen = null; ui.confirm = null; ui.tab = 'home'; ui.screen = null; ui.account = undefined; ui.role = undefined; ui.vdata = null; ui.adata = null; ui.madeAccount = null; ui.found = null; ui.findQuery = ''; ui.safety = undefined; ui.hides = undefined; ui.age = null; ui.twoStep = undefined; ui.emailStep = null; ui.changeEmail = false;
+        session = null; store(SESSION_KEY, null); store(TOUR_KEY, null); D = null; VENUES = null; venuesAsked = false; seen = null; ui.confirm = null; ui.tab = 'home'; ui.screen = null; ui.account = undefined; ui.role = undefined; ui.vdata = null; ui.adata = null; ui.removed = null; ui.madeAccount = null; ui.found = null; ui.findQuery = ''; ui.safety = undefined; ui.hides = undefined; ui.age = null; ui.twoStep = undefined; ui.emailStep = null; ui.changeEmail = false;
         view.innerHTML = ''; render(); toast('Your account has been deleted.');
       });
     }
@@ -2563,7 +2580,7 @@
         var ticket = ui.ticket; ui.ticket = null;
         return ticket ? rpc('two_step_use_ticket', { p_ticket: ticket }).then(function (ok) { if (ok) return refreshSession(); }, function () {}) : null;
       }).then(function () {
-        D = null; VENUES = null; venuesAsked = false; lastKey = ''; ui.auth = null; ui.loginName = ''; ui.account = undefined; ui.role = undefined; ui.vdata = null; ui.adata = null; ui.madeAccount = null; ui.found = null; ui.findQuery = ''; ui.safety = undefined; ui.hides = undefined; ui.age = null; ui.twoStep = undefined; ui.emailStep = null; ui.changeEmail = false;
+        D = null; VENUES = null; venuesAsked = false; lastKey = ''; ui.auth = null; ui.loginName = ''; ui.account = undefined; ui.role = undefined; ui.vdata = null; ui.adata = null; ui.removed = null; ui.madeAccount = null; ui.found = null; ui.findQuery = ''; ui.safety = undefined; ui.hides = undefined; ui.age = null; ui.twoStep = undefined; ui.emailStep = null; ui.changeEmail = false;
         document.activeElement && document.activeElement.blur(); view.innerHTML = '';
         return load().then(function () { if (D && D.me) return sendPendingInvite(); });
       }).catch(function (x) { lfail(x.message); });

@@ -15,7 +15,7 @@ insert into public.venues (id, name, kind) values ('10000000-0000-0000-0000-0000
 set role authenticated;
 select set_config('request.jwt.claim.sub', :us, false) \g /dev/null
 select public.expect_error($$select public.admin_create_account('Nia', '1990-01-01', 'nia_new', 'longenough1', null)$$, 'a normal user cannot create accounts');
-select public.expect_error($$select public.admin_delete_account('00000000-0000-0000-0000-0000000030a1')$$, 'a normal user cannot delete accounts');
+select public.expect_error($$select public.admin_delete_account('00000000-0000-0000-0000-0000000030a1', 'spam')$$, 'a normal user cannot delete accounts');
 select public.expect_error($$select public.admin_find_accounts('ad')$$, 'a normal user cannot search accounts');
 
 select set_config('request.jwt.claim.sub', :ad, false) \g /dev/null
@@ -43,8 +43,8 @@ select public.expect(private.role_of((select (r ->> 'id')::uuid from made_v)) = 
 set role authenticated;
 select set_config('request.jwt.claim.sub', :ad, false) \g /dev/null
 select public.expect(jsonb_array_length(public.admin_find_accounts('nia')) = 1, 'an admin can find an account by name or username');
-select public.expect_error($$select public.admin_delete_account('00000000-0000-0000-0000-0000000030a1')$$, 'an admin cannot delete their own account here');
-select public.expect_error($$select public.admin_delete_account('00000000-0000-0000-0000-0000000030a3')$$, 'an admin cannot delete another admin');
+select public.expect_error($$select public.admin_delete_account('00000000-0000-0000-0000-0000000030a1', 'spam')$$, 'an admin cannot delete their own account here');
+select public.expect_error($$select public.admin_delete_account('00000000-0000-0000-0000-0000000030a3', 'spam')$$, 'an admin cannot delete another admin');
 
 -- Ursula has a friend, a sesh and a status. Deleting her removes all of it.
 reset role;
@@ -53,14 +53,32 @@ insert into public.seshes (id, creator) values ('20000000-0000-0000-0000-0000000
 insert into public.sesh_members (sesh_id, user_id) values ('20000000-0000-0000-0000-0000000030c1', :us);
 set role authenticated;
 select set_config('request.jwt.claim.sub', :ad, false) \g /dev/null
-select public.admin_delete_account(:us) \g /dev/null
+select public.expect_error(format('select public.admin_delete_account(%L, %L)', :us, ' '), 'a reason is required');
+reset role;
+insert into public.account_logins (user_id, username, recovery_hash) values (:us, 'ursula_x', 'x');
+insert into private.two_step (user_id, email) values (:us, 'Ursula@Example.com');
+set role authenticated;
+select set_config('request.jwt.claim.sub', :ad, false) \g /dev/null
+select public.admin_delete_account(:us, 'Harassing people in sesh chat') \g /dev/null
+select public.expect((select r ->> 'reason' from jsonb_array_elements(public.admin_removed_accounts()) r limit 1) = 'Harassing people in sesh chat'
+  and (select (r ->> 'removed_by') = 'Adele' and (r ->> 'blocked')::boolean from jsonb_array_elements(public.admin_removed_accounts()) r limit 1), 'the reason and who removed them are kept');
+select public.expect_error($$select public.admin_create_account('Ursula', '1990-01-01', 'Ursula_X', 'longenough1', null)$$, 'the removed username can''t be used again');
+reset role;
+select public.expect(not exists (select 1 from private.removed_accounts where reason like '%ursula%' or username_hash = 'ursula_x'), 'no plain username is kept');
+select public.expect_error($$insert into private.two_step (user_id, pending_email) values ('00000000-0000-0000-0000-0000000030a2', 'ursula@example.com ')$$, 'the removed email can''t be used again');
+set role authenticated;
+select set_config('request.jwt.claim.sub', :us, false) \g /dev/null
+select public.expect_error($$select public.admin_removed_accounts()$$, 'a normal user cannot see removed accounts');
+select set_config('request.jwt.claim.sub', :ad, false) \g /dev/null
+select public.admin_allow_back((select (r ->> 'id')::uuid from jsonb_array_elements(public.admin_removed_accounts()) r limit 1)) \g /dev/null
+select public.expect((select r ->> 'username' from (select public.admin_create_account('Ursula', '1990-01-01', 'ursula_x', 'longenough1', null) as r) m) = 'ursula_x', 'after Allow back the username works again');
 reset role;
 select public.expect(not exists (select 1 from public.profiles where id = :us) and not exists (select 1 from auth.users where id = :us), 'deleting removes the profile and the sign-in');
 select public.expect(not exists (select 1 from public.friendships where requester = :us or addressee = :us), 'and their friendships');
 select public.expect(not exists (select 1 from public.seshes where id = '20000000-0000-0000-0000-0000000030c1'), 'and the seshes they started');
 set role authenticated;
 select set_config('request.jwt.claim.sub', :ad, false) \g /dev/null
-select public.admin_delete_account((select (r ->> 'id')::uuid from made_v)) \g /dev/null
+select public.admin_delete_account((select (r ->> 'id')::uuid from made_v), 'Closed venue') \g /dev/null
 reset role;
 select public.expect(not exists (select 1 from public.venue_staff where venue_id = '10000000-0000-0000-0000-0000000030f1') and not exists (select 1 from private.roles where user_id = (select (r ->> 'id')::uuid from made_v)),
   'deleting a venue account also removes its venue link and role');

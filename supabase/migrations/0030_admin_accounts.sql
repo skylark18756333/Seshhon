@@ -5,8 +5,10 @@
 -- password like anyone else, and the admin is shown its recovery code once to hand over. Where the
 -- third-party age check is switched on, the person still does it the first time they log in.
 --
--- Delete: removes the sign-in and the profile. Everything else hangs off those two and goes with
--- them (friends, statuses, seshes, chat, votes, ratings, photos, safety settings, roles, venue links).
+-- Delete (for breaking the rules): the admin must give a reason. It removes the sign-in and the profile.
+-- Everything else hangs off those two and goes with them (friends, statuses, seshes, chat, votes,
+-- ratings, photos, safety settings, roles, venue links). A short record is kept (when, who, why), and
+-- the same username and email can't sign up again unless an admin allows them back.
 -- An admin can't delete themselves or another admin; take the admin role away in SQL first.
 --
 -- Only admins (private.roles, migration 0019) can call these. Like save_account (0008), the
@@ -88,21 +90,109 @@ $$;
 revoke all on function public.admin_create_account(text, date, text, text, uuid) from public, anon, authenticated;
 grant execute on function public.admin_create_account(text, date, text, text, uuid) to authenticated;
 
--- ---------------------------------------------------------------- delete
-create or replace function public.admin_delete_account(p_user uuid) returns jsonb
+-- ---------------------------------------------------------------- removed accounts
+-- One row per account an admin deleted: when, by whom and why. No profile data is kept, only
+-- scrambled (hashed) copies of the username and the confirmed email, so the same username or email
+-- can't be used to sign straight back up. A new username and a new email still can.
+create table if not exists private.removed_accounts (
+  id uuid primary key default gen_random_uuid(),
+  removed_at timestamptz not null default now(),
+  removed_by uuid references auth.users (id) on delete set null,
+  reason text not null check (char_length(reason) between 3 and 200),
+  username_hash text,
+  email_hash text
+);
+alter table private.removed_accounts enable row level security;
+revoke all on private.removed_accounts from public, anon, authenticated;
+create index if not exists removed_accounts_username on private.removed_accounts (username_hash);
+create index if not exists removed_accounts_email on private.removed_accounts (email_hash);
+
+create or replace function private.removed_key(p text) returns text
+language sql immutable set search_path = public as $$
+  select case when nullif(btrim(coalesce(p, '')), '') is null then null
+    else encode(extensions.digest(lower(btrim(p)), 'sha256'), 'hex') end;
+$$;
+
+-- Every way of picking a username (sign up, change username, admin create) goes through account_logins.
+create or replace function private.no_removed_username() returns trigger
 language plpgsql security definer set search_path = public, private as $$
+begin
+  if exists (select 1 from private.removed_accounts where username_hash = private.removed_key(new.username)) then
+    raise exception 'That username is taken.';
+  end if;
+  return new;
+end;
+$$;
+drop trigger if exists no_removed_username on public.account_logins;
+create trigger no_removed_username before insert or update of username on public.account_logins
+  for each row execute function private.no_removed_username();
+
+-- Every way of adding or changing the login email goes through private.two_step.
+create or replace function private.no_removed_email() returns trigger
+language plpgsql security definer set search_path = public, private as $$
+begin
+  if exists (select 1 from private.removed_accounts
+             where email_hash in (private.removed_key(new.pending_email), private.removed_key(new.email))) then
+    raise exception 'That email can''t be used on Frendzy.';
+  end if;
+  return new;
+end;
+$$;
+drop trigger if exists no_removed_email on private.two_step;
+create trigger no_removed_email before insert or update of email, pending_email on private.two_step
+  for each row execute function private.no_removed_email();
+
+-- ---------------------------------------------------------------- delete
+-- Removes an account for breaking the rules. A reason is required and kept in private.removed_accounts.
+drop function if exists public.admin_delete_account(uuid);
+create or replace function public.admin_delete_account(p_user uuid, p_reason text) returns jsonb
+language plpgsql security definer set search_path = public, private as $$
+declare why text := btrim(coalesce(p_reason, ''));
 begin
   perform private.require_admin();
   if p_user = auth.uid() then raise exception 'You can''t delete your own account from here.'; end if;
   if private.role_of(p_user) = 'admin' then raise exception 'That''s a Frendzy staff account. Take away its admin role in Supabase first.'; end if;
+  if char_length(why) not between 3 and 200 then raise exception 'Say why this account is being removed (3 to 200 characters).'; end if;
   if not exists (select 1 from public.profiles where id = p_user) and not exists (select 1 from auth.users where id = p_user) then
     raise exception 'That account has already gone.';
   end if;
+  insert into private.removed_accounts (removed_by, reason, username_hash, email_hash)
+  values (auth.uid(), why,
+    private.removed_key((select username from public.account_logins where user_id = p_user)),
+    private.removed_key((select email from private.two_step where user_id = p_user)));
   delete from public.seshes where creator = p_user;
   delete from public.profiles where id = p_user;
   delete from auth.users where id = p_user;
   return jsonb_build_object('ok', true);
 end;
 $$;
-revoke all on function public.admin_delete_account(uuid) from public, anon, authenticated;
-grant execute on function public.admin_delete_account(uuid) to authenticated;
+revoke all on function public.admin_delete_account(uuid, text) from public, anon, authenticated;
+grant execute on function public.admin_delete_account(uuid, text) to authenticated;
+
+-- The removed list for the Admin page: newest first, with the reason and which admin did it.
+create or replace function public.admin_removed_accounts() returns jsonb
+language plpgsql stable security definer set search_path = public, private as $$
+begin
+  perform private.require_admin();
+  return coalesce((
+    select jsonb_agg(jsonb_build_object('id', r.id, 'removed_at', r.removed_at, 'reason', r.reason,
+      'removed_by', (select name from public.profiles where id = r.removed_by),
+      'blocked', r.username_hash is not null or r.email_hash is not null) order by r.removed_at desc)
+    from (select * from private.removed_accounts order by removed_at desc limit 100) r
+  ), '[]'::jsonb);
+end;
+$$;
+revoke all on function public.admin_removed_accounts() from public, anon, authenticated;
+grant execute on function public.admin_removed_accounts() to authenticated;
+
+-- Let a removed person sign up again with the same username and email. The reason stays on record.
+create or replace function public.admin_allow_back(p_id uuid) returns jsonb
+language plpgsql security definer set search_path = public, private as $$
+begin
+  perform private.require_admin();
+  update private.removed_accounts set username_hash = null, email_hash = null where id = p_id;
+  return jsonb_build_object('ok', true);
+end;
+$$;
+revoke all on function public.admin_allow_back(uuid) from public, anon, authenticated;
+grant execute on function public.admin_allow_back(uuid) to authenticated;
