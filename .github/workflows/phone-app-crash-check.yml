@@ -1,11 +1,12 @@
 # Builds an Android test APK on Expo, opens it on a test phone (an emulator), and fails if the app closes by itself.
-# Runs when started from GitHub > Actions > "Phone app crash check", or when a push to a claude/ branch changes the phone app.
+# Runs when started from GitHub > Actions > "Phone app crash check", or on a pull request that changes the phone app.
+# (A pull request's changes are compared with main, so merging main into a branch doesn't set it off.)
+# If the Expo account has no free builds left this month, it says so and passes instead of failing.
 name: Phone app crash check
 
 on:
   workflow_dispatch:
-  push:
-    branches: ['claude/**']
+  pull_request:
     paths: [mobile/**, '!mobile/store/**', '!mobile/**/*.md']
 
 jobs:
@@ -25,22 +26,34 @@ jobs:
           eas-version: latest
           token: ${{ secrets.EXPO_TOKEN }}
       - name: Build the APK on Expo
+        id: build
         working-directory: mobile
         run: |
           npm ci
           eas init --non-interactive --force
-          eas build --platform android --profile preview --non-interactive --wait --json > builds.json
+          if ! eas build --platform android --profile preview --non-interactive --wait --json > builds.json 2> build-log.txt; then
+            cat build-log.txt
+            if grep -q "used its Android builds" build-log.txt builds.json; then
+              echo "::warning::No free Expo Android builds left this month, so the crash check was skipped. They reset at the start of next month, or upgrade the Expo plan."
+              echo "skipped=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            exit 1
+          fi
+          cat build-log.txt
           URL=$(node -e 'const b=require("./builds.json")[0]; console.log(b.artifacts.buildUrl || b.artifacts.applicationArchiveUrl)')
           echo "Build page: https://expo.dev/accounts/skylark18756333s-team/projects/seshhon/builds/$(node -e 'console.log(require("./builds.json")[0].id)')"
           echo "APK: $URL"
           curl -sSL -o "$RUNNER_TEMP/app.apk" "$URL"
           ls -l "$RUNNER_TEMP/app.apk"
       - name: Let the emulator use hardware speed-up
+        if: steps.build.outputs.skipped != 'true'
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
       - name: Install and open the app
+        if: steps.build.outputs.skipped != 'true'
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 34
@@ -62,7 +75,7 @@ jobs:
             adb logcat -d | grep -E "AndroidRuntime|ReactNativeJS|chromium" | tail -80 || true
             adb shell pidof com.seshhon.app || { echo "The app closed by itself."; exit 1; }
       - name: Keep the screenshot
-        if: always()
+        if: always() && steps.build.outputs.skipped != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: phone-screenshot
