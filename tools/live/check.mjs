@@ -187,6 +187,28 @@ try {
   await tap(ana, 'Lock in Bodega Nine');
   ok(await has(ben, 'Locked in', 10000) && (await text(ben)).includes('Bodega Nine'), 'Ben sees it locked in');
 
+  console.log('Sesh Map');
+  ok(await has(ana, 'Sesh Map') && await has(ana, 'Add stops from the map'), 'the sesh has an empty Sesh Map to plan a crawl');
+  const addStop = async (p, query, name) => {
+    await tab(p, 'Map'); await p.page.fill('#venue-search', query); await has(p, '1 venue matches');
+    await p.page.locator(`.leaflet-container .leaflet-marker-icon[title="${name}"]`).dispatchEvent('click');
+    await tap(p, 'Add to the Sesh Map'); await has(p, 'Added to the Sesh Map');
+    await p.page.locator('#map-pick [aria-label="Close"]').click();
+    await p.page.fill('#venue-search', '');
+  };
+  await addStop(ana, 'bodega', 'Bodega Nine');
+  await addStop(cam, 'lowtide', 'Lowtide Bar');
+  await tab(cam, 'Sesh');
+  ok(await has(cam, '2 stops') && await cam.page.locator('#crawl .stop-title').allInnerTexts().then((t) => t.join('|') === 'Bodega Nine|Lowtide Bar'), 'Cam sees both stops in order');
+  ok(await cam.page.locator('#crawl .leaflet-marker-icon').count() === 2 && await cam.page.locator('#crawl .crawl-line').count() === 1, 'the stops are numbered pins joined by a line');
+  ok(await cam.page.locator('[data-act="crawl-up"]').count() === 0 && await cam.page.locator('[data-act="crawl-remove"]').count() === 1, 'Cam cannot reorder, and can only remove the stop they added');
+  await tab(ana, 'Sesh');
+  await ana.page.getByRole('button', { name: 'Move Lowtide Bar earlier' }).click();
+  ok(await cam.page.waitForFunction(() => [...document.querySelectorAll('#crawl .stop-title')].map((e) => e.innerText).join('|') === 'Lowtide Bar|Bodega Nine', null, { timeout: 4000 }).then(() => true, () => false), 'Ana moves Lowtide first and Cam sees the new order');
+  await ana.page.getByRole('button', { name: 'Done with Lowtide Bar' }).click();
+  ok(await has(cam, 'Next stop'), 'ticking off the first stop shows the next stop');
+  ok(execSync(`psql -X -tA -h ${sock} -p ${dbPort} -U postgres -d postgres -c "select count(*) from public.crawl_stops"`, { encoding: 'utf8' }).trim() === '2', 'the stops are saved');
+
   console.log('Chat');
   const say = async (p, text) => { await p.page.fill('#chat-input', text); await tap(p, 'Send'); };
   await say(ben, 'Lowtide at 8?');
@@ -356,6 +378,7 @@ try {
   await tap(ana, 'End the sesh');
   ok(await has(ana, 'Nobody has started one yet') || await has(ana, 'Start a sesh'), 'Ana ends the sesh');
   ok(execSync(`psql -X -tA -h ${sock} -p ${dbPort} -U postgres -d postgres -c "select count(*) from public.messages"`, { encoding: 'utf8' }).trim() === '0', 'every message is erased from the database');
+  ok(execSync(`psql -X -tA -h ${sock} -p ${dbPort} -U postgres -d postgres -c "select count(*) from public.crawl_stops"`, { encoding: 'utf8' }).trim() === '0', 'the Sesh Map is erased with the sesh');
   await tab(cam, 'Sesh');
   ok(await gone(cam, 'Yes please'), 'Cam no longer sees the chat');
 
