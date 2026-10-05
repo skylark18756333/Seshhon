@@ -370,7 +370,11 @@
     return rpc('friend_photos').then(function (p) { photos = p || {}; photosAt = Date.now(); }, function () { photosAt = Date.now(); });
   }
   function loadSafety() {
-    return rpc('my_safety').then(function (sf) { ui.safety = sf || { gender: null, women_only: false }; }, function () { ui.safety = 'off'; });
+    return Promise.all([
+      rpc('my_safety').then(function (sf) { ui.safety = sf || { gender: null, women_only: false }; }, function () { ui.safety = 'off'; }),
+      // Friends you've hidden your status from (0029). An older database without it hides the switch.
+      rpc('my_status_hides').then(function (h) { ui.hides = h || []; }, function () { ui.hides = 'off'; })
+    ]);
   }
   // Venues come from api_venues(), fetched on their own and kept, so the refresh every few seconds stays small.
   // An older database still sends them inside api_state(); then that copy is used.
@@ -1621,7 +1625,11 @@
       h += sec('friends', '<div class="card"><h2>Your friends</h2>' +
         D.friends.map(function (f) {
           var asking = ui.confirm === 'unfriend:' + f.friendship, blocking = ui.confirm === 'block:' + f.id;
-          return '<div class="row between"><div class="grow">' + esc(f.name) + (blocking ? '<div class="muted small">They won\'t see you or be able to add you again.</div>' : '') + '</div>' +
+          var canHide = Array.isArray(ui.hides), hidden = canHide && ui.hides.indexOf(f.id) >= 0;
+          return '<div class="row between"><div class="grow">' + esc(f.name) +
+            (blocking ? '<div class="muted small">They won\'t see you or be able to add you again.</div>'
+              : hidden ? '<div class="muted small">Your status is hidden. They always see you as Red.</div>' : '') +
+            (canHide && !asking && !blocking ? '<div><button class="linkbtn small" data-act="' + (hidden ? 'show-status' : 'hide-status') + '" data-v="' + esc(f.id) + '">' + (hidden ? 'Show my status again' : 'Hide my status') + '</button></div>' : '') + '</div>' +
             (asking
               ? '<button class="btn small-btn" style="--c:var(--off);--cf:var(--ink)" data-act="unfriend" data-v="' + esc(f.friendship) + '">Remove</button><button class="btn small-btn ghost" data-act="cancel-confirm">Keep</button>'
               : blocking
@@ -2157,6 +2165,8 @@
       ui.confirm = null;
       rpc('report_message', { p_message: v, p_reason: '' }).then(function () { toast('Reported. Thanks for telling us.'); paintChat(false); }).catch(function (e) { toast(e.message); });
     },
+    'hide-status': function (v) { act('set_status_hidden', { p_friend: v, p_hidden: true }, 'Hidden. They\'ll see you as Red, and they won\'t be told.').then(function (r) { if (r) { ui.hides = r; render(); } }); },
+    'show-status': function (v) { act('set_status_hidden', { p_friend: v, p_hidden: false }, 'They can see your status again.').then(function (r) { if (r) { ui.hides = r; render(); } }); },
     'block-user': function (v) { ui.confirm = null; act('block_user', { p_user: v }, 'Blocked.'); },
     'block-request': function (v) { ui.confirm = null; act('block_request', { p_friendship: v }, 'Blocked.'); },
     gender: function (v) {
@@ -2225,7 +2235,7 @@
     },
     logout: function () {
       session = null; store(SESSION_KEY, null); store(TOUR_KEY, null); D = null; VENUES = null; venuesAsked = false; seen = null; lastKey = '';
-      ui.account = undefined; ui.role = undefined; ui.vdata = null; ui.adata = null; ui.safety = undefined; ui.age = null; ui.auth = null; ui.editAccount = false; ui.tab = 'home'; ui.screen = null; ui.confirm = null; ui.twoStep = undefined; ui.emailStep = null; ui.changeEmail = false;
+      ui.account = undefined; ui.role = undefined; ui.vdata = null; ui.adata = null; ui.safety = undefined; ui.hides = undefined; ui.age = null; ui.auth = null; ui.editAccount = false; ui.tab = 'home'; ui.screen = null; ui.confirm = null; ui.twoStep = undefined; ui.emailStep = null; ui.changeEmail = false;
       view.innerHTML = ''; render(); toast('Logged out. Log in again with your username and password.');
     },
     'delete-account': function () {
@@ -2233,7 +2243,7 @@
       act('delete_account', {}).then(function () {
         if (goneId) forgetPhone(goneId);
         store(LAST_USER_KEY, null);
-        session = null; store(SESSION_KEY, null); store(TOUR_KEY, null); D = null; VENUES = null; venuesAsked = false; seen = null; ui.confirm = null; ui.tab = 'home'; ui.screen = null; ui.account = undefined; ui.role = undefined; ui.vdata = null; ui.adata = null; ui.safety = undefined; ui.age = null; ui.twoStep = undefined; ui.emailStep = null; ui.changeEmail = false;
+        session = null; store(SESSION_KEY, null); store(TOUR_KEY, null); D = null; VENUES = null; venuesAsked = false; seen = null; ui.confirm = null; ui.tab = 'home'; ui.screen = null; ui.account = undefined; ui.role = undefined; ui.vdata = null; ui.adata = null; ui.safety = undefined; ui.hides = undefined; ui.age = null; ui.twoStep = undefined; ui.emailStep = null; ui.changeEmail = false;
         view.innerHTML = ''; render(); toast('Your account has been deleted.');
       });
     }
@@ -2464,7 +2474,7 @@
         var ticket = ui.ticket; ui.ticket = null;
         return ticket ? rpc('two_step_use_ticket', { p_ticket: ticket }).then(function (ok) { if (ok) return refreshSession(); }, function () {}) : null;
       }).then(function () {
-        D = null; VENUES = null; venuesAsked = false; lastKey = ''; ui.auth = null; ui.loginName = ''; ui.account = undefined; ui.role = undefined; ui.vdata = null; ui.adata = null; ui.safety = undefined; ui.age = null; ui.twoStep = undefined; ui.emailStep = null; ui.changeEmail = false;
+        D = null; VENUES = null; venuesAsked = false; lastKey = ''; ui.auth = null; ui.loginName = ''; ui.account = undefined; ui.role = undefined; ui.vdata = null; ui.adata = null; ui.safety = undefined; ui.hides = undefined; ui.age = null; ui.twoStep = undefined; ui.emailStep = null; ui.changeEmail = false;
         document.activeElement && document.activeElement.blur(); view.innerHTML = '';
         return load().then(function () { if (D && D.me) return sendPendingInvite(); });
       }).catch(function (x) { lfail(x.message); });
