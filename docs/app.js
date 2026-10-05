@@ -1853,6 +1853,64 @@
   }
 
   // Frendzy staff only. The database refuses all of this for anyone else.
+  // Admin: create an account with no email (username and password only), or find and delete one.
+  function adminAccounts() {
+    var h = '<div class="card"><h2>Accounts</h2>';
+    if (ui.madeAccount) {
+      var m = ui.madeAccount;
+      return h + '<p class="small">Made <strong>' + esc(m.name) + '</strong>' + (m.venue_name ? ' as the venue account for <strong>' + esc(m.venue_name) + '</strong>' : '') + '.</p>' +
+        '<p class="muted small">Give them these. The recovery code is shown only once; it lets them set a new password if they forget it.</p>' +
+        '<div class="linkbox">Username: <strong>' + esc(m.username) + '</strong></div>' +
+        '<div class="linkbox" style="font-size:18px;font-weight:700;letter-spacing:1px;text-align:center">' + esc(m.recovery_code) + '</div>' +
+        '<button class="btn small-btn" data-act="made-done">Done</button></div>';
+    }
+    if (ui.newAccount) {
+      var pv = ui.newVenue && venueById(ui.newVenue);
+      return h + '<form id="admin-new" class="stack" style="gap:12px" novalidate><p class="muted small">No email needed. They log in with the username and password you set here.</p>' +
+        '<div class="field"><label for="an-name">First name</label><input id="an-name" data-keep type="text" maxlength="24" autocomplete="off"></div>' +
+        '<div class="field"><label for="an-dob">Date of birth</label><input id="an-dob" data-keep type="date" min="1900-01-01"><span class="muted small">They must be 18 or over.</span></div>' +
+        '<div class="field"><label for="an-user">Username</label><input id="an-user" data-keep type="text" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="20"><span class="muted small">3 to 20 letters, numbers or _.</span></div>' +
+        '<div class="field"><label for="an-pass">Password</label>' + passwordInput('an-pass', 'new-password', true) + '<span class="muted small">At least 10 characters.</span></div>' +
+        (pv ? '<div class="row between"><span>Venue account for <strong>' + esc(pv.name) + '</strong></span><button class="btn small-btn ghost" type="button" data-act="new-venue" data-v="">Make it a normal account</button></div>'
+          : '<div class="field"><label for="an-venue">Venue account? (optional)</label><input id="an-venue" data-keep type="text" autocomplete="off" maxlength="60" placeholder="Type a venue name, or leave empty"></div><div id="an-venue-hits" class="stack" style="gap:6px">' + newVenueHits() + '</div>') +
+        (ui.newError ? '<p class="error">' + esc(ui.newError) + '</p>' : '') +
+        '<div class="row"><button class="btn small-btn" type="submit"' + (ui.newBusy ? ' disabled' : '') + '>Create account</button><button class="btn small-btn ghost" type="button" data-act="new-account" data-v="">Cancel</button></div></form></div>';
+    }
+    h += '<button class="btn small-btn" data-act="new-account" data-v="1">Create an account</button>' +
+      '<div class="field"><label for="find-account">Find an account</label><input id="find-account" data-keep type="text" autocomplete="off" maxlength="40" placeholder="Name or username" value="' + esc(ui.findQuery || '') + '"></div>' +
+      '<div id="found-accounts" class="stack" style="gap:8px">' + foundAccounts() + '</div>';
+    return h + '</div>';
+  }
+  function newVenueHits() {
+    var q = String(ui.newVenueQuery || '').trim().toLowerCase();
+    if (q.length < 2) return '';
+    var hits = (D.venues || []).filter(function (v) { return String(v.name).toLowerCase().indexOf(q) >= 0; }).slice(0, 6);
+    if (!hits.length) return '<p class="muted small">No venue by that name.</p>';
+    return hits.map(function (v) { return '<button class="btn small-btn ghost" type="button" data-act="new-venue" data-v="' + esc(v.id) + '">' + esc(v.name) + '</button>'; }).join('');
+  }
+  function foundAccounts() {
+    var list = ui.found;
+    if (!list) return '';
+    if (!list.length) return '<p class="muted small">No accounts match.</p>';
+    var kinds = { user: '', venue: 'Venue account', admin: 'Frendzy staff' };
+    return list.map(function (u) {
+      var asking = ui.confirm === 'del-account:' + u.id;
+      return '<div class="stack" style="gap:6px;padding-top:8px;border-top:1px solid var(--line)"><div class="row between"><div class="grow">' + esc(u.name) +
+        '<div class="muted small">' + esc([u.username ? '@' + u.username : 'No username', kinds[u.role] || ''].filter(Boolean).join(', ')) + '</div></div>' +
+        (u.me || u.role === 'admin' ? '' : asking ? '' : '<button class="btn small-btn ghost" data-act="ask" data-v="del-account:' + esc(u.id) + '">Delete</button>') + '</div>' +
+        (asking ? '<p class="error">This deletes ' + esc(u.name) + '\'s account and everything in it, for good.</p><div class="row"><button class="btn small-btn" style="--c:var(--off);--cf:var(--ink)" data-act="del-account" data-v="' + esc(u.id) + '">Delete for good</button><button class="btn small-btn ghost" data-act="cancel-confirm">Keep</button></div>' : '') + '</div>';
+    }).join('');
+  }
+  var findTimer = null;
+  function findAccounts() {
+    var q = String(ui.findQuery || '').trim();
+    if (q.length < 2) { ui.found = null; var el = document.getElementById('found-accounts'); if (el) el.innerHTML = ''; return; }
+    rpc('admin_find_accounts', { p_query: q }).then(function (list) {
+      if (String(ui.findQuery || '').trim() !== q) return;
+      ui.found = list || []; var box = document.getElementById('found-accounts'); if (box) box.innerHTML = foundAccounts();
+    }).catch(function (x) { toast(x.message); });
+  }
+
   function adminPage() {
     var a = ui.adata;
     var h = '<div class="stack" style="gap:6px"><div class="eyebrow">Frendzy staff</div><h1>Admin</h1></div>';
@@ -1862,6 +1920,8 @@
       '<div class="card" style="gap:2px"><div class="muted small">Live seshes</div><div class="tile-num">' + Number(c.live_seshes || 0) + '</div></div></div>' +
       '<div class="tiles"><div class="card" style="gap:2px"><div class="muted small">Venue accounts</div><div class="tile-num">' + Number(c.venue_accounts || 0) + '</div></div>' +
       '<div class="card" style="gap:2px"><div class="muted small">Live deals and events</div><div class="tile-num">' + Number(c.live_deals || 0) + '</div></div></div>';
+
+    h += adminAccounts();
 
     h += '<div class="card"><h2>Venue requests</h2>' + (a.claims.length ? a.claims.map(function (r) {
       var rejecting = ui.confirm === 'reject:' + r.id;
@@ -2204,6 +2264,17 @@
       act('admin_remove_venue_account', { p_user: parts[0], p_venue: parts[1] }, 'Removed.').then(function (r) { if (r) { ui.adata = r; render(); } });
     },
     'admin-pause': function (v) { act('admin_pause_deal', { p_deal: v }, 'Paused.').then(function (r) { if (r) { ui.adata = r; render(); } }); },
+    'new-account': function (v) { ui.newAccount = !!v; ui.newError = ''; ui.newVenue = null; ui.newVenueQuery = ''; go(false); },
+    'new-venue': function (v) { ui.newVenue = v || null; if (!v) ui.newVenueQuery = ''; go(false); },
+    'made-done': function () { ui.madeAccount = null; go(false); },
+    'del-account': function (v) {
+      ui.confirm = null;
+      act('admin_delete_account', { p_user: v }, 'Account deleted.').then(function (r) {
+        if (!r) return;
+        ui.found = (ui.found || []).filter(function (u) { return u.id !== v; });
+        return loadAdminData().then(render);
+      });
+    },
     'report-dismiss': function (v) { act('admin_dismiss_report', { p_report: v }, 'Dismissed.').then(function (r) { if (r) { ui.adata = r; render(); } }); },
     auth: function (v) { ui.auth = v || null; view.innerHTML = ''; render(); },
     'edit-account': function () { ui.editAccount = !ui.editAccount; go(false); },
@@ -2235,7 +2306,7 @@
     },
     logout: function () {
       session = null; store(SESSION_KEY, null); store(TOUR_KEY, null); D = null; VENUES = null; venuesAsked = false; seen = null; lastKey = '';
-      ui.account = undefined; ui.role = undefined; ui.vdata = null; ui.adata = null; ui.safety = undefined; ui.hides = undefined; ui.age = null; ui.auth = null; ui.editAccount = false; ui.tab = 'home'; ui.screen = null; ui.confirm = null; ui.twoStep = undefined; ui.emailStep = null; ui.changeEmail = false;
+      ui.account = undefined; ui.role = undefined; ui.vdata = null; ui.adata = null; ui.madeAccount = null; ui.found = null; ui.findQuery = ''; ui.safety = undefined; ui.hides = undefined; ui.age = null; ui.auth = null; ui.editAccount = false; ui.tab = 'home'; ui.screen = null; ui.confirm = null; ui.twoStep = undefined; ui.emailStep = null; ui.changeEmail = false;
       view.innerHTML = ''; render(); toast('Logged out. Log in again with your username and password.');
     },
     'delete-account': function () {
@@ -2243,7 +2314,7 @@
       act('delete_account', {}).then(function () {
         if (goneId) forgetPhone(goneId);
         store(LAST_USER_KEY, null);
-        session = null; store(SESSION_KEY, null); store(TOUR_KEY, null); D = null; VENUES = null; venuesAsked = false; seen = null; ui.confirm = null; ui.tab = 'home'; ui.screen = null; ui.account = undefined; ui.role = undefined; ui.vdata = null; ui.adata = null; ui.safety = undefined; ui.hides = undefined; ui.age = null; ui.twoStep = undefined; ui.emailStep = null; ui.changeEmail = false;
+        session = null; store(SESSION_KEY, null); store(TOUR_KEY, null); D = null; VENUES = null; venuesAsked = false; seen = null; ui.confirm = null; ui.tab = 'home'; ui.screen = null; ui.account = undefined; ui.role = undefined; ui.vdata = null; ui.adata = null; ui.madeAccount = null; ui.found = null; ui.findQuery = ''; ui.safety = undefined; ui.hides = undefined; ui.age = null; ui.twoStep = undefined; ui.emailStep = null; ui.changeEmail = false;
         view.innerHTML = ''; render(); toast('Your account has been deleted.');
       });
     }
@@ -2299,6 +2370,8 @@
   document.addEventListener('input', function (e) {
     if (e.target.id === 'radius') setRadius(e.target.value);
     if (e.target.id === 'venue-search') setSearch(e.target.value);
+    if (e.target.id === 'find-account') { ui.findQuery = e.target.value; clearTimeout(findTimer); findTimer = setTimeout(findAccounts, 250); }
+    if (e.target.id === 'an-venue') { ui.newVenueQuery = e.target.value; var vh = document.getElementById('an-venue-hits'); if (vh) vh.innerHTML = newVenueHits(); }
     if (e.target.id === 'claim-search') { ui.claimQuery = e.target.value; var ch = document.getElementById('claim-hits'); if (ch) ch.innerHTML = claimHits(); }
   });
   document.addEventListener('change', function (e) {
@@ -2425,6 +2498,22 @@
       }).catch(function (x) { ui.dealError = x.message; ui.dealAlc = !!(alc && alc.checked); render(); });
       return;
     }
+    if (e.target.id === 'admin-new') {
+      var nv = function (id) { return document.getElementById(id).value; };
+      var nuser = nv('an-user').trim().toLowerCase(), npass = nv('an-pass'), ndob = nv('an-dob');
+      if (!nv('an-name').trim()) { ui.newError = 'Enter their first name.'; render(); return; }
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(ndob)) { ui.newError = 'Enter their date of birth.'; render(); return; }
+      if (ndob > eighteenYearsAgo()) { ui.newError = 'Frendzy is for people aged 18 and over.'; render(); return; }
+      if (!/^[a-z0-9_]{3,20}$/.test(nuser)) { ui.newError = 'Pick a username of 3 to 20 letters, numbers or _.'; render(); return; }
+      if (npass.length < 10) { ui.newError = 'Use a password of at least 10 characters.'; render(); return; }
+      ui.newBusy = true; ui.newError = ''; render();
+      rpc('admin_create_account', { p_name: nv('an-name'), p_birth_date: ndob, p_username: nuser, p_password: npass, p_venue: ui.newVenue || null }).then(function (r) {
+        ui.newBusy = false; ui.newAccount = false; ui.newVenue = null; ui.madeAccount = r;
+        Array.prototype.forEach.call(view.querySelectorAll('#admin-new [data-keep]'), function (el) { el.value = ''; });
+        return loadAdminData().then(function () { go(false); });
+      }).catch(function (x) { ui.newBusy = false; ui.newError = x.message; render(); });
+      return;
+    }
     if (e.target.id === 'claim-form') {
       if (!ui.claimVenue) { ui.claimError = 'Pick your venue from the list.'; render(); return; }
       var cv = function (id) { return document.getElementById(id).value; };
@@ -2474,7 +2563,7 @@
         var ticket = ui.ticket; ui.ticket = null;
         return ticket ? rpc('two_step_use_ticket', { p_ticket: ticket }).then(function (ok) { if (ok) return refreshSession(); }, function () {}) : null;
       }).then(function () {
-        D = null; VENUES = null; venuesAsked = false; lastKey = ''; ui.auth = null; ui.loginName = ''; ui.account = undefined; ui.role = undefined; ui.vdata = null; ui.adata = null; ui.safety = undefined; ui.hides = undefined; ui.age = null; ui.twoStep = undefined; ui.emailStep = null; ui.changeEmail = false;
+        D = null; VENUES = null; venuesAsked = false; lastKey = ''; ui.auth = null; ui.loginName = ''; ui.account = undefined; ui.role = undefined; ui.vdata = null; ui.adata = null; ui.madeAccount = null; ui.found = null; ui.findQuery = ''; ui.safety = undefined; ui.hides = undefined; ui.age = null; ui.twoStep = undefined; ui.emailStep = null; ui.changeEmail = false;
         document.activeElement && document.activeElement.blur(); view.innerHTML = '';
         return load().then(function () { if (D && D.me) return sendPendingInvite(); });
       }).catch(function (x) { lfail(x.message); });
