@@ -1,0 +1,65 @@
+# Puts the live web app (docs/) back to an earlier saved version. Run it from Actions > "Roll back the web app"
+# > Run workflow. Leave the box empty to go back one version, or type a version name from Code > Tags
+# (for example web-2026-10-04-1333). It commits the old docs/ to main, and GitHub Pages republishes it.
+# The address file docs/CNAME is kept as it is now, and the Supabase database is not changed.
+name: Roll back the web app
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to go back to (leave empty for the one before the current version)
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+concurrency:
+  group: roll-back
+  cancel-in-progress: false
+
+jobs:
+  roll-back:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Pick the version
+        id: pick
+        env:
+          WANTED: ${{ inputs.version }}
+        run: |
+          if [ -n "$WANTED" ]; then
+            tag="$WANTED"
+          else
+            # find the saved version that is live now, then take the one saved before it that looks different
+            tag=""; first=""; seen=""
+            for t in $(git tag --list 'web-*' --sort=-creatordate); do
+              if git diff --quiet "$t" HEAD -- docs ':!docs/CNAME'; then seen=1; continue; fi
+              [ -z "$first" ] && first="$t"
+              if [ -n "$seen" ]; then tag="$t"; break; fi
+            done
+            [ -z "$seen" ] && tag="$first"   # what is live was never saved: go to the newest saved version
+          fi
+          if [ -z "$tag" ]; then echo "::error::There is no earlier saved version to go back to."; exit 1; fi
+          if ! git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+            echo "::error::No saved version called '$tag'. See Code > Tags for the list of versions."
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+      - name: Put docs/ back to that version
+        env:
+          TAG: ${{ steps.pick.outputs.tag }}
+        run: |
+          cp docs/CNAME /tmp/CNAME 2>/dev/null || true
+          git rm -rq docs
+          git checkout "$TAG" -- docs
+          if [ -f /tmp/CNAME ]; then cp /tmp/CNAME docs/CNAME; else rm -f docs/CNAME; fi
+          git add -A docs
+          if git diff --cached --quiet; then echo "The live app already matches $TAG." >> "$GITHUB_STEP_SUMMARY"; exit 0; fi
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -qm "Roll back the web app to $TAG"
+          git push origin HEAD:main
+          echo "Rolled the web app back to **$TAG**. GitHub Pages republishes it in a minute or two." >> "$GITHUB_STEP_SUMMARY"

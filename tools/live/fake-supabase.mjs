@@ -25,7 +25,8 @@ function lit(v) {
   if (v === null || v === undefined) return 'NULL';
   if (typeof v === 'boolean') return v ? 'true' : 'false';
   if (typeof v === 'number') return String(v);
-  if (Array.isArray(v)) return 'array[' + v.map(lit).join(',') + ']::text[]';
+  // An untyped array literal, so Postgres reads it as the function's own argument type (text[], uuid[], ...), as PostgREST does.
+  if (Array.isArray(v)) return lit('{' + v.map((x) => '"' + String(x).replace(/["\\]/g, '\\$&') + '"').join(',') + '}');
   return "'" + String(v).replace(/'/g, "''") + "'";
 }
 function psql(sql) {
