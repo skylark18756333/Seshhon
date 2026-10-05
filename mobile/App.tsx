@@ -16,6 +16,7 @@ const GREEN = '#3DDC84';
 const WEB_URL: string = (Constants.expoConfig?.extra?.webUrl as string) || 'https://frendzy.au/';
 const WEB_ORIGIN = new URL(WEB_URL).origin;
 const WEB_PATH = new URL(WEB_URL).pathname;
+const AGE_CHECK_HOSTS = ['https://verify.didit.me/', 'https://age.yoti.com'];
 
 // Runs in the page before its own script, so the page's existing "share" button uses the phone's share sheet.
 const BRIDGE = `
@@ -82,6 +83,8 @@ function Shell() {
     const url = req.url;
     if (url === 'about:blank') return true;
     if (url.startsWith(WEB_ORIGIN + WEB_PATH) || url === WEB_ORIGIN + WEB_PATH.replace(/\/$/, '')) return true;
+    // The 18+ age check runs on the provider's page; it stays in the app so it can send the person back here.
+    if (AGE_CHECK_HOSTS.some((h) => url.startsWith(h))) return true;
     Linking.openURL(url).catch(() => {});
     return false;
   }, []);
