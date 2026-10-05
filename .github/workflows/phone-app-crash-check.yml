@@ -45,7 +45,7 @@ jobs:
               eas build:view "$ID" --json > failed.json || true
               node -e 'const b=require("./failed.json"); console.log("Expo says:", JSON.stringify(b.error || null)); for (const u of b.logFiles || []) console.log(u)' > failed-logs.txt || true
               cat failed-logs.txt
-              grep '^https://' failed-logs.txt | while read -r u; do curl -sSL "$u" | tail -c 20000; done || true
+              grep '^https://' failed-logs.txt | while read -r u; do curl -sSL -o part.log "$u"; (gzip -dc part.log 2>/dev/null || cat part.log) | grep -v '^\s*$' | tail -n 150; done || true
             fi
             exit 1
           fi
