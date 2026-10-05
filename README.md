@@ -141,36 +141,43 @@ paste `supabase/update.sql` into the Supabase SQL editor and press Run once. It 
 
 Sign-up can require a third-party age check before anyone gets in: a live selfie age estimate, and
 photo ID (matched to the selfie) or a digital ID only when the estimate is under 25. It is **off**
-until switched on. Two providers are built in: **Yoti** (recommended) and **Didit**.
+until switched on. **Didit** is the chosen provider; Yoti is also built in as an alternative.
 
 How it fits together:
 
-- `supabase/migrations/0005_age_check.sql`: the settings row, a record of each check (outcome only:
-  no photo, ID, date of birth or estimated age), sign-up and going Green/Amber refused until passed.
+- `supabase/migrations/0005_age_check.sql` and `0017_age_check_didit.sql`: the settings row, a record
+  of each check (outcome only: no photo, ID, date of birth or estimated age), sign-up and going
+  Green/Amber refused until passed.
 - `supabase/functions/age-check/`: the Edge Function that holds the provider keys, starts a check and
-  reads the result. `providers.ts` has the Yoti and Didit code; `npm test` checks it.
-- `docs/index.html`: the "Quick age check" screen after the name and date of birth.
+  reads the result. `providers.ts` has the Didit and Yoti code; `npm test` checks it.
+- `docs/app.js`: the "Quick age check" screen after the name and date of birth.
+- `mobile/`: the phone app keeps the Didit page inside the app and asks for the camera. This needs a
+  new phone app build to reach phones.
 
-To switch it on:
+To switch it on with Didit:
 
-1. Create an account with the provider.
-   - **Yoti:** sign up at the Yoti Hub, create an Age Verification app, and note its SDK ID and API key.
-     Ask Yoti sales for live pricing.
-   - **Didit:** sign up at business.didit.me, create a workflow with age estimation (minimum age 18)
-     and liveness, with the ID fallback for anyone who looks under 25. Note the workflow ID and API key.
-     Set the data retention to the shortest period offered.
-2. Run `supabase/migrations/0005_age_check.sql` in the Supabase SQL editor (safe to run twice).
-3. In Supabase, go to Edge Functions, create a function called `age-check` with the two files from
+1. Sign up at business.didit.me (free for 500 checks a month).
+2. In the Didit console, create a **workflow** with age estimation set to a minimum age of 18,
+   liveness on, and the ID fallback on for anyone whose estimate is under 25. Copy its **workflow ID**.
+3. In the Didit console, create an **API key** and copy it. Set data retention to the shortest
+   period offered.
+4. Run `supabase/migrations/0005_age_check.sql` and then `0017_age_check_didit.sql` in the Supabase
+   SQL editor (both are safe to run twice; skip any already run).
+5. In Supabase, go to Edge Functions, create a function called `age-check` with the two files from
    `supabase/functions/age-check/` (`index.ts` and `providers.ts`), and turn **Verify JWT** off (the
    function checks the sign-in itself). Or with the Supabase CLI:
    `supabase functions deploy age-check --no-verify-jwt`.
-4. In Edge Functions, Secrets, add:
-   - `AGE_CHECK_RETURN_URLS`: the web app address, e.g. `https://frendzy.au/` (during a domain move, list both old and new addresses, comma separated)
-   - for Yoti: `YOTI_SDK_ID` and `YOTI_API_KEY`; for Didit: `DIDIT_API_KEY` and `DIDIT_WORKFLOW_ID`
+6. In Edge Functions, Secrets, add:
+   - `DIDIT_API_KEY`: the API key from step 3
+   - `DIDIT_WORKFLOW_ID`: the workflow ID from step 2
+   - `AGE_CHECK_RETURN_URLS`: the web app address, `https://frendzy.au/` (during a domain move, list
+     both old and new addresses, comma separated)
    - optional `AGE_ESTIMATE_MIN` (default 25): the estimated age needed to pass without ID
-5. Switch it on in the SQL editor:
-   `update public.app_settings set age_check_provider = 'yoti', age_check_required = true;`
-   (use `'didit'` for Didit). Switch it off again with `age_check_required = false`.
+7. Switch it on in the SQL editor: `update public.app_settings set age_check_required = true;`
+   Switch it off again with `age_check_required = false`.
+
+To use Yoti instead: add `YOTI_SDK_ID` and `YOTI_API_KEY` from the Yoti Hub and run
+`update public.app_settings set age_check_provider = 'yoti';`.
 
 People who signed up before the switch are asked to do the check the next time they open the app,
 and cannot go Green or Amber until they pass. Each person gets at most 5 attempts a day.

@@ -33,7 +33,7 @@ reset role;
 
 -- The Edge Function (service role) records a check that is still running, then a failed one.
 set role service_role;
-select public.expect(public.age_check_can_start(:p) ->> 'provider' = 'yoti', 'the function is told which provider to use');
+select public.expect(public.age_check_can_start(:p) ->> 'provider' = 'didit', 'the function is told which provider to use');
 select public.age_check_begin(:p, 'yoti', 'sess-1') \g /dev/null
 reset role;
 set role authenticated;
