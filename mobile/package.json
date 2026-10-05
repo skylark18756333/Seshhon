@@ -6,8 +6,6 @@
     "expo": "~57.0.26",
     "expo-constants": "~57.0.20",
     "expo-font": "~57.0.4",
-    "expo-image-manipulator": "~57.0.20",
-    "expo-image-picker": "~57.0.20",
     "expo-linear-gradient": "~57.0.2",
     "expo-secure-store": "~57.0.4",
     "expo-status-bar": "~57.0.1",
@@ -32,7 +30,8 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
-    "pretypecheck": "node scripts/bundle-web.mjs"
+    "pretypecheck": "node scripts/bundle-web.mjs",
+    "eas-build-post-install": "node scripts/bundle-web.mjs"
   },
   "private": true
 }
