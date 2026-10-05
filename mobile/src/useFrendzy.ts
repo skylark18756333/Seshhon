@@ -25,6 +25,7 @@ export type Frendzy = {
   act: (fn: string, args?: Record<string, unknown>, okMsg?: string | null) => Promise<any>;
   acting: () => boolean;   // true while a tap is still running, so the chat poll waits as on the web
   refresh: () => Promise<void>;
+  setUsername: (username: string | null) => void;   // the You page changed it
 };
 
 // paused: the packed web page is on screen and looking after itself, so the native poll waits.
@@ -143,5 +144,5 @@ export function useFrendzy(signedIn: boolean, paused?: boolean): Frendzy {
   const acting = useCallback(() => waiting.current > 0, []);
   const refresh = useCallback(() => read(true), [read]);
 
-  return { phase, state, photos, username, offline, toast, busy, setColour, answer, addFriend, retry, say, act, acting, refresh };
+  return { phase, state, photos, username, offline, toast, busy, setColour, answer, addFriend, retry, say, act, acting, refresh, setUsername };
 }

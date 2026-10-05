@@ -73,13 +73,13 @@ export function Face({ id, name, photos, size, font, away }: { id: string; name:
 }
 
 // The web app's .avatar: a face in a ring of a colour (status colour, or green for people in the sesh).
-export function Avatar({ id, name, photos, ring, size }: { id?: string; name: string; photos: Record<string, string>; ring?: string; size?: number }) {
+export function Avatar({ id, name, photos, ring, size, font }: { id?: string; name: string; photos: Record<string, string>; ring?: string; size?: number; font?: number }) {
   const s = size || 40;
   const pic = id ? photos[id] : undefined;
   return (
     <View style={[styles.avatar, { width: s, height: s, borderRadius: s / 2, borderColor: ring || C.line }]}>
       {pic ? <Image source={{ uri: pic }} style={{ width: s - 4, height: s - 4, borderRadius: (s - 4) / 2 }} />
-        : <Text style={[styles.avatarText, { fontSize: s < 40 ? 12 : 13 }]}>{initials(name)}</Text>}
+        : <Text style={[styles.avatarText, { fontSize: font || (s < 40 ? 12 : 13) }]}>{initials(name)}</Text>}
     </View>
   );
 }

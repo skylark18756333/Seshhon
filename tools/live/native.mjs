@@ -7,6 +7,9 @@
 // and every tap is checked in the database. It also checks the web half the app packs in: that it opens on the
 // tab the app asks for, switches tabs when the app says so, tells the app when it moves to another tab by
 // itself, opens on a venue when asked, and tells the app when the sign-in changes.
+// Then the native You page, as Mia and Zoe on their own phones: a photo, Safety, adding a friend by username
+// and cancelling the request, removing a friend, a new username and password, an email for login codes,
+// log out and back in, and deleting an account, each checked in the database.
 // Run: node tools/live/native.mjs [output folder]   (needs PostgreSQL 15+ and Playwright's Chromium)
 import { chromium } from 'playwright';
 import { spawn, execSync } from 'node:child_process';
@@ -327,6 +330,177 @@ try {
   await nat.page.getByRole('tab', { name: 'Home' }).click();
   await has(nat, 'Up for it now');
 
+  /* ---------- the native You page ---------- */
+  const you = path.join(out, 'native-you');
+  fs.mkdirSync(you, { recursive: true });
+  const yshot = async (p, file) => { await p.page.waitForTimeout(700); await p.page.screenshot({ path: path.join(you, file), fullPage: true }); console.log('  saved native-you/' + file); };
+  const openSet = async (p, key) => {   // open a drop-down section if it is closed
+    const b = p.page.getByTestId('set-' + key);
+    if ((await b.getAttribute('aria-expanded')) !== 'true') await b.click();
+  };
+  const miaId = id('Mia'), zoeId = id('Zoe');
+  const natM = await phone('Mia native', `http://127.0.0.1:${NATIVE_PORT}/`, `if (!sessionStorage.getItem('started')) { sessionStorage.setItem('started', '1'); localStorage.setItem('seshhon-session-v1', ${JSON.stringify(sessions.Mia)}); }`);
+  await has(natM, "You're amber.");
+  await tap(natM, 'You');
+  await has(natM, 'Settings');
+  await has(natM, 'Your photo');
+  await has(natM, 'Username and password');
+  console.log('native You text:\n' + (await natM.page.evaluate(() => document.body.innerText)).replace(/^/gm, '    '));
+  await yshot(natM, '1-you.png');
+
+  // A photo: picked with expo-image-picker, cropped to the middle square and shrunk to 160 x 160, then set_photo.
+  await openSet(natM, 'photo');
+  await has(natM, 'Only your friends see it on your circle');
+  const chooser = natM.page.waitForEvent('filechooser');
+  await tap(natM, 'Add a photo');
+  await (await chooser).setFiles(path.join(out, '1-home-green.png'));   // a tall picture, 780 x 1688
+  await has(natM, 'Photo saved.', 15000);
+  const pic = psql(`select picture from public.profile_photos where user_id = '${miaId}'`);
+  expect('photo stored as a JPEG data address', pic.startsWith('data:image/jpeg;base64,'), true);
+  expect('photo small enough for the database', pic.length > 1000 && pic.length <= 60000, true);
+  expect('photo is 160 x 160', await natM.page.evaluate((src) => new Promise((ok) => { const i = new Image(); i.onload = () => ok(i.naturalWidth + 'x' + i.naturalHeight); i.onerror = () => ok('unreadable'); i.src = src; }), pic), '160x160');
+  await has(natM, 'Change photo');
+  await yshot(natM, '2-photo.png');
+
+  // Safety: gender and the women and non-binary only mode, through set_safety.
+  await openSet(natM, 'safety');
+  await tap(natM, 'Woman');
+  await has(natM, 'Women and non-binary only');
+  await until(() => psql(`select coalesce((select gender from private.safety where user_id = '${miaId}'), '')`) === 'woman');
+  await tap(natM, 'Turn on');
+  await has(natM, 'Women and non-binary only is on.');
+  await until(() => psql(`select coalesce((select women_only::text from private.safety where user_id = '${miaId}'), '')`) === 'true');
+  expect("Mia's safety in the database", psql(`select gender || ' ' || women_only from private.safety where user_id = '${miaId}'`), 'woman true');
+  await has(natM, 'Women only on');
+  await yshot(natM, '3-safety.png');
+  await tap(natM, 'Turn off');
+  await has(natM, 'Women and non-binary only is off.');
+  await until(() => psql(`select coalesce((select women_only::text from private.safety where user_id = '${miaId}'), '')`) === 'false');
+  expect('women only turned off again', psql(`select women_only from private.safety where user_id = '${miaId}'`), 'f');
+
+  // Add a friend by username (request_friend_by_username), then cancel the request from Your friends.
+  await openSet(natM, 'add');
+  await natM.page.getByLabel('Add by username', { exact: true }).fill('nobody_here');
+  await tap(natM, 'Add');
+  await has(natM, 'No one with that username.');
+  await natM.page.getByLabel('Add by username', { exact: true }).fill('zoe_test');
+  await tap(natM, 'Add');
+  await has(natM, 'Friend request sent to Zoe.');
+  expect('friend request Mia -> Zoe', psql(`select state from public.friendships where requester = '${miaId}' and addressee = '${zoeId}'`), 'requested');
+  await has(natM, 'Waiting for them to accept');
+  await tap(natM, 'Send your invite link');
+  await has(natM, 'Copy this link and send it to a friend');
+  await yshot(natM, '4-add-friend.png');
+  const zoeRow = natM.page.getByText('Waiting for them to accept').locator('xpath=../..');
+  await zoeRow.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await until(() => psql(`select count(*) from public.friendships where requester = '${miaId}' and addressee = '${zoeId}'`) === '0');
+  expect('request cancelled', psql(`select count(*) from public.friendships where requester = '${miaId}' and addressee = '${zoeId}'`), 0);
+
+  // Remove a friend: answer_friend with no, after "Remove" is asked twice, as on the web.
+  await openSet(natM, 'friends');
+  const anaRow = natM.page.getByTestId('friend-' + anaId);
+  await anaRow.getByRole('button', { name: 'Remove', exact: true }).click();
+  await anaRow.getByRole('button', { name: 'Keep', exact: true }).waitFor();
+  await yshot(natM, '5-remove-confirm.png');
+  await anaRow.getByRole('button', { name: 'Remove', exact: true }).click();
+  await until(() => psql(`select count(*) from public.friendships where (requester = '${miaId}' and addressee = '${anaId}') or (requester = '${anaId}' and addressee = '${miaId}')`) === '0');
+  expect('Mia and Ana no longer friends', psql(`select count(*) from public.friendships where (requester = '${miaId}' and addressee = '${anaId}') or (requester = '${anaId}' and addressee = '${miaId}')`), 0);
+
+  // A new username and password: save_account, then the new recovery code.
+  await openSet(natM, 'login');
+  await tap(natM, 'Change password');
+  await natM.page.getByLabel('Username', { exact: true }).fill('mia_renamed');
+  await natM.page.getByLabel('New password', { exact: true }).fill('short');
+  await tap(natM, 'Save and get a new recovery code');
+  await has(natM, 'Use a password of at least 10 characters.');
+  await natM.page.getByLabel('New password', { exact: true }).fill('newpassword9');
+  await tap(natM, 'Save and get a new recovery code');
+  await has(natM, 'Save your recovery code');
+  expect("Mia's new username", psql(`select username from public.account_logins where user_id = '${miaId}'`), 'mia_renamed');
+  expect('the app noted it for the login screen', await natM.page.evaluate(() => JSON.parse(localStorage.getItem('seshhon-page-store') || '{}')['seshhon-last-username']), '"mia_renamed"');
+  await yshot(natM, '6-recovery-code.png');
+  await tap(natM, "I've saved it");
+  await has(natM, "You're logged in as mia_renamed");
+
+  // Log out: the sign-in goes from this phone (where the app keeps it) and the walkthrough flag is cleared for the page.
+  await tap(natM, 'Log out');
+  await until(() => natM.page.evaluate(() => localStorage.getItem('seshhon-session-v1') === null));
+  expect('native sign-in cleared on log out', await natM.page.evaluate(() => localStorage.getItem('seshhon-session-v1')), 'null');
+  expect('tour flag cleared for the page', await natM.page.evaluate(() => JSON.stringify(JSON.parse(localStorage.getItem('seshhon-page-store') || '{}')['seshhon-tour-pending'])), 'null');
+  expect('native screens gone after log out', await natM.page.evaluate(() => document.body.innerText.includes('Settings')), false);
+  await yshot(natM, '7-logged-out.png');
+
+  // And back in, with the new username and password, through the web login (which hands the app the sign-in).
+  const login = await phone('Mia login', `http://127.0.0.1:${WEB_PORT}/`);
+  await tap(login, 'I already have an account');
+  await login.page.fill('#login-user', 'mia_renamed');
+  await login.page.fill('#login-pass', 'newpassword9');
+  await tap(login, 'Log in');
+  await has(login, 'Your status');
+  const miaAgain = await login.page.evaluate(() => localStorage.getItem('seshhon-session-v1'));
+  await login.ctx.close();
+  await natM.page.evaluate((s) => localStorage.setItem('seshhon-session-v1', s), miaAgain);
+  await natM.page.reload();
+  await has(natM, "You're amber.");
+  await tap(natM, 'You');
+  await openSet(natM, 'login');
+  await has(natM, "You're logged in as mia_renamed");
+  console.log('logged back in on the native You page: yes');
+
+  // An email for login codes: the email-code function sends a code, two_step_check confirms it, and this
+  // phone is remembered so its next login skips the code.
+  await natM.page.getByLabel('Email for login codes', { exact: true }).fill('mia.new@example.com');
+  await tap(natM, 'Send me a code');
+  await has(natM, 'Confirm your email');
+  const mail = await (await fetch(API + '/__fake/last-email', { method: 'POST', headers: { apikey: 'test-anon-key' } })).json();
+  expect('code sent to the new email', mail.email, 'mia.new@example.com');
+  await yshot(natM, '8-confirm-email.png');
+  await natM.page.getByLabel('Code from the email', { exact: true }).fill(mail.code);
+  await tap(natM, 'Confirm email');
+  await has(natM, 'Email confirmed. New logins will ask for a code from it.');
+  expect('email confirmed in the database', psql(`select email from private.two_step where user_id = '${miaId}'`), 'mia.new@example.com');
+  await has(natM, 'Save your recovery code');   // a fresh recovery code, also emailed
+  await has(natM, 'We also emailed it to', 10000);
+  await until(() => natM.page.evaluate(() => !!JSON.parse(JSON.parse(localStorage.getItem('seshhon-page-store') || '{}')['seshhon-remembered-phone'] || '{}')));
+  const phonesKept = await natM.page.evaluate(() => JSON.parse(JSON.parse(localStorage.getItem('seshhon-page-store') || '{}')['seshhon-remembered-phone'] || '{}'));
+  expect('this phone remembered for Mia', typeof phonesKept[miaId] === 'string' && phonesKept[miaId].length > 10, true);
+  expect('remembered phone in the database', psql(`select count(*) from private.two_step_devices where user_id = '${miaId}'`), 1);
+  await yshot(natM, '9-email-confirmed.png');
+  await tap(natM, "I've saved it");
+  await has(natM, 'New logins also need a code sent to');
+
+  // The tour, from "Show the tour".
+  await openSet(natM, 'tour');
+  await tap(natM, 'Show the tour');
+  await has(natM, 'Welcome, Mia.');
+  await yshot(natM, '10-tour.png');
+  await tap(natM, 'Show me');
+  await has(natM, "Slide to show you're up for it");
+  await tap(natM, 'Skip');
+  await natM.page.waitForTimeout(500);
+  expect('tour closed', await natM.page.evaluate(() => document.body.innerText.includes('Slide to show')), false);
+  await openSet(natM, 'about');
+  await has(natM, 'Privacy Policy');
+  await yshot(natM, '11-about.png');
+  await natM.ctx.close();
+
+  // Delete an account (Zoe's): delete_account, then the sign-in and her remembered username go from this phone.
+  const natZ = await phone('Zoe native', `http://127.0.0.1:${NATIVE_PORT}/`, `if (!sessionStorage.getItem('started')) { sessionStorage.setItem('started', '1'); localStorage.setItem('seshhon-session-v1', ${JSON.stringify(sessions.Zoe)}); }`);
+  await has(natZ, "You're red.");
+  await tap(natZ, 'You');
+  await openSet(natZ, 'account');
+  await tap(natZ, 'Delete my account');
+  await has(natZ, 'This removes your name, friends, votes and ratings for good.');
+  await yshot(natZ, '12-delete-confirm.png');
+  await tap(natZ, 'Delete for good');
+  await until(() => natZ.page.evaluate(() => localStorage.getItem('seshhon-session-v1') === null));
+  expect("Zoe's profile gone", psql(`select count(*) from public.profiles where id = '${zoeId}'`), 0);
+  expect("Zoe's friendships gone", psql(`select count(*) from public.friendships where requester = '${zoeId}' or addressee = '${zoeId}'`), 0);
+  expect('native sign-in cleared on delete', await natZ.page.evaluate(() => localStorage.getItem('seshhon-session-v1')), 'null');
+  expect('last username cleared for the page', await natZ.page.evaluate(() => JSON.stringify(JSON.parse(localStorage.getItem('seshhon-page-store') || '{}')['seshhon-last-username'])), 'null');
+  await natZ.ctx.close();
+
+  /* ---------- the web half inside the app ---------- */
   // The web half inside the app: it starts on the tab the app asks for, tells the app when the sign-in
   // changes, and switches tabs when the app says so. The app itself is stubbed, as a WebView can't run here.
   const inApp = await phone('in-app', `http://127.0.0.1:${WEB_PORT}/`, `
@@ -342,8 +516,8 @@ try {
   console.log('page switched tab when the app asked: ' + (await inApp.page.evaluate(() => !!document.querySelector('nav button[data-v="venues"][aria-current="page"]'))));
   // Storing anything else must not send the app a message, and the page says once that it is past sign-up.
   const posted = await inApp.page.evaluate(() => { localStorage.setItem('seshhon-not-the-session', '1'); return window.__posted.map((m) => m.type); });
-  console.log('messages so far (the "past sign-up" one, then the tab it moved to when asked): ' + JSON.stringify(posted));
-  expect('page messages', JSON.stringify(posted), JSON.stringify(['ready', 'tab']));
+  console.log('messages so far (what the page keeps for the app, the "past sign-up" one, then the tab it moved to when asked): ' + JSON.stringify(posted));
+  expect('page messages', JSON.stringify(posted), JSON.stringify(['store', 'store', 'store', 'ready', 'tab']));
   // Opened on one venue (from the native Sesh tab): the page shows it, and its back button tells the app to
   // go back to the Sesh tab.
   const venueId = psql("select id from public.venues where lat is not null order by name limit 1");
@@ -362,6 +536,17 @@ try {
   await until(() => onVenue.page.evaluate(() => window.__posted.some((m) => m.type === 'tab')));
   expect('page told the app it went back to Sesh', JSON.stringify(await onVenue.page.evaluate(() => window.__posted.filter((m) => m.type === 'tab'))), JSON.stringify([{ type: 'tab', tab: 'sesh' }]));
   await onVenue.ctx.close();
+  // After the native You page logs out, the app opens the page with a line to show, and the page's storage as the app keeps it.
+  const afterOut = await phone('after log out', `http://127.0.0.1:${WEB_PORT}/`, `
+    window.__posted = [];
+    window.ReactNativeWebView = { postMessage: function (m) { window.__posted.push(JSON.parse(m)); } };
+    window.SESHHON_TOAST = 'Logged out. Log in again with your username and password.';
+    localStorage.removeItem('seshhon-session-v1');
+  `);
+  await has(afterOut, 'Logged out. Log in again with your username and password.');
+  await has(afterOut, 'Get started');
+  await sshot(afterOut, '18-page-after-native-log-out.png');
+  await afterOut.ctx.close();
   // Log out from the You page, which clears the sign-in: the app must be told.
   await inApp.page.evaluate(() => { window.__posted = []; });
   await inApp.page.locator('button.profile-btn').click();

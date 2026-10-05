@@ -37,8 +37,13 @@
         if (!value) toldNative = false;   // signed out: the app waits to be told when the next sign-up is finished
         window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'session', session: value }));
       }
+      // The app's own You page also changes these (remembered phone, last username, walkthrough), so it keeps a copy.
+      if ((key === DEVICE_KEY || key === LAST_USER_KEY || key === TOUR_KEY) && window.ReactNativeWebView) tellStored(key);
     } catch (e) {}
     return null;
+  }
+  function tellStored(key) {
+    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'store', key: key, value: localStorage.getItem(key) }));
   }
   // The phone app shows its own Home screen, but only once this page is past sign-up, the login code and the
   // age check — until then it keeps showing this page, so none of those steps is cut off. Nothing on the website.
@@ -2660,6 +2665,8 @@
       loadPins().then(function () { render(); });
     }
     window.FrendzyNative = { go: function (tab) { ACT.tab(String(tab)); } };
+    // The app keeps a copy of what this page has stored for it, so it starts from the page's own values.
+    try { [DEVICE_KEY, LAST_USER_KEY, TOUR_KEY].forEach(tellStored); } catch (e) {}
   }
   try {
     var params = new URLSearchParams(location.search), invite = params.get('invite'), backFromCheck = params.has('age_check');
@@ -2668,6 +2675,8 @@
   } catch (e) {}
 
   render();
+  // Said by the app when it opens this page after its own You page logged out or deleted the account.
+  if (window.ReactNativeWebView && window.SESHHON_TOAST) toast(String(window.SESHHON_TOAST));
   if (API_URL && API_KEY) {
     if (session) load().then(function () {
       if (needsAgeCheck() && (backFromCheck || (ui.age.pending && (D && D.me || waiting())))) return finishAgeCheck();

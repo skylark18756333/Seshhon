@@ -1,4 +1,4 @@
-// Frendzy phone app. Home and Sesh are native screens; every other tab (map, venues, events, you, and signing
+// Frendzy phone app. Home, Sesh and You are native screens; every other tab (map, venues, events, and signing
 // up or logging in) is the web app in docs/, packed into the app by scripts/bundle-web.mjs, so it opens on its
 // own without loading the website. Both halves talk to the same database over the internet.
 // The app owns the sign-in: it keeps it in the phone's secure storage and hands it to the packed page, which
@@ -15,9 +15,10 @@ import { WebView, type WebViewMessageEvent, type WebViewNavigation } from 'react
 import Home from './src/Home';
 import Sesh from './src/Sesh';
 import Tabs from './src/Tabs';
+import You from './src/You';
 import { C } from './src/theme';
 import { useFrendzy } from './src/useFrendzy';
-import { SESSION_KEY, loadStoredSession, onSessionChange, sessionForPage, setSession, type Session } from './src/session';
+import { SESSION_KEY, loadStoredSession, onSessionChange, pageStoreScript, pageStored, sessionForPage, setSession, type Session } from './src/session';
 import APP_HTML from './web/app-html.generated';
 
 const BG = C.bg;
@@ -32,21 +33,27 @@ const AGE_CHECK_HOSTS = ['https://verify.didit.me/', 'https://age.yoti.com'];
 // Runs in the page before its own script: the page's "share" button uses the phone's share sheet, the page
 // starts on the tab the app asked for, and it starts signed in as whoever the app is signed in as.
 const PAGE_TABS = ['home', 'sesh', 'map', 'venues', 'events', 'you'];
-const NATIVE_TABS = ['home', 'sesh'];   // the tabs with a native screen
+const NATIVE_TABS = ['home', 'sesh', 'you'];   // the tabs with a native screen
 // venue: open the page on that venue's page (from the native Sesh tab); closing it goes back to the Sesh tab.
-function bridge(tab: string | null, venue: string | null): string {
+// note: a line for the page to show when it opens (after a log out or a deleted account on the native You page).
+function bridge(tab: string | null, venue: string | null, note: string | null): string {
   const saved = sessionForPage();
   const want = venue ? 'sesh' : tab && PAGE_TABS.indexOf(tab) >= 0 ? tab : 'home';
   return `
 (function () {
   window.SESHHON_NATIVE = ${JSON.stringify(Platform.OS)};
   window.SESHHON_TAB = ${JSON.stringify(want)};${venue ? `
-  window.SESHHON_VENUE = ${JSON.stringify(venue)};` : ''}
+  window.SESHHON_VENUE = ${JSON.stringify(venue)};` : ''}${note ? `
+  window.SESHHON_TOAST = ${JSON.stringify(note)};` : ''}
   // The app is where the sign-in lives, so the page is given it before the page looks for one of its own.
   try {
     ${saved
       ? `localStorage.setItem(${JSON.stringify(SESSION_KEY)}, ${JSON.stringify(saved)});`
       : `localStorage.removeItem(${JSON.stringify(SESSION_KEY)});`}
+  } catch (e) {}
+  // The other things the native screens changed in the page's storage (remembered phone, last username, tour).
+  try {
+    ${pageStoreScript()}
   } catch (e) {}
   navigator.share = function (data) {
     window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'share', data: data || {} }));
@@ -87,6 +94,10 @@ function Shell() {
   // tab. 'venue' is the packed page showing one venue, opened from the native Sesh tab.
   const [tab, setTab] = useState('home');
   const [venue, setVenue] = useState<string | null>(null);
+  // The tab to go back to from the You page (Android back button).
+  const [before, setBefore] = useState('home');
+  // A line for the page to show once it opens, after the native You page logged out or deleted the account.
+  const [pageNote, setPageNote] = useState<string | null>(null);
 
   const signedIn = !!session;
   const onWeb = !NATIVE_TABS.includes(tab);
@@ -120,10 +131,11 @@ function Shell() {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
       if (onWeb && canGoBack && web.current) { web.current.goBack(); return true; }
       if (onWeb && native) { setTab(tab === 'venue' ? 'sesh' : 'home'); return true; }
+      if (native && tab === 'you') { setTab(before); return true; }
       return false;
     });
     return () => sub.remove();
-  }, [canGoBack, onWeb, native, tab]);
+  }, [canGoBack, onWeb, native, tab, before]);
 
   // The page says which tab it moved to by itself (closing a venue, "Stop 2 on the Sesh Map", voting from a
   // venue page): Home and Sesh are native, so the app shows its own screen for those.
@@ -134,9 +146,15 @@ function Shell() {
     let msg: { type?: string; data?: { title?: string; text?: string; url?: string }; session?: Session | null; tab?: unknown } | null = null;
     try { msg = JSON.parse(e.nativeEvent.data); } catch { return; }
     // The page is past sign-up and the checks, so the native screens can take over.
-    if (msg?.type === 'ready') { setWebOwns(false); return; }
+    if (msg?.type === 'ready') { setWebOwns(false); setPageNote(null); return; }
     // The page's sign-in changed (sign-up, login, a refreshed token, log out): the app keeps the new one.
-    if (msg?.type === 'session') { setSession(msg.session || null); return; }
+    if (msg?.type === 'session') { setSession(msg.session || null); if (msg.session) setPageNote(null); return; }
+    // The page changed something else the native screens also keep (remembered phone, last username, tour).
+    if (msg?.type === 'store') {
+      const m = msg as { key?: unknown; value?: unknown };
+      if (typeof m.key === 'string') pageStored(m.key, typeof m.value === 'string' ? m.value : null);
+      return;
+    }
     if (msg?.type === 'tab') {
       const next = typeof msg.tab === 'string' ? msg.tab : '';
       if (nativeNow.current && PAGE_TABS.indexOf(next) >= 0) setTab((now) => (now === next ? now : next));
@@ -170,6 +188,7 @@ function Shell() {
   // is just told to switch tabs, which keeps the map where it was.
   const pickTab = useCallback((next: string) => {
     if (next === tab) return;
+    if (next === 'you') setBefore(tab === 'venue' ? 'sesh' : tab);
     if (!NATIVE_TABS.includes(next) && onWeb && web.current) {
       web.current.injectJavaScript('window.FrendzyNative && window.FrendzyNative.go(' + JSON.stringify(next) + '); true;');
       setTab(next);
@@ -187,6 +206,15 @@ function Shell() {
     setFailed(false);
     setVenue(id);
     setTab('venue');
+    setPage(WEB_URL); setOpens((n) => n + 1);
+  }, []);
+
+  // The native You page logged out or deleted the account (it already cleared the sign-in): the page opens
+  // fresh, without the sign-in, and says what happened.
+  const signedOut = useCallback((note: string) => {
+    setPageNote(note);
+    setFailed(false);
+    setVenue(null);
     setPage(WEB_URL); setOpens((n) => n + 1);
   }, []);
 
@@ -224,7 +252,7 @@ function Shell() {
       style={styles.fill}
       containerStyle={styles.fill}
       originWhitelist={['https://*', 'http://*', 'about:*']}
-      injectedJavaScriptBeforeContentLoaded={bridge(tab, tab === 'venue' ? venue : null)}
+      injectedJavaScriptBeforeContentLoaded={bridge(tab, tab === 'venue' ? venue : null, pageNote)}
       injectedJavaScript={native ? HIDE_PAGE_TABS : undefined}
       onMessage={onMessage}
       onShouldStartLoadWithRequest={onNavigate}
@@ -256,7 +284,10 @@ function Shell() {
 
   return (
     <View style={styles.fill}>
-      {onWeb ? webView : tab === 'sesh' ? <Sesh f={f} onOpenWeb={pickTab} onVenue={openVenue} /> : <Home f={f} onOpenWeb={pickTab} />}
+      {onWeb ? webView
+        : tab === 'sesh' ? <Sesh f={f} onOpenWeb={pickTab} onVenue={openVenue} />
+        : tab === 'you' ? <You f={f} onOpenWeb={pickTab} onSignedOut={signedOut} />
+        : <Home f={f} onOpenWeb={pickTab} />}
       <Tabs tab={tab === 'venue' ? 'sesh' : tab} requests={f.state ? f.state.requests_in.length : 0} onPick={pickTab} />
     </View>
   );
