@@ -3,21 +3,33 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import React from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Svg, { Defs, LinearGradient as SvgGradient, Rect, Stop } from 'react-native-svg';
 import type { Colour } from './api';
 import Icon from './Icon';
 import Logo from './Logo';
 import type { Frendzy } from './useFrendzy';
 import { C, COLOURS, F, fade, hue, initials } from './theme';
 
-// The whole screen glows in your status colour, so you can tell at a glance where you are.
+// The top of the screen glows in your status colour, so you can tell at a glance where you are. It reaches up behind
+// the status bar. Drawn as an SVG with many small steps rather than a three-colour gradient, because that gradient
+// showed up on a real Android phone as a hard-edged band.
+const GLOW_HEIGHT = 320;
+const GLOW_STOPS = [0, 0.1, 0.2, 0.32, 0.46, 0.62, 0.8, 1].map((at) => ({ at, alpha: 0.5 * Math.pow(1 - at, 2.2) }));
 export function Glow({ colour }: { colour: Colour }) {
+  const inset = useSafeAreaInsets().top;
+  const rgb = COLOURS[colour];
   return (
-    <LinearGradient
-      pointerEvents="none"
-      colors={[fade(COLOURS[colour], 0.5), fade(COLOURS[colour], 0.12), 'rgba(5,5,6,0)']}
-      locations={[0, 0.45, 1]}
-      style={styles.glow}
-    />
+    <View pointerEvents="none" style={[styles.glow, { top: -inset, height: GLOW_HEIGHT + inset }]}>
+      <Svg width="100%" height="100%">
+        <Defs>
+          <SvgGradient id="glow" x1="0" y1="0" x2="0" y2="1">
+            {GLOW_STOPS.map((g) => <Stop key={g.at} offset={g.at} stopColor={rgb} stopOpacity={g.alpha} />)}
+          </SvgGradient>
+        </Defs>
+        <Rect x="0" y="0" width="100%" height="100%" fill="url(#glow)" />
+      </Svg>
+    </View>
   );
 }
 
@@ -101,7 +113,7 @@ export function Toast({ text }: { text: string | null }) {
 }
 
 const styles = StyleSheet.create({
-  glow: { position: 'absolute', left: 0, right: 0, top: 0, height: 320 },
+  glow: { position: 'absolute', left: 0, right: 0 },
   top: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, paddingHorizontal: 18, paddingTop: 12, paddingBottom: 10, maxWidth: 440, width: '100%', alignSelf: 'center' },
   topRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   pill: { fontFamily: F.bodyBold, fontSize: 12, letterSpacing: 0.8, textTransform: 'uppercase', paddingVertical: 5, paddingHorizontal: 10, borderRadius: 999, borderWidth: 1, borderColor: C.off, color: C.off },
