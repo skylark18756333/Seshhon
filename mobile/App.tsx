@@ -57,6 +57,12 @@ function bridge(tab: string | null, venue: string | null, note: string | null): 
   try {
     ${pageStoreScript()}
   } catch (e) {}
+  // Inside the app the app draws the status glow behind the status bar, so the page's own background is clear.
+  document.addEventListener('DOMContentLoaded', function () {
+    var st = document.createElement('style');
+    st.textContent = 'html,body{background:transparent !important}';
+    document.head.appendChild(st);
+  });
   navigator.share = function (data) {
     window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'share', data: data || {} }));
     return Promise.resolve();
@@ -266,8 +272,8 @@ function Shell() {
       key={opens}
       ref={web}
       source={{ html: APP_HTML, baseUrl: page }}
-      style={styles.fill}
-      containerStyle={styles.fill}
+      style={styles.clearFill}
+      containerStyle={styles.clearFill}
       originWhitelist={['https://*', 'http://*', 'about:*']}
       injectedJavaScriptBeforeContentLoaded={bridge(tab, tab === 'venue' ? venue : null, pageNote)}
       injectedJavaScript={native ? HIDE_PAGE_TABS : undefined}
@@ -312,7 +318,7 @@ function Shell() {
   if (!native) return <Layer>{webView}</Layer>;
 
   return (
-    <Layer glow={onWeb ? undefined : me ? me.colour : undefined}>
+    <Layer glow={me ? me.colour : undefined}>
       {onWeb ? webView
         : tab === 'sesh' ? <Sesh f={f} onOpenWeb={pickTab} onVenue={openVenue} />
         : tab === 'you' ? <You f={f} onOpenWeb={pickTab} onSignedOut={signedOut} />
@@ -344,6 +350,7 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: BG },
   fill: { flex: 1, backgroundColor: BG },
   clear: { backgroundColor: 'transparent' },
+  clearFill: { flex: 1, backgroundColor: 'transparent' },
   offline: { flex: 1, backgroundColor: BG, alignItems: 'center', justifyContent: 'center', padding: 32 },
   title: { color: FG, fontSize: 24, fontWeight: '800', marginBottom: 12 },
   body: { color: FG, opacity: 0.8, fontSize: 16, lineHeight: 22, textAlign: 'center', marginBottom: 24 },
