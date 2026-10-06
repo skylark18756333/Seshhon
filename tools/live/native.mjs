@@ -294,7 +294,7 @@ try {
   // The pres address for it: set_sesh_pres.
   await tap(nat, 'Add a private pres address');
   await nat.page.getByLabel('Address', { exact: true }).fill('12 Smith St, Northbridge');
-  await tap(nat, '15 minutes later');
+  await tap(nat, '15 minutes earlier');   // the pres starts from 7:00 pm, so earlier is always before the sesh
   await tap(nat, 'Save');
   await has(nat, 'Pres address saved.');
   expect('pres address stored', psql(`select address from private.sesh_pres p join public.seshes s on s.id = p.sesh_id where s.creator = '${anaId}' and s.created_at > now() + interval '20 hours'`), '12 Smith St, Northbridge');

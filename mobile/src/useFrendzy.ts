@@ -8,7 +8,7 @@ import { POLL_MS } from './config';
 import { rpc, type ApiError } from './session';
 
 export type Frendzy = {
-  phase: 'loading' | 'ready' | 'web' | 'failed';   // 'web' when only the packed web app can handle this account
+  phase: 'loading' | 'ready' | 'web' | 'computer' | 'failed';   // 'web' when only the packed web app can handle this account; 'computer' for venue and admin accounts, which are desktop only
   state: State | null;
   photos: Record<string, string>;
   username: string | null;
@@ -74,7 +74,8 @@ export function useFrendzy(signedIn: boolean, paused?: boolean): Frendzy {
     setPhase('loading');
     loadGates().then((gates) => {
       if (!alive.current) return;
-      if (gates.twoStep || gates.ageCheck || gates.role !== 'user') { setPhase('web'); return; }
+      if (gates.role !== 'user') { setPhase('computer'); return; }   // venue and admin accounts are for frendzy.au on a computer
+      if (gates.twoStep || gates.ageCheck) { setPhase('web'); return; }
       myAccount().then((a) => { if (alive.current) setUsername((a && a.username) || null); });
       return read(false);
     }, () => { if (alive.current) setPhase('failed'); });

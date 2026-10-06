@@ -15,7 +15,7 @@ import Svg, { Circle, Path, Polyline, Text as SvgText } from 'react-native-svg';
 import { getMessages, reportMessage, seshCrawl, sendMessage, type CrawlStop, type Friend, type Member, type Message, type Sesh as SeshT } from './api';
 import { CHAT_POLL_MS, RADIUS_KM } from './config';
 import Icon from './Icon';
-import { Avatar, Button, Glow, Toast, TopBar } from './Parts';
+import { Avatar, Button, Toast, TopBar } from './Parts';
 import type { ApiError } from './session';
 import type { Frendzy } from './useFrendzy';
 import { C, COLOURS, F, LABELS, first, fmtLeft, fmtTime, fmtWhen } from './theme';
@@ -365,7 +365,6 @@ function Frame({ f, onOpenWeb, scroll, children }: { f: Frendzy; onOpenWeb: (tab
   const me = f.state && f.state.me;
   return (
     <KeyboardAvoidingView style={styles.fill} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      {me ? <Glow colour={me.colour} /> : null}
       <TopBar f={f} onOpenWeb={onOpenWeb} />
       <ScrollView ref={scroll} style={styles.fill} contentContainerStyle={styles.view} keyboardShouldPersistTaps="handled">
         {children}

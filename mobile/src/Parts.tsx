@@ -4,31 +4,25 @@ import { LinearGradient } from 'expo-linear-gradient';
 import React from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Svg, { Defs, LinearGradient as SvgGradient, Rect, Stop } from 'react-native-svg';
 import type { Colour } from './api';
 import Icon from './Icon';
 import Logo from './Logo';
 import type { Frendzy } from './useFrendzy';
 import { C, COLOURS, F, fade, hue, initials } from './theme';
 
-// The top of the screen glows in your status colour, so you can tell at a glance where you are. It reaches up behind
-// the status bar. Drawn as an SVG with many small steps rather than a three-colour gradient, because that gradient
-// showed up on a real Android phone as a hard-edged band.
+// The top of the screen glows in your status colour, so you can tell at a glance where you are. App.tsx draws it
+// from the very top edge, behind the status bar. Plain Views only (no gradient library, no SVG, no shadows), so it
+// renders the same on every phone: many thin strips, each a little less opaque than the one above.
 const GLOW_HEIGHT = 320;
-const GLOW_STOPS = [0, 0.1, 0.2, 0.32, 0.46, 0.62, 0.8, 1].map((at) => ({ at, alpha: 0.5 * Math.pow(1 - at, 2.2) }));
+const STRIP = 5;
+const GLOW_STRIPS = Array.from({ length: GLOW_HEIGHT / STRIP }, (_, i) => 0.5 * Math.pow(1 - (i + 0.5) / (GLOW_HEIGHT / STRIP), 2.2));
 export function Glow({ colour }: { colour: Colour }) {
   const inset = useSafeAreaInsets().top;
   const rgb = COLOURS[colour];
   return (
-    <View pointerEvents="none" style={[styles.glow, { top: -inset, height: GLOW_HEIGHT + inset }]}>
-      <Svg width="100%" height="100%">
-        <Defs>
-          <SvgGradient id="glow" x1="0" y1="0" x2="0" y2="1">
-            {GLOW_STOPS.map((g) => <Stop key={g.at} offset={g.at} stopColor={rgb} stopOpacity={g.alpha} />)}
-          </SvgGradient>
-        </Defs>
-        <Rect x="0" y="0" width="100%" height="100%" fill="url(#glow)" />
-      </Svg>
+    <View pointerEvents="none" style={[styles.glow, { top: 0, height: GLOW_HEIGHT + inset }]}>
+      <View style={{ height: inset, backgroundColor: fade(rgb, GLOW_STRIPS[0]) }} />
+      {GLOW_STRIPS.map((alpha, i) => <View key={i} style={{ height: STRIP, backgroundColor: fade(rgb, alpha) }} />)}
     </View>
   );
 }

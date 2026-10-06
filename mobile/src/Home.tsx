@@ -4,7 +4,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { Colour, Friend } from './api';
 import Icon from './Icon';
-import { Button, Face, Glow, Toast, TopBar } from './Parts';
+import { Button, Face, Toast, TopBar } from './Parts';
 import type { Frendzy } from './useFrendzy';
 import { C, COLOURS, F, LABELS, STATUS_COPY, STATUS_ICON, STOPS, fade, first, fmtLeft, initials } from './theme';
 
@@ -32,7 +32,6 @@ export default function Home({ f, onOpenWeb }: { f: Frendzy; onOpenWeb: (tab: st
 
   return (
     <View style={styles.fill}>
-      <Glow colour={colour} />
       <TopBar f={f} onOpenWeb={onOpenWeb} />
 
       <ScrollView style={styles.fill} contentContainerStyle={styles.view} keyboardShouldPersistTaps="handled">

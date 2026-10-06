@@ -1,5 +1,5 @@
 // The native You page, opened from your face at the top right. It shows the same things in the same words as
-// you(), accountCards(), sec(), safetyCard(), claimCard(), saveForm(), emailCard() and codeCard() in
+// you(), accountCards(), sec(), safetyCard(), saveForm(), emailCard() and codeCard() in
 // docs/app.js, and its taps call the same database functions as the ACT list and the form handlers there.
 // Settings are drop-down sections, as on the web: tap a title to open or close it. Each remembers whether it
 // is open while you move between tabs, and one with something waiting for you (a question, a form step) is
@@ -12,18 +12,17 @@ import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import React, { useCallback, useEffect, useState } from 'react';
 import { KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 import {
-  addFriendByUsername, loadAccount, loadEmailsOn, loadRole, loadSafety,
-  type Account, type Role, type Safety
+  addFriendByUsername, loadAccount, loadEmailsOn, loadSafety,
+  type Account, type Safety
 } from './api';
 import Icon from './Icon';
-import { Avatar, Button, Face, Glow, Toast, TopBar } from './Parts';
+import { Avatar, Button, Face, Toast, TopBar } from './Parts';
 import {
   clearTour, currentSession, emailCode, forgetPhone, rememberPhone, rememberUsername, rpc, setSession, type ApiError
 } from './session';
 import Tour from './Tour';
 import type { Frendzy } from './useFrendzy';
 import { C, COLOURS, F, LABELS, first } from './theme';
-import { useVenues } from './venues';
 
 const WEB_URL: string = (Constants.expoConfig?.extra?.webUrl as string) || 'https://frendzy.au/';
 const INVITE_BASE = 'https://frendzy.au/';
@@ -63,13 +62,12 @@ export default function You({ f, onOpenWeb, onSignedOut }: { f: Frendzy; onOpenW
   // What the page reads besides api_state (loadAccount, loadSafety, loadRole, loadTwoStep in docs/app.js).
   const [account, setAccount] = useState<Account | null | 'off' | undefined>(undefined);
   const [safety, setSafety] = useState<Safety | 'off' | undefined>(undefined);
-  const [role, setRole] = useState<Role | 'off' | undefined>(undefined);
   const [emailsOn, setEmailsOn] = useState(false);
   useEffect(() => {
     let gone = false;
-    Promise.all([loadAccount(), loadSafety(), loadRole(), loadEmailsOn()]).then(([a, sf, r, on]) => {
+    Promise.all([loadAccount(), loadSafety(), loadEmailsOn()]).then(([a, sf, on]) => {
       if (gone) return;
-      setAccount(a); setSafety(sf); setRole(r); setEmailsOn(on);
+      setAccount(a); setSafety(sf); setEmailsOn(on);
     });
     return () => { gone = true; };
   }, []);
@@ -98,9 +96,6 @@ export default function You({ f, onOpenWeb, onSignedOut }: { f: Frendzy; onOpenW
   const [ecError, setEcError] = useState('');
   const [ecBusy, setEcBusy] = useState(false);
 
-  // Asking to run a venue (claimCard).
-  const [claimOpen, setClaimOpen] = useState(false);
-  const [claimError, setClaimError] = useState('');
 
   // A copy of a new recovery code goes to the account's confirmed email (emailRecovery in docs/app.js).
   const emailRecovery = useCallback((c: NewCode | null) => {
@@ -258,12 +253,9 @@ export default function You({ f, onOpenWeb, onSignedOut }: { f: Frendzy; onOpenW
 
   /* ---------- the page ---------- */
   const sf = safety && safety !== 'off' ? safety : null;
-  const r = role && role !== 'off' ? role : null;
-  const claim = r && r.claim;
 
   return (
     <View style={styles.fill}>
-      <Glow colour={me.colour} />
       <TopBar f={f} onOpenWeb={onOpenWeb} />
       <KeyboardAvoidingView style={styles.fill} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView style={styles.fill} contentContainerStyle={styles.view} keyboardShouldPersistTaps="handled">
@@ -391,40 +383,6 @@ export default function You({ f, onOpenWeb, onSignedOut }: { f: Frendzy; onOpenW
                   </View>
                 </>
               ) : null}
-            </Section>
-          ) : null}
-
-          {r && r.role === 'user' ? (
-            <Section k="venue" title="Run a venue?" hint={claim && claim.status === 'pending' ? 'Waiting for Frendzy' : ''} force={claimOpen || !!claimError} onToggle={toggle}>
-              {claim && claim.status === 'pending' && !claimOpen ? (
-                <>
-                  <Text style={[styles.muted, styles.small]}>You asked to run <Text style={styles.strong}>{claim.venue_name}</Text>. The Frendzy team will call to check, then switch this account over.</Text>
-                  <View style={styles.start}>
-                    <Button small ghost label="Cancel the request" onPress={() => f.act('cancel_venue_claim', {}, 'Request cancelled.').then((x) => { if (x) setRole(x); })} />
-                  </View>
-                </>
-              ) : (
-                <>
-                  {claim && claim.status === 'rejected' && !claimOpen ? (
-                    <Text style={[styles.muted, styles.small]}>Your request for <Text style={styles.strong}>{claim.venue_name}</Text> wasn't approved.{claim.note ? ' ' + claim.note : ''}</Text>
-                  ) : null}
-                  {!claimOpen ? (
-                    <>
-                      <Text style={[styles.muted, styles.small]}>Venue accounts list events and deals for their venue. Use a separate account for your venue: once approved, this account loses its friends and can't go out on a sesh.</Text>
-                      <View style={styles.start}>
-                        <Button small label="Set up a venue account" onPress={() => { setClaimOpen(true); setClaimError(''); }} />
-                      </View>
-                    </>
-                  ) : (
-                    <ClaimForm
-                      error={claimError}
-                      onError={setClaimError}
-                      onClose={() => setClaimOpen(false)}
-                      onSent={(x) => { setRole(x); setClaimOpen(false); setClaimError(''); f.say('Request sent. The Frendzy team will be in touch.'); }}
-                    />
-                  )}
-                </>
-              )}
             </Section>
           ) : null}
 
@@ -601,66 +559,6 @@ function Password({ value, onChange, label }: { value: string; onChange: (t: str
         accessibilityLabel={shown ? 'Hide password' : 'Show password'} accessibilityState={{ selected: shown }}>
         <Icon name="eye" size={20} colour={shown ? C.fg : C.muted} />
       </Pressable>
-    </View>
-  );
-}
-
-// "Set up a venue account": pick the venue by name, then who to call (claimCard's form in docs/app.js).
-function ClaimForm({ error, onError, onClose, onSent }: { error: string; onError: (e: string) => void; onClose: () => void; onSent: (r: Role) => void }) {
-  const v = useVenues();
-  const [venue, setVenue] = useState<string | null>(null);
-  const [query, setQuery] = useState('');
-  const [contact, setContact] = useState('');
-  const [phone, setPhone] = useState('');
-  const [abn, setAbn] = useState('');
-  const [message, setMessage] = useState('');
-  const picked = venue ? v.byId[venue] : null;
-  const q = query.trim().toLowerCase();
-  const hits = q.length < 2 ? [] : v.list.filter((x) => String(x.name).toLowerCase().indexOf(q) >= 0).slice(0, 6);
-  const send = () => {
-    if (!venue) { onError('Pick your venue from the list.'); return; }
-    rpc('claim_venue', { p_venue: venue, p_contact: contact, p_phone: phone, p_abn: abn, p_message: message })
-      .then(onSent, (x: Error) => onError(x.message));
-  };
-  return (
-    <View style={styles.stack12}>
-      {picked ? (
-        <View style={[styles.row, styles.between]}>
-          <Text style={[styles.body, styles.grow]}>Venue: <Text style={styles.strong}>{picked.name}</Text></Text>
-          <Button small ghost label="Change" onPress={() => { setVenue(null); setQuery(''); }} />
-        </View>
-      ) : (
-        <>
-          <Field label="Which venue?">
-            <TextInput style={styles.input} value={query} onChangeText={setQuery} placeholder="Start typing its name" placeholderTextColor={C.muted}
-              maxLength={60} autoCorrect={false} accessibilityLabel="Which venue?" />
-          </Field>
-          {q.length >= 2 ? (
-            <View style={styles.stack6}>
-              {hits.length ? hits.map((h) => (
-                <Button key={h.id} small ghost label={h.name + (h.kind ? '  ' + h.kind : '')} onPress={() => setVenue(h.id)} />
-              )) : <Text style={[styles.muted, styles.small]}>No venue by that name. Contact the Frendzy team to have it added.</Text>}
-            </View>
-          ) : null}
-        </>
-      )}
-      <Field label="Your name">
-        <TextInput style={styles.input} value={contact} onChangeText={setContact} autoComplete="name" maxLength={60} accessibilityLabel="Your name" />
-      </Field>
-      <Field label="Phone number" note="Frendzy calls to check you run the venue. Deleted once we decide.">
-        <TextInput style={styles.input} value={phone} onChangeText={setPhone} keyboardType="phone-pad" autoComplete="tel" maxLength={20} accessibilityLabel="Phone number" />
-      </Field>
-      <Field label="ABN (optional)">
-        <TextInput style={styles.input} value={abn} onChangeText={setAbn} keyboardType="number-pad" maxLength={14} accessibilityLabel="ABN (optional)" />
-      </Field>
-      <Field label="Anything else (optional)">
-        <TextInput style={styles.input} value={message} onChangeText={setMessage} maxLength={300} accessibilityLabel="Anything else (optional)" />
-      </Field>
-      {error ? <Text style={styles.error}>{error}</Text> : null}
-      <View style={styles.row}>
-        <Button small label="Send request" onPress={send} />
-        <Button small ghost label="Cancel" onPress={() => { onError(''); onClose(); }} />
-      </View>
     </View>
   );
 }

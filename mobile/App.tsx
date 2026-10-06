@@ -10,9 +10,11 @@ import { useFonts } from 'expo-font';
 import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { BackHandler, Linking, Platform, Pressable, Share, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView, type WebViewMessageEvent, type WebViewNavigation } from 'react-native-webview';
+import type { Colour } from './src/api';
 import Home from './src/Home';
+import { Glow } from './src/Parts';
 import Sesh from './src/Sesh';
 import Tabs from './src/Tabs';
 import You from './src/You';
@@ -76,6 +78,21 @@ function inviteFrom(url: string | null): string | null {
 }
 function pageFor(invite: string | null): string {
   return invite ? WEB_URL + '?invite=' + encodeURIComponent(invite) : WEB_URL;
+}
+
+// The screen's base: the background colour over the whole phone, the status glow (native tabs only) drawn from the
+// very top edge, and the content kept clear of the status bar, notch and home bar. The glow is outside the padded
+// area on purpose, so it reaches behind the status bar.
+function Layer({ glow, children }: { glow?: Colour; children: React.ReactNode }) {
+  const inset = useSafeAreaInsets();
+  return (
+    <View style={styles.root}>
+      {glow ? <Glow colour={glow} /> : null}
+      <View style={[styles.fill, styles.clear, { paddingTop: inset.top, paddingBottom: inset.bottom, paddingLeft: inset.left, paddingRight: inset.right }]}>
+        {children}
+      </View>
+    </View>
+  );
 }
 
 function Shell() {
@@ -220,29 +237,29 @@ function Shell() {
 
   if (failed) {
     return (
-      <View style={styles.offline}>
+      <Layer><View style={styles.offline}>
         <Text style={styles.title}>No connection</Text>
         <Text style={styles.body}>Frendzy needs the internet to see who's out. Check your signal and try again.</Text>
         <Pressable style={styles.button} onPress={() => { setFailed(false); f.retry(); web.current?.reload(); }} accessibilityRole="button">
           <Text style={styles.buttonText}>Try again</Text>
         </Pressable>
-      </View>
+      </View></Layer>
     );
   }
   // The native screens could not reach the database at all.
   if (signedIn && f.phase === 'failed') {
     return (
-      <View style={styles.offline}>
+      <Layer><View style={styles.offline}>
         <Text style={styles.title}>No connection</Text>
         <Text style={styles.body}>Frendzy needs the internet to see who's out. Check your signal and try again.</Text>
         <Pressable style={styles.button} onPress={f.retry} accessibilityRole="button">
           <Text style={styles.buttonText}>Try again</Text>
         </Pressable>
-      </View>
+      </View></Layer>
     );
   }
 
-  if (!page || session === undefined || (signedIn && f.phase === 'loading')) return <View style={styles.fill} />;
+  if (!page || session === undefined || (signedIn && f.phase === 'loading')) return <Layer><View style={styles.fill} /></Layer>;
 
   const webView = (
     <WebView
@@ -280,16 +297,28 @@ function Shell() {
 
   // Not signed in, or an account the native screens don't cover yet (a login code, the 18+ check, a venue
   // account): the packed page runs the whole app, with its own tab bar.
-  if (!native) return webView;
+  if (signedIn && f.phase === 'computer') {
+    return (
+      <Layer><View style={styles.offline}>
+        <Text style={styles.title}>Use frendzy.au on a computer</Text>
+        <Text style={styles.body}>Venue and admin accounts are run from a computer. The phone app is for people going out.</Text>
+        <Pressable style={styles.button} onPress={() => setSession(null)} accessibilityRole="button">
+          <Text style={styles.buttonText}>Log out</Text>
+        </Pressable>
+      </View></Layer>
+    );
+  }
+
+  if (!native) return <Layer>{webView}</Layer>;
 
   return (
-    <View style={styles.fill}>
+    <Layer glow={onWeb ? undefined : me ? me.colour : undefined}>
       {onWeb ? webView
         : tab === 'sesh' ? <Sesh f={f} onOpenWeb={pickTab} onVenue={openVenue} />
         : tab === 'you' ? <You f={f} onOpenWeb={pickTab} onSignedOut={signedOut} />
         : <Home f={f} onOpenWeb={pickTab} />}
       <Tabs tab={tab === 'venue' ? 'sesh' : tab} requests={f.state ? f.state.requests_in.length : 0} onPick={pickTab} />
-    </View>
+    </Layer>
   );
 }
 
@@ -305,10 +334,8 @@ export default function App() {
   });
   return (
     <SafeAreaProvider>
-      <SafeAreaView style={styles.root} edges={['top', 'bottom', 'left', 'right']}>
-        <StatusBar style="light" />
-        {fontsReady ? <Shell /> : <View style={styles.fill} />}
-      </SafeAreaView>
+      <StatusBar style="light" />
+      {fontsReady ? <Shell /> : <Layer><View style={styles.fill} /></Layer>}
     </SafeAreaProvider>
   );
 }
@@ -316,6 +343,7 @@ export default function App() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: BG },
   fill: { flex: 1, backgroundColor: BG },
+  clear: { backgroundColor: 'transparent' },
   offline: { flex: 1, backgroundColor: BG, alignItems: 'center', justifyContent: 'center', padding: 32 },
   title: { color: FG, fontSize: 24, fontWeight: '800', marginBottom: 12 },
   body: { color: FG, opacity: 0.8, fontSize: 16, lineHeight: 22, textAlign: 'center', marginBottom: 24 },
