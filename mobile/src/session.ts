@@ -7,6 +7,12 @@ import { Platform } from 'react-native';
 import { API_KEY, API_URL } from './config';
 
 export const SESSION_KEY = 'seshhon-session-v1';
+// Other things the web page keeps in its own storage that the native screens also change (see pageStore below).
+export const DEVICE_KEY = 'seshhon-remembered-phone';   // per account: the secret that lets this phone skip the email code
+export const LAST_USER_KEY = 'seshhon-last-username';    // filled in on the login screen next time
+export const TOUR_KEY = 'seshhon-tour-pending';          // the walkthrough still to show after sign-up
+export const PAGE_KEYS = [DEVICE_KEY, LAST_USER_KEY, TOUR_KEY];
+const PAGE_STORE_KEY = 'seshhon-page-store';
 
 export type Session = {
   access_token: string;
@@ -21,22 +27,86 @@ export type ApiError = Error & { status?: number; code?: string; signedOut?: boo
 /* ---------- where the sign-in is kept ---------- */
 // The phone keeps it in secure storage. In a browser (Expo's web target, used for trying the screens out)
 // there is no secure storage, so it sits in localStorage, the same place the web app keeps it.
-async function readStored(): Promise<string | null> {
+async function readStored(key = SESSION_KEY): Promise<string | null> {
   try {
-    if (Platform.OS === 'web') return typeof localStorage === 'undefined' ? null : localStorage.getItem(SESSION_KEY);
-    return await SecureStore.getItemAsync(SESSION_KEY);
+    if (Platform.OS === 'web') return typeof localStorage === 'undefined' ? null : localStorage.getItem(key);
+    return await SecureStore.getItemAsync(key);
   } catch (e) { return null; }
 }
-function writeStored(text: string | null) {
+function writeStored(text: string | null, key = SESSION_KEY) {
   try {
     if (Platform.OS === 'web') {
       if (typeof localStorage === 'undefined') return;
-      if (text === null) localStorage.removeItem(SESSION_KEY); else localStorage.setItem(SESSION_KEY, text);
+      if (text === null) localStorage.removeItem(key); else localStorage.setItem(key, text);
       return;
     }
-    if (text === null) SecureStore.deleteItemAsync(SESSION_KEY).catch(() => {});
-    else SecureStore.setItemAsync(SESSION_KEY, text).catch(() => {});
+    if (text === null) SecureStore.deleteItemAsync(key).catch(() => {});
+    else SecureStore.setItemAsync(key, text).catch(() => {});
   } catch (e) {}
+}
+
+/* ---------- the web page's other stored things ---------- */
+// The native You page does things the web page used to do itself: it remembers this phone after an email
+// code (so the next login on it skips the code), notes the username for the login screen, and on log out or
+// delete clears the walkthrough flag, the username and the remembered phone. Those live in the web page's own
+// storage, which the native side can't reach directly. So the app keeps its own copy here (in secure
+// storage, as the remembered-phone token is a secret), hands it to the page before the page's scripts run,
+// and the page reports back whenever it changes one itself.
+// A value is the exact text the page keeps (JSON), or null for "not there". A key the app has never heard
+// about is left as the page has it. The remembered phones are per account, so they are merged instead of
+// replaced: an account set to null here is taken off the page's list.
+let pageStore: Record<string, string | null> = {};
+async function loadPageStore() {
+  const text = await readStored(PAGE_STORE_KEY);
+  try { const p = text ? JSON.parse(text) : null; pageStore = p && typeof p === 'object' ? p : {}; } catch (e) { pageStore = {}; }
+}
+function savePageStore() { writeStored(JSON.stringify(pageStore), PAGE_STORE_KEY); }
+// The page said it changed one of these itself (sign-up, login, the walkthrough).
+export function pageStored(key: string, value: string | null) {
+  if (PAGE_KEYS.indexOf(key) < 0) return;
+  pageStore[key] = value;
+  savePageStore();
+}
+function setPageValue(key: string, value: unknown) {
+  pageStore[key] = value === null || value === undefined ? null : JSON.stringify(value);
+  savePageStore();
+}
+export function rememberUsername(username: string | null) { setPageValue(LAST_USER_KEY, username); }
+export function clearTour() { setPageValue(TOUR_KEY, null); }
+function phones(): Record<string, string | null> {
+  try { const p = JSON.parse(pageStore[DEVICE_KEY] || 'null'); return p && typeof p === 'object' ? p : {}; } catch (e) { return {}; }
+}
+export function forgetPhone(userId: string) {
+  const all = phones();
+  all[userId] = null;
+  pageStore[DEVICE_KEY] = JSON.stringify(all);
+  savePageStore();
+}
+// rememberPhone in docs/app.js: after the email code, this phone keeps a secret that skips the code for 30 days.
+export function rememberPhone(): Promise<void> {
+  const uid = session && session.user_id;
+  if (!uid) return Promise.resolve();
+  return rpc<string | null>('two_step_remember_device').then((token) => {
+    const all = phones();
+    all[uid] = token || null;
+    pageStore[DEVICE_KEY] = JSON.stringify(all);
+    savePageStore();
+  }, () => {});   // an older database without it: the code is just asked for next time
+}
+// The script that puts the app's copy into the page's storage, before the page's own scripts run.
+export function pageStoreScript(): string {
+  const lines: string[] = [];
+  Object.keys(pageStore).forEach((key) => {
+    if (PAGE_KEYS.indexOf(key) < 0) return;
+    const value = pageStore[key];
+    if (key === DEVICE_KEY && value !== null) {
+      lines.push(`(function () { var mine = {}, all = {}; try { mine = JSON.parse(${JSON.stringify(value)}) || {}; } catch (e) {} try { all = JSON.parse(localStorage.getItem(${JSON.stringify(key)}) || '{}') || {}; } catch (e) {}
+    for (var k in mine) { if (mine[k]) all[k] = mine[k]; else delete all[k]; }
+    localStorage.setItem(${JSON.stringify(key)}, JSON.stringify(all)); })();`);
+    } else if (value === null) lines.push(`localStorage.removeItem(${JSON.stringify(key)});`);
+    else lines.push(`localStorage.setItem(${JSON.stringify(key)}, ${JSON.stringify(value)});`);
+  });
+  return lines.join('\n    ');
 }
 function tidy(value: unknown): Session | null {
   const s = value as Session | null;
@@ -62,6 +132,7 @@ function tell() { watchers.forEach((fn) => fn(session)); }
 
 // Read the sign-in off the phone at start-up.
 export async function loadStoredSession(): Promise<Session | null> {
+  await loadPageStore();
   const text = await readStored();
   let parsed: unknown = null;
   try { parsed = text ? JSON.parse(text) : null; } catch (e) {}
@@ -154,4 +225,19 @@ export async function rpc<T = any>(fn: string, args?: Record<string, unknown>, r
   }
   if (!res.ok) throw new Error((json && json.message) || 'Something went wrong. Try again.');
   return json as T;
+}
+
+// Login codes are emailed by the email-code Edge Function, which holds the email service key (emailCode in docs/app.js).
+export async function emailCode(action: string, extra?: Record<string, unknown>): Promise<{ sent?: boolean; hint?: string }> {
+  if (session && session.expires_at - Date.now() / 1000 < 60) await refreshSession();
+  if (!session) throw new Error('You have been signed out.');
+  const res = await fetch(API_URL + '/functions/v1/email-code', {
+    method: 'POST',
+    headers: { apikey: API_KEY, Authorization: 'Bearer ' + session.access_token, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action, ...(extra || {}) })
+  });
+  let json: any = null;
+  try { json = await res.json(); } catch (e) {}
+  if (!res.ok) throw new Error((json && json.message) || 'The email could not be sent. Try again soon.');
+  return json || {};
 }

@@ -8,7 +8,7 @@ import { POLL_MS } from './config';
 import { rpc, type ApiError } from './session';
 
 export type Frendzy = {
-  phase: 'loading' | 'ready' | 'web' | 'failed';   // 'web' when only the packed web app can handle this account
+  phase: 'loading' | 'ready' | 'web' | 'computer' | 'failed';   // 'web' when only the packed web app can handle this account; 'computer' for venue and admin accounts, which are desktop only
   state: State | null;
   photos: Record<string, string>;
   username: string | null;
@@ -25,6 +25,7 @@ export type Frendzy = {
   act: (fn: string, args?: Record<string, unknown>, okMsg?: string | null) => Promise<any>;
   acting: () => boolean;   // true while a tap is still running, so the chat poll waits as on the web
   refresh: () => Promise<void>;
+  setUsername: (username: string | null) => void;   // the You page changed it
 };
 
 // paused: the packed web page is on screen and looking after itself, so the native poll waits.
@@ -73,7 +74,8 @@ export function useFrendzy(signedIn: boolean, paused?: boolean): Frendzy {
     setPhase('loading');
     loadGates().then((gates) => {
       if (!alive.current) return;
-      if (gates.twoStep || gates.ageCheck || gates.role !== 'user') { setPhase('web'); return; }
+      if (gates.role !== 'user') { setPhase('computer'); return; }   // venue and admin accounts are for frendzy.au on a computer
+      if (gates.twoStep || gates.ageCheck) { setPhase('web'); return; }
       myAccount().then((a) => { if (alive.current) setUsername((a && a.username) || null); });
       return read(false);
     }, () => { if (alive.current) setPhase('failed'); });
@@ -143,5 +145,5 @@ export function useFrendzy(signedIn: boolean, paused?: boolean): Frendzy {
   const acting = useCallback(() => waiting.current > 0, []);
   const refresh = useCallback(() => read(true), [read]);
 
-  return { phase, state, photos, username, offline, toast, busy, setColour, answer, addFriend, retry, say, act, acting, refresh };
+  return { phase, state, photos, username, offline, toast, busy, setColour, answer, addFriend, retry, say, act, acting, refresh, setUsername };
 }

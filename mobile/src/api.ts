@@ -32,6 +32,9 @@ export type CrawlStop = { venue_id: string; position: number; done: boolean; min
 // A venue, as api_venues() sends it.
 export type Venue = { id: string; name: string; kind?: string | null; closes?: string | null; hours?: string | null; is_example?: boolean };
 
+// Someone you blocked (blocked_list), shown on the You page so you can unblock them.
+export type Blocked = { id: string; name: string };
+
 export type State = {
   now: string;
   me: Me | null;
@@ -39,6 +42,7 @@ export type State = {
   requests_in: Request[];
   requests_out: Request[];
   seshes: Sesh[];
+  blocked: Blocked[];
 };
 
 // Every list a screen reads is always a list, even if the database leaves one out (an update not run yet),
@@ -50,9 +54,10 @@ function tidy(data: any): State {
     friends: [],
     requests_in: [],
     requests_out: [],
-    seshes: []
+    seshes: [],
+    blocked: []
   };
-  (['friends', 'requests_in', 'requests_out', 'seshes'] as const).forEach((k) => {
+  (['friends', 'requests_in', 'requests_out', 'seshes', 'blocked'] as const).forEach((k) => {
     if (data && Array.isArray(data[k])) (out as any)[k] = data[k];
   });
   out.seshes.forEach((s) => {
@@ -124,4 +129,25 @@ export function loadPins(): Promise<Record<string, [number, number]>> {
     (Array.isArray(l) ? l : []).forEach((p: any) => { pins[p.id] = [Number(p.lat), Number(p.lng)]; });
     return pins;
   });
+}
+
+/* ---------- the You page ---------- */
+// Each of these is 'off' when the database is older than the feature, and the You page then leaves it out,
+// as loadAccount, loadSafety and loadRole in docs/app.js do.
+export type Account = { username: string; email?: string | null; pending_email?: string | null };
+export type Safety = { gender: string | null; women_only: boolean };
+export type Claim = { status: string; venue_name: string; note?: string | null };
+export type Role = { role: string; claim?: Claim | null };
+export function loadAccount(): Promise<Account | null | 'off'> {
+  return rpc('my_account').then((a: any) => a || null, () => 'off' as const);
+}
+export function loadSafety(): Promise<Safety | 'off'> {
+  return rpc('my_safety').then((sf: any) => sf || { gender: null, women_only: false }, () => 'off' as const);
+}
+export function loadRole(): Promise<Role | 'off'> {
+  return rpc('my_role').then((r: any) => r || { role: 'user' }, () => 'off' as const);
+}
+// Whether login codes by email are switched on in this database (emailsOn in docs/app.js).
+export function loadEmailsOn(): Promise<boolean> {
+  return rpc('two_step_state').then(() => true, () => false);
 }

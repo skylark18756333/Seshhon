@@ -58,6 +58,16 @@
     },
     "extra": {
       "webUrl": "https://frendzy.au/"
-    }
+    },
+    "plugins": [
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Frendzy uses your photos so you can pick a profile photo. Only your friends see it.",
+          "cameraPermission": "Frendzy uses your camera for the 18+ age check selfie. The photo goes to our age check provider and is not kept by Frendzy.",
+          "microphonePermission": false
+        }
+      ]
+    ]
   }
 }
