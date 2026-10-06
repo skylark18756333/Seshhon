@@ -1,6 +1,7 @@
-// Frendzy phone app. Home, Sesh and You are native screens; every other tab (map, venues, events, and signing
-// up or logging in) is the web app in docs/, packed into the app by scripts/bundle-web.mjs, so it opens on its
-// own without loading the website. Both halves talk to the same database over the internet.
+// Frendzy phone app. Signing up, logging in (with its email code and the 18+ check), Home, Sesh and You are native
+// screens; the map, venues and events tabs are the web app in docs/, packed into the app by scripts/bundle-web.mjs,
+// so they open on their own without loading the website. Only the "are you human" check and the age check
+// provider's page are web pages on the sign-up and login screens. Both halves talk to the same database over the internet.
 // The app owns the sign-in: it keeps it in the phone's secure storage and hands it to the packed page, which
 // is shown as if it were at frendzy.au, so logins, the human check and invite links work as on the web.
 // The shell adds what a web page can't do well on a phone: the native share sheet, the Android back
@@ -14,13 +15,18 @@ import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-cont
 import { WebView, type WebViewMessageEvent, type WebViewNavigation } from 'react-native-webview';
 import type { Colour } from './src/api';
 import Home from './src/Home';
-import { Glow } from './src/Parts';
+import AgeCheck from './src/AgeCheck';
+import Auth, { type AuthDone, type AuthStart } from './src/Auth';
+import { Glow, Toast } from './src/Parts';
+import { registerPushToken } from './src/push';
 import Sesh from './src/Sesh';
 import Tabs from './src/Tabs';
+import Tour from './src/Tour';
+import TwoStep from './src/TwoStep';
 import You from './src/You';
-import { C } from './src/theme';
+import { C, first } from './src/theme';
 import { useFrendzy } from './src/useFrendzy';
-import { SESSION_KEY, loadStoredSession, onSessionChange, pageStoreScript, pageStored, sessionForPage, setSession, type Session } from './src/session';
+import { SESSION_KEY, clearTour, currentSession, loadStoredSession, onSessionChange, pageStoreScript, pageStored, pendingInvite, rpc, sessionForPage, setPendingInvite, setSession, tourPending, type ApiError, type Session } from './src/session';
 import APP_HTML from './web/app-html.generated';
 
 const BG = C.bg;
@@ -37,16 +43,14 @@ const AGE_CHECK_HOSTS = ['https://verify.didit.me/', 'https://age.yoti.com'];
 const PAGE_TABS = ['home', 'sesh', 'map', 'venues', 'events', 'you'];
 const NATIVE_TABS = ['home', 'sesh', 'you'];   // the tabs with a native screen
 // venue: open the page on that venue's page (from the native Sesh tab); closing it goes back to the Sesh tab.
-// note: a line for the page to show when it opens (after a log out or a deleted account on the native You page).
-function bridge(tab: string | null, venue: string | null, note: string | null): string {
+function bridge(tab: string | null, venue: string | null): string {
   const saved = sessionForPage();
   const want = venue ? 'sesh' : tab && PAGE_TABS.indexOf(tab) >= 0 ? tab : 'home';
   return `
 (function () {
   window.SESHHON_NATIVE = ${JSON.stringify(Platform.OS)};
   window.SESHHON_TAB = ${JSON.stringify(want)};${venue ? `
-  window.SESHHON_VENUE = ${JSON.stringify(venue)};` : ''}${note ? `
-  window.SESHHON_TOAST = ${JSON.stringify(note)};` : ''}
+  window.SESHHON_VENUE = ${JSON.stringify(venue)};` : ''}
   // The app is where the sign-in lives, so the page is given it before the page looks for one of its own.
   try {
     ${saved
@@ -82,9 +86,6 @@ function inviteFrom(url: string | null): string | null {
   const path = url.match(/^seshhon:\/\/invite\/([A-Za-z0-9_-]{1,16})/);
   return path ? path[1] : null;
 }
-function pageFor(invite: string | null): string {
-  return invite ? WEB_URL + '?invite=' + encodeURIComponent(invite) : WEB_URL;
-}
 
 // The screen's base: the background colour over the whole phone, the status glow (native tabs only) drawn from the
 // very top edge, and the content kept clear of the status bar, notch and home bar. The glow is outside the padded
@@ -110,9 +111,15 @@ function Shell() {
   const [failed, setFailed] = useState(false);
   // The sign-in, read off the phone at start-up: undefined while it is being read, null when nobody is signed in.
   const [session, setLocalSession] = useState<Session | null | undefined>(undefined);
-  // True while the packed page is in the middle of signing someone up or in: it keeps the screen until it says
-  // it is done, so the recovery code, the login code and the age check are never cut short by the native Home.
-  const [webOwns, setWebOwns] = useState(false);
+  // True while the native sign-up or login screens are in the middle of something that needs a sign-in to exist
+  // (the age check, the email code, the recovery code): they keep the screen until they say they are done, so
+  // those steps are never cut short by the native Home.
+  const [authOwns, setAuthOwns] = useState(false);
+  // Which sign-in screen opens first, and a line for it to show (after a log out or a deleted account).
+  const [authStart, setAuthStart] = useState<AuthStart>('join');
+  // The walkthrough, shown over Home after sign-up until it is finished or skipped.
+  const [tour, setTour] = useState(false);
+  const [inviteTick, setInviteTick] = useState(0);
   // Which tab is open. 'home' and 'sesh' are native screens; anything else is the packed page, shown on that
   // tab. 'venue' is the packed page showing one venue, opened from the native Sesh tab.
   const [tab, setTab] = useState('home');
@@ -120,31 +127,38 @@ function Shell() {
   // The tab to go back to from the You page (Android back button).
   const [before, setBefore] = useState('home');
   // A line for the page to show once it opens, after the native You page logged out or deleted the account.
-  const [pageNote, setPageNote] = useState<string | null>(null);
+  const [pageNote, setPageNote] = useState<string | null>(null);   // read when the sign-in screen opens
 
   const signedIn = !!session;
   const onWeb = !NATIVE_TABS.includes(tab);
-  const f = useFrendzy(signedIn, onWeb);
+  const f = useFrendzy(signedIn && !authOwns, onWeb);
   const me = f.state && f.state.me;
-  const native = signedIn && f.phase === 'ready' && !!me && !webOwns;
+  const native = signedIn && !authOwns && f.phase === 'ready' && !!me;
+  // Signed out, in the middle of signing up, or signed in as someone who never finished making an account.
+  const needsAuth = session !== undefined && (!signedIn || authOwns || (f.phase === 'ready' && !me));
 
   // Open on the invite the app was launched with, and follow invite links tapped while it is open.
   useEffect(() => {
-    Linking.getInitialURL().then((url) => setPage(pageFor(inviteFrom(url)))).catch(() => setPage(WEB_URL));
+    // The invite code is kept until someone is signed in (the sign-up screen says a friend invited you), then the
+    // friend request is sent (sendPendingInvite in docs/app.js).
+    Linking.getInitialURL().then((url) => {
+      const invite = inviteFrom(url);
+      if (invite) { setPendingInvite(invite); setInviteTick((n) => n + 1); }
+      setPage(WEB_URL);
+    }).catch(() => setPage(WEB_URL));
     const sub = Linking.addEventListener('url', ({ url }) => {
       const invite = inviteFrom(url);
-      // An invite is accepted by the web half, so the page opens on it.
-      if (invite) { setFailed(false); setTab('invite'); setPage(pageFor(invite)); setOpens((n) => n + 1); }
+      if (invite) { setPendingInvite(invite); setInviteTick((n) => n + 1); }
     });
     return () => sub.remove();
   }, []);
 
   // The sign-in: read it once, then follow it (the page tells the app when it changes, and so does a log out).
   useEffect(() => {
-    loadStoredSession().then((s) => { setLocalSession(s); if (!s) setWebOwns(true); });
+    loadStoredSession().then((s) => { setLocalSession(s); if (!s) setAuthOwns(true); });
     return onSessionChange((s) => {
       setLocalSession(s);
-      if (!s) { setTab('home'); setWebOwns(true); }   // signed out: the page shows sign-up and login again
+      if (!s) { setTab('home'); setAuthOwns(true); }   // signed out: the sign-up and login screens show again
     });
   }, []);
 
@@ -168,10 +182,9 @@ function Shell() {
   const onMessage = useCallback((e: WebViewMessageEvent) => {
     let msg: { type?: string; data?: { title?: string; text?: string; url?: string }; session?: Session | null; tab?: unknown } | null = null;
     try { msg = JSON.parse(e.nativeEvent.data); } catch { return; }
-    // The page is past sign-up and the checks, so the native screens can take over.
-    if (msg?.type === 'ready') { setWebOwns(false); setPageNote(null); return; }
+    if (msg?.type === 'ready') return;   // the packed page is past its own sign-in (the native screens do that now)
     // The page's sign-in changed (sign-up, login, a refreshed token, log out): the app keeps the new one.
-    if (msg?.type === 'session') { setSession(msg.session || null); if (msg.session) setPageNote(null); return; }
+    if (msg?.type === 'session') { setSession(msg.session || null); return; }
     // The page changed something else the native screens also keep (remembered phone, last username, tour).
     if (msg?.type === 'store') {
       const m = msg as { key?: unknown; value?: unknown };
@@ -232,14 +245,44 @@ function Shell() {
     setPage(WEB_URL); setOpens((n) => n + 1);
   }, []);
 
-  // The native You page logged out or deleted the account (it already cleared the sign-in): the page opens
-  // fresh, without the sign-in, and says what happened.
+  // The native You page logged out or deleted the account (it already cleared the sign-in): the login screen
+  // opens and says what happened.
   const signedOut = useCallback((note: string) => {
     setPageNote(note);
-    setFailed(false);
+    setAuthStart('join');
+    setTour(false);
     setVenue(null);
-    setPage(WEB_URL); setOpens((n) => n + 1);
   }, []);
+
+  // The sign-up and login screens are done (a login, or the recovery code saved after sign-up): the native
+  // screens load, and a new account gets the tour.
+  const authDone = useCallback((r: AuthDone) => {
+    setPageNote(null);
+    setAuthOwns(false);
+    if (r.you) { setBefore('home'); setTab('you'); } else setTab('home');
+    if (r.tour) setTour(true);
+    if (r.note) setTimeout(() => f.say(r.note as string), 600);
+    f.retry();
+  }, [f.retry, f.say]);
+
+  // Everything the native screens do once a person is signed in and the screens are up.
+  useEffect(() => {
+    if (!native) return;
+    const s = currentSession();
+    registerPushToken(s ? s.user_id : null).catch(() => {});   // the spot for push notifications (not built yet)
+    if (tourPending()) setTour(true);
+  }, [native]);
+  // An invite link opened before or after signing in: the friend request goes out as soon as there is an account.
+  useEffect(() => {
+    if (!native || !pendingInvite()) return;
+    const code = pendingInvite() as string;
+    setPendingInvite(null);
+    rpc('request_friend', { p_code: code }).then((r: any) => {
+      if (r && r.state === 'accepted') f.say('You and ' + first(r.name) + ' are now friends.');
+      else if (r) f.say('Friend request sent to ' + first(r.name) + '.');
+      f.refresh();
+    }, (e: ApiError) => { if (!e.signedOut) f.say(e.message); });
+  }, [native, inviteTick]);
 
   if (failed) {
     return (
@@ -265,7 +308,27 @@ function Shell() {
     );
   }
 
-  if (!page || session === undefined || (signedIn && f.phase === 'loading')) return <Layer><View style={styles.fill} /></Layer>;
+  if (!page || session === undefined) return <Layer><View style={styles.fill} /></Layer>;
+
+  // Not signed in, or in the middle of signing up: the native sign-up and login screens.
+  if (needsAuth) return <Layer><Auth start={authStart} note={pageNote} onDone={authDone} /></Layer>;
+
+  // The emailed login code, and the 18+ check, for an account that has just logged in.
+  if (signedIn && f.phase === 'twostep') {
+    return (
+      <Layer>
+        <TwoStep
+          onDone={f.retry}
+          onRecover={() => { setAuthStart('recover'); setSession(null); }}
+          onCancel={() => { clearTour(); setAuthStart('join'); setSession(null); }}
+        />
+      </Layer>
+    );
+  }
+  if (signedIn && f.phase === 'age') {
+    return <Layer><AgeCheck onPassed={() => { f.say("Thanks, you're verified."); f.retry(); }} /><Toast text={f.toast} /></Layer>;
+  }
+  if (signedIn && f.phase === 'loading') return <Layer><View style={styles.fill} /></Layer>;
 
   const webView = (
     <WebView
@@ -275,7 +338,7 @@ function Shell() {
       style={styles.clearFill}
       containerStyle={styles.clearFill}
       originWhitelist={['https://*', 'http://*', 'about:*']}
-      injectedJavaScriptBeforeContentLoaded={bridge(tab, tab === 'venue' ? venue : null, pageNote)}
+      injectedJavaScriptBeforeContentLoaded={bridge(tab, tab === 'venue' ? venue : null)}
       injectedJavaScript={native ? HIDE_PAGE_TABS : undefined}
       onMessage={onMessage}
       onShouldStartLoadWithRequest={onNavigate}
@@ -301,21 +364,20 @@ function Shell() {
     />
   );
 
-  // Not signed in, or an account the native screens don't cover yet (a login code, the 18+ check, a venue
-  // account): the packed page runs the whole app, with its own tab bar.
+  // Venue and admin accounts are run from a computer.
   if (signedIn && f.phase === 'computer') {
     return (
       <Layer><View style={styles.offline}>
         <Text style={styles.title}>Use frendzy.au on a computer</Text>
         <Text style={styles.body}>Venue and admin accounts are run from a computer. The phone app is for people going out.</Text>
-        <Pressable style={styles.button} onPress={() => setSession(null)} accessibilityRole="button">
+        <Pressable style={styles.button} onPress={() => { clearTour(); setAuthStart('join'); setSession(null); }} accessibilityRole="button">
           <Text style={styles.buttonText}>Log out</Text>
         </Pressable>
       </View></Layer>
     );
   }
 
-  if (!native) return <Layer>{webView}</Layer>;
+  if (!native) return <Layer><View style={styles.fill} /></Layer>;
 
   return (
     <Layer glow={me ? me.colour : undefined}>
@@ -324,6 +386,7 @@ function Shell() {
         : tab === 'you' ? <You f={f} onOpenWeb={pickTab} onSignedOut={signedOut} />
         : <Home f={f} onOpenWeb={pickTab} />}
       <Tabs tab={tab === 'venue' ? 'sesh' : tab} requests={f.state ? f.state.requests_in.length : 0} onPick={pickTab} />
+      {tour && me ? <Tour name={first(me.name)} onClose={() => { clearTour(); setTour(false); }} /> : null}
     </Layer>
   );
 }

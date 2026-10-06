@@ -5,10 +5,10 @@ import { AppState } from 'react-native';
 import { addFriendByUsername, answerFriend, friendPhotos, loadGates, loadState, myAccount, setStatus } from './api';
 import type { Colour, State } from './api';
 import { POLL_MS } from './config';
-import { rpc, type ApiError } from './session';
+import { rpc, tryRememberedPhone, type ApiError } from './session';
 
 export type Frendzy = {
-  phase: 'loading' | 'ready' | 'web' | 'computer' | 'failed';   // 'web' when only the packed web app can handle this account; 'computer' for venue and admin accounts, which are desktop only
+  phase: 'loading' | 'ready' | 'twostep' | 'age' | 'computer' | 'failed';   // 'twostep' waits for the emailed login code, 'age' for the 18+ check; 'computer' is for venue and admin accounts, which are desktop only
   state: State | null;
   photos: Record<string, string>;
   username: string | null;
@@ -67,15 +67,21 @@ export function useFrendzy(signedIn: boolean, paused?: boolean): Frendzy {
     }
   }, [say]);
 
-  // Start-up: the rare screens the native side doesn't have (login code, age check, venue accounts) go to the web app.
+  // Start-up: the login code and the age check have their own screens, and venue accounts are sent to a computer.
   useEffect(() => {
     alive.current = true;
     if (!signedIn) { setPhase('loading'); return () => { alive.current = false; }; }
     setPhase('loading');
-    loadGates().then((gates) => {
+    loadGates().then(async (gates) => {
       if (!alive.current) return;
+      if (gates.twoStep) {
+        // A phone that already confirmed an email code skips it (migration 0023); the gates are then read again.
+        if (await tryRememberedPhone()) { if (alive.current) setTries((n) => n + 1); return; }
+        if (alive.current) setPhase('twostep');
+        return;
+      }
       if (gates.role !== 'user') { setPhase('computer'); return; }   // venue and admin accounts are for frendzy.au on a computer
-      if (gates.twoStep || gates.ageCheck) { setPhase('web'); return; }
+      if (gates.ageCheck) { setPhase('age'); return; }
       myAccount().then((a) => { if (alive.current) setUsername((a && a.username) || null); });
       return read(false);
     }, () => { if (alive.current) setPhase('failed'); });

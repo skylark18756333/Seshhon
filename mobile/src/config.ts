@@ -9,3 +9,5 @@ export const CHAT_POLL_MS = Number(process.env.EXPO_PUBLIC_CHAT_POLL_MS) || 2500
 // Where distances are measured from, as on the web app's map until someone picks a spot: Perth CBD.
 export const MAP_CENTRE: [number, number] = [-31.9523, 115.8613];
 export const RADIUS_KM = 5;   // the web map's default "How far"
+// The Cloudflare Turnstile site key (public) for the "are you human" check on sign-up and login, as captchaSiteKey in docs/config.js.
+export const CAPTCHA_SITE_KEY = String(process.env.EXPO_PUBLIC_CAPTCHA_SITE_KEY !== undefined ? process.env.EXPO_PUBLIC_CAPTCHA_SITE_KEY : '0x4AAAAAAFNfIIGCx_1GPNVc');

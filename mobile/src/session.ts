@@ -13,6 +13,9 @@ export const LAST_USER_KEY = 'seshhon-last-username';    // filled in on the log
 export const TOUR_KEY = 'seshhon-tour-pending';          // the walkthrough still to show after sign-up
 export const PAGE_KEYS = [DEVICE_KEY, LAST_USER_KEY, TOUR_KEY];
 const PAGE_STORE_KEY = 'seshhon-page-store';
+// Kept by the native sign-up and login screens (the web page keeps the same things in its own storage).
+const INVITE_KEY = 'seshhon-pending-invite';   // the invite code from a link, until the friend request is sent
+const UNDERAGE_KEY = 'seshhon-under-18';       // this phone was told Frendzy is for 18 and over
 
 export type Session = {
   access_token: string;
@@ -59,7 +62,20 @@ let pageStore: Record<string, string | null> = {};
 async function loadPageStore() {
   const text = await readStored(PAGE_STORE_KEY);
   try { const p = text ? JSON.parse(text) : null; pageStore = p && typeof p === 'object' ? p : {}; } catch (e) { pageStore = {}; }
+  invite = await readStored(INVITE_KEY);
+  underage = (await readStored(UNDERAGE_KEY)) === '1';
 }
+let invite: string | null = null;
+let underage = false;
+// An invite link was opened (INVITE_KEY in docs/app.js): kept until someone is signed in and the request is sent.
+export function pendingInvite(): string | null { return invite; }
+export function setPendingInvite(code: string | null) {
+  invite = code ? String(code).slice(0, 16) : null;
+  writeStored(invite, INVITE_KEY);
+}
+// Under 18 on the sign-up screen: this phone only shows the "18 and over" screen from then on (UNDERAGE_KEY).
+export function isUnderage(): boolean { return underage; }
+export function setUnderage() { underage = true; writeStored('1', UNDERAGE_KEY); }
 function savePageStore() { writeStored(JSON.stringify(pageStore), PAGE_STORE_KEY); }
 // The page said it changed one of these itself (sign-up, login, the walkthrough).
 export function pageStored(key: string, value: string | null) {
@@ -72,7 +88,14 @@ function setPageValue(key: string, value: unknown) {
   savePageStore();
 }
 export function rememberUsername(username: string | null) { setPageValue(LAST_USER_KEY, username); }
+// The username used last time, filled in on the login screen.
+export function lastUsername(): string {
+  try { const v = JSON.parse(pageStore[LAST_USER_KEY] || 'null'); return typeof v === 'string' ? v : ''; } catch (e) { return ''; }
+}
 export function clearTour() { setPageValue(TOUR_KEY, null); }
+// The walkthrough is set at sign-up and cleared once it is finished or skipped, so closing the app mid-tour shows it again.
+export function setTourPending() { setPageValue(TOUR_KEY, true); }
+export function tourPending(): boolean { return !!pageStore[TOUR_KEY] && pageStore[TOUR_KEY] !== 'null'; }
 function phones(): Record<string, string | null> {
   try { const p = JSON.parse(pageStore[DEVICE_KEY] || 'null'); return p && typeof p === 'object' ? p : {}; } catch (e) { return {}; }
 }
@@ -92,6 +115,17 @@ export function rememberPhone(): Promise<void> {
     pageStore[DEVICE_KEY] = JSON.stringify(all);
     savePageStore();
   }, () => {});   // an older database without it: the code is just asked for next time
+}
+// tryRememberedPhone in docs/app.js: a phone that confirmed an email code skips it at its next logins.
+export async function tryRememberedPhone(): Promise<boolean> {
+  const uid = session && session.user_id, token = uid && phones()[uid];
+  if (!uid || !token) return false;
+  try {
+    const ok = await rpc<boolean>('two_step_use_device', { p_token: token });
+    if (!ok) { forgetPhone(uid); return false; }
+    await refreshSession();   // a fresh sign-in token, now with full access
+    return true;
+  } catch (e) { return false; }
 }
 // The script that puts the app's copy into the page's storage, before the page's own scripts run.
 export function pageStoreScript(): string {
@@ -174,9 +208,14 @@ export async function authCall(path: string, body: unknown): Promise<any> {
   try { json = text ? JSON.parse(text) : null; } catch (e) {}
   if (!res.ok) {
     const msg: string = (json && (json.msg || json.message || json.error_description)) || 'Sign-in did not work. Try again.';
-    const err: ApiError = new Error(msg);
+    const code: string = (json && (json.error_code || json.error)) || '';
+    // Supabase answers "captcha protection: request disallowed (...)" when the human check is missing, used or expired.
+    const captcha = code === 'captcha_failed' || /captcha/i.test(msg);
+    // Keep Supabase's reason in brackets (e.g. "invalid-input-secret" means the secret key in Supabase is wrong).
+    const why = (msg.match(/\(([^)]*)\)\s*$/) || [])[1];
+    const err: ApiError = new Error(captcha ? 'The "are you human" check didn\'t go through. Wait for it to finish, then try again.' + (why ? ' (' + why + ')' : '') : msg);
     err.status = res.status;
-    err.code = (json && (json.error_code || json.error)) || '';
+    err.code = captcha ? 'captcha_failed' : code;
     throw err;
   }
   return json;
@@ -240,4 +279,56 @@ export async function emailCode(action: string, extra?: Record<string, unknown>)
   try { json = await res.json(); } catch (e) {}
   if (!res.ok) throw new Error((json && json.message) || 'The email could not be sent. Try again soon.');
   return json || {};
+}
+
+/* ---------- signing up and logging in (signInAnonymously, signInWithPassword and emailLoginName in docs/app.js) ---------- */
+// A new sign-up starts as an anonymous sign-in (checked by the human check); save_account then gives it a username and password.
+export function signInAnonymously(captchaToken: string): Promise<Session> {
+  return authCall('signup', { data: {}, gotrue_meta_security: captchaToken ? { captcha_token: captchaToken } : {} }).then(saveSession);
+}
+// Supabase Auth logs in with an email, so the username becomes an address at a domain that can never receive mail
+// (see supabase/migrations/0008_username_login.sql). No real email is used.
+function loginEmail(username: string): string { return String(username || '').trim().toLowerCase() + '@users.seshon.invalid'; }
+export function signInWithPassword(username: string, password: string, captchaToken: string): Promise<Session> {
+  return authCall('token?grant_type=password', {
+    email: loginEmail(username), password,
+    gotrue_meta_security: captchaToken ? { captcha_token: captchaToken } : {}
+  }).then(saveSession, (e: ApiError) => {
+    // Only a wrong username or password is reported as one; a failed human check says so instead.
+    if (e.code === 'invalid_credentials' || e.code === 'invalid_grant' || /invalid login credentials/i.test(e.message)) throw new Error("That username and password don't match.");
+    throw e;
+  });
+}
+// Logging in with the confirmed email instead (migration 0028): the database gives back the username behind the
+// email, but only to someone with the right password, so it never shows whether an email has an account.
+export async function emailLoginName(email: string, password: string): Promise<string> {
+  const res = await fetch(API_URL + '/rest/v1/rpc/email_login_name', {
+    method: 'POST',
+    headers: { apikey: API_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ p_email: email, p_password: password })
+  });
+  let r: any = null;
+  try { r = await res.json(); } catch (e) {}
+  if (res.status === 404) throw new Error("Logging in with your email isn't switched on yet. Use your username for now.");
+  if (!res.ok || !r || !r.ok) throw new Error((r && r.message) || "That didn't work. Try again.");
+  return r.username;
+}
+
+// The age check runs in a Supabase Edge Function, which holds the provider's keys (ageCheckCall in docs/app.js).
+export async function ageCheckCall(action: string, extra?: Record<string, unknown>): Promise<any> {
+  if (session && session.expires_at - Date.now() / 1000 < 60) await refreshSession();
+  if (!session) {
+    const gone: ApiError = new Error('You have been signed out.');
+    gone.signedOut = true;
+    throw gone;
+  }
+  const res = await fetch(API_URL + '/functions/v1/age-check', {
+    method: 'POST',
+    headers: { apikey: API_KEY, Authorization: 'Bearer ' + session.access_token, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action, ...(extra || {}) })
+  });
+  let json: any = null;
+  try { json = await res.json(); } catch (e) {}
+  if (!res.ok) throw new Error((json && json.message) || 'The age check is not working right now. Try again soon.');
+  return json;
 }
