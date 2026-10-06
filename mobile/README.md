@@ -1,8 +1,36 @@
 # Frendzy phone app (iPhone and Android)
 
-This folder is the app that goes in the App Store and Google Play. It is a native shell around the live
-web app in `docs/`, so the phone app and the web link always show the same thing, and a fix to `docs/`
-reaches every phone without a store update.
+This folder is the app that goes in the App Store and Google Play. It is being rebuilt screen by screen:
+**Home and Sesh are real phone screens** (`src/Home.tsx`, `src/Sesh.tsx`), and every other screen is still the web app in `docs/`,
+packed into the app when it is built (`npm run bundle-web`, which writes `web/app-html.generated.ts`), so
+it opens on its own without loading the website. Both halves use the same database over the internet.
+
+## The two halves
+
+- `src/session.ts` is the sign-in and the two ways of talking to the database (`authCall`, `refreshSession`,
+  `rpc`), ported from `docs/app.js`. The app owns the sign-in: it keeps it in the phone's secure storage
+  (`expo-secure-store`) under the same name the web app uses in the browser, `seshhon-session-v1`.
+- `App.tsx` hands that sign-in to the packed page before the page's own scripts run, so the page opens
+  already signed in. The page tells the app whenever its sign-in changes (sign-up, login, a refreshed token,
+  log out) and the app saves the new one. The page also says when it is past sign-up, the login code and the
+  age check, so none of those steps is cut short by the native Home appearing over them.
+- The Sesh tab (`src/Sesh.tsx`) is native too: joining, starting (open or private), planning for later, the
+  pres address, voting and locking in, the Sesh Map's stops and the chat (with report and block), calling the
+  same database functions as the web app. Venue pages and adding stops or votes from the map open the packed
+  page; when the page goes back to its Sesh tab it tells the app, which shows the native one. The crawl is
+  drawn as a sketch of its stops (no street map); opening hours use `docs/hours.js` itself, copied in as
+  `web/hours.generated.js` by `npm run bundle-web`.
+- The tab bar at the bottom is native. Home and Sesh are native screens; the other tabs open the packed page on that
+  tab (the page is told which tab to open, and which to switch to while it is already open). Signing up or
+  logging in stays on the packed page for now, because of the "are you human" check.
+- Accounts the native screens don't cover yet — waiting for a login code, the 18+ check, venue and admin
+  accounts — are handed to the packed page in full, with its own tab bar.
+
+The fonts in `assets/fonts` are the web app's fonts from `docs/fonts`, saved as `.ttf` (which phones can load)
+instead of `.woff2`. They carry the same licences, which are in that folder.
+
+Because the screens travel inside the app, a change to `docs/` reaches phones only with the next app build.
+Build a new version after web changes, especially ones that go with a database change.
 
 The shell adds the parts a web page can't do well on a phone:
 
@@ -14,7 +42,8 @@ The shell adds the parts a web page can't do well on a phone:
 - "Near me" on the map, using the phone's location (it asks first)
 - proper icon, splash screen, and notch / home-bar spacing
 
-The page it loads is set in `app.json` under `extra.webUrl`. The name people see is "Frendzy" (`app.json` > `name`).
+The packed page runs as if it were at the address in `app.json` > `extra.webUrl` (frendzy.au), so logins,
+the human check and invite links work exactly as on the web. The name people see is "Frendzy" (`app.json` > `name`).
 The hidden IDs (`com.seshhon.app`, the `seshhon://` link) keep the old name; they can't be changed once the app is in a store,
 and nobody sees them.
 

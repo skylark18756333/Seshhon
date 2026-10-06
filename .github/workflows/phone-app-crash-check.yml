@@ -30,6 +30,7 @@ jobs:
         working-directory: mobile
         run: |
           npm ci
+          npm run bundle-web
           eas init --non-interactive --force
           if ! eas build --platform android --profile preview --non-interactive --wait --json > builds.json 2> build-log.txt; then
             cat build-log.txt
@@ -37,6 +38,19 @@ jobs:
               echo "::warning::No free Expo Android builds left this month, so the crash check was skipped. They reset at the start of next month, or upgrade the Expo plan."
               echo "skipped=true" >> "$GITHUB_OUTPUT"
               exit 0
+            fi
+            # Show why Expo's build failed, since its build page needs an Expo login to read.
+            ID=$(grep -o 'builds/[0-9a-f-]\{36\}' build-log.txt | head -1 | cut -d/ -f2)
+            if [ -n "$ID" ]; then
+              eas build:view "$ID" --json > failed.json || true
+              node -e 'const b=require("./failed.json"); console.log("Expo says:", JSON.stringify(b.error || null)); for (const u of b.logFiles || []) console.log(u)' > failed-logs.txt || true
+              cat failed-logs.txt
+              grep '^https://' failed-logs.txt | while read -r u; do curl -sSL --compressed -D part.head -o part.log "$u"; grep -i '^content-' part.head || true; node -e '
+                const z = require("zlib"), d = require("fs").readFileSync("part.log");
+                const tries = [(x) => x, z.gunzipSync, z.brotliDecompressSync, z.inflateSync, z.inflateRawSync];
+                for (const t of tries) { try { const s = t(d).toString("utf8"); if (!s.includes("\ufffd")) { console.log(s.split("\n").filter(Boolean).slice(-150).join("\n")); process.exit(0); } } catch (e) {} }
+                console.log("Could not read the log. First bytes:", d.subarray(0, 16).toString("hex"));
+              '; done || true
             fi
             exit 1
           fi

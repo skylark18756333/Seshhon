@@ -1,0 +1,127 @@
+// What the database sends back, and the handful of calls the native Home screen makes.
+// The shapes match api_state() in supabase/update.sql, which is what docs/app.js reads.
+import { rpc } from './session';
+
+export type Colour = 'on' | 'thinking' | 'off';
+
+export type Me = { id: string; name: string; invite_code: string; colour: Colour; expires_at: string | null };
+export type Friend = { friendship: string; id: string; name: string; colour: Colour; since: string | null };
+export type Request = { friendship: string; name: string };
+export type Member = { id: string; name: string };
+export type Vote = { user_id: string; venue_id: string; voted_at: string };
+// The private pres address (migration 0025). address is left out until 4 hours before, except for the host.
+export type Pres = { address?: string | null; at?: string | null; shows_at: string };
+export type Sesh = {
+  id: string;
+  am_member: boolean;
+  mine?: boolean;
+  creator_name?: string;
+  private?: boolean;
+  planned?: boolean;
+  starts_at?: string | null;
+  locked_venue?: string | null;
+  pres?: Pres | null;
+  invited?: string[] | null;
+  members: Member[];
+  votes: Vote[];
+};
+// A sesh chat message, as get_messages() sends it.
+export type Message = { id: string; sender: string; name: string; body: string; at: string };
+// One stop of the Sesh Map (pub crawl), as sesh_crawl() sends it.
+export type CrawlStop = { venue_id: string; position: number; done: boolean; mine: boolean };
+// A venue, as api_venues() sends it.
+export type Venue = { id: string; name: string; kind?: string | null; closes?: string | null; hours?: string | null; is_example?: boolean };
+
+export type State = {
+  now: string;
+  me: Me | null;
+  friends: Friend[];
+  requests_in: Request[];
+  requests_out: Request[];
+  seshes: Sesh[];
+};
+
+// Every list a screen reads is always a list, even if the database leaves one out (an update not run yet),
+// so one missing piece can't stop the screen. Same idea as tidyState in docs/app.js.
+function tidy(data: any): State {
+  const out: State = {
+    now: (data && data.now) || new Date().toISOString(),
+    me: (data && data.me) || null,
+    friends: [],
+    requests_in: [],
+    requests_out: [],
+    seshes: []
+  };
+  (['friends', 'requests_in', 'requests_out', 'seshes'] as const).forEach((k) => {
+    if (data && Array.isArray(data[k])) (out as any)[k] = data[k];
+  });
+  out.seshes.forEach((s) => {
+    if (!Array.isArray(s.members)) s.members = [];
+    if (!Array.isArray(s.votes)) s.votes = [];
+  });
+  return out;
+}
+
+export function loadState(): Promise<State> {
+  return rpc('api_state').then(tidy);
+}
+
+export function setStatus(colour: Colour): Promise<unknown> {
+  return rpc('set_status', { new_colour: colour });
+}
+
+export function answerFriend(friendship: string, accept: boolean): Promise<unknown> {
+  return rpc('answer_friend', { p_friendship: friendship, p_accept: accept });
+}
+
+export function addFriendByUsername(username: string): Promise<{ ok: boolean; message?: string; state?: string; name?: string }> {
+  return rpc('request_friend_by_username', { p_username: username });
+}
+
+// Friends' photos, when they added one and you're allowed to see it: { user id: picture address }.
+export function friendPhotos(): Promise<Record<string, string>> {
+  return rpc('friend_photos').then((p: any) => (p && typeof p === 'object' ? p : {}), () => ({}));
+}
+
+// Your username, shown in the "add your friends" card. An older database has no such function.
+export function myAccount(): Promise<{ username?: string } | null> {
+  return rpc('my_account').then((a: any) => a || null, () => null);
+}
+
+// The three things that have to be settled before the native screens can be shown. When any of them says
+// "not yet" the packed web app takes over, because it has the screens for them (and they are rare).
+export type Gates = { twoStep: boolean; ageCheck: boolean; role: string };
+export function loadGates(): Promise<Gates> {
+  return Promise.all([
+    rpc('two_step_state').then((t: any) => !!(t && t.needed), () => false),
+    rpc('age_check_state').then((a: any) => !!(a && a.required && !a.passed), () => false),
+    rpc('my_role').then((r: any) => (r && r.role) || 'user', () => 'user')
+  ]).then(([twoStep, ageCheck, role]) => ({ twoStep, ageCheck, role }));
+}
+
+/* ---------- the Sesh tab ---------- */
+// The chat of a sesh you're in: up to the last 200 messages, oldest first, without anyone blocked either way.
+export function getMessages(sesh: string): Promise<Message[]> {
+  return rpc('get_messages', { p_sesh: sesh }).then((l: any) => (Array.isArray(l) ? l : []));
+}
+export function sendMessage(sesh: string, body: string): Promise<unknown> {
+  return rpc('send_message', { p_sesh: sesh, p_body: body });
+}
+export function reportMessage(message: string): Promise<unknown> {
+  return rpc('report_message', { p_message: message, p_reason: '' });
+}
+// The Sesh Map's stops in order. 'missing' (an older database without it) is passed on so the tab can hide it.
+export function seshCrawl(sesh: string): Promise<CrawlStop[]> {
+  return rpc('sesh_crawl', { p_sesh: sesh }).then((l: any) => (Array.isArray(l) ? l : []));
+}
+// Every venue (api_venues) and where each one is (venue_pins). Fetched on their own, like the web app does.
+export function loadVenues(): Promise<Venue[]> {
+  return rpc('api_venues').then((l: any) => (Array.isArray(l) ? l : []));
+}
+export function loadPins(): Promise<Record<string, [number, number]>> {
+  return rpc('venue_pins').then((l: any) => {
+    const pins: Record<string, [number, number]> = {};
+    (Array.isArray(l) ? l : []).forEach((p: any) => { pins[p.id] = [Number(p.lat), Number(p.lng)]; });
+    return pins;
+  });
+}

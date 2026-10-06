@@ -95,6 +95,8 @@ jobs:
               fs.writeFileSync("eas.json", JSON.stringify(j, null, 2));
             '
           fi
+      # Packs the screens from docs/ into the app.
+      - run: npm run bundle-web
       - run: npx tsc --noEmit
 
       # Creates the project on expo.dev the first time, links to it after that.
