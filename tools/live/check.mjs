@@ -712,6 +712,23 @@ try {
   ok(await has(pim, '7 Hidden Lane, Leederville') && await has(pim, 'Directions'), 'once it is live, Pim, who is in, sees the pres address');
   ok(!(await has(rex, '7 Hidden Lane', 500)), 'Rex, who is not in, never sees it');
 
+  console.log('Planning on any colour');
+  await tab(rex, 'Home');
+  await tap(rex, 'Switch to Red');
+  await tap(rex, 'Plan a sesh for later');
+  ok(await has(rex, "When's it on?"), 'Rex, on red, opens the planner from Home');
+  await tap(rex, 'Plan it');
+  ok(await has(rex, 'Go green and start it now') && await has(rex, 'Planned'), 'and plans a sesh without going green');
+  if (process.env.SHOTS) await rex.page.screenshot({ path: process.env.SHOTS + '/red-plans.png' });
+  await tab(pim, 'Sesh'); await tab(pim, 'Sesh');
+  ok(await has(pim, "Rex's sesh"), 'his friend Pim sees it under Planned');
+  await tap(rex, 'Go green and start it now');
+  ok(await has(rex, 'Live now') && await gone(rex, 'Go green and start it now'), 'starting it now switches Rex to green first');
+  await tap(rex, 'Switch to Amber');
+  ok(await has(rex, 'Your sesh is on'), 'off green in a live sesh, the app asks him to go green');
+  await tap(rex, 'Go green');
+  ok(await gone(rex, 'Your sesh is on'), 'and the prompt goes once he does');
+
   ok(consoleErrors.length === 0, 'no script errors on any phone' + (consoleErrors.length ? ': ' + consoleErrors.join('; ') : ''));
   await ana.page.screenshot({ path: path.join(copy, 'ana.png') });
 } catch (e) {

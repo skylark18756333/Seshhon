@@ -135,6 +135,9 @@ export default function Home({ f, onOpenWeb }: { f: Frendzy; onOpenWeb: (tab: st
             : <Button label="See what's on tonight" colour={C.thinking} ink onPress={() => onOpenWeb('events')} />
         ) : null}
 
+        {friends.length && colour !== 'on'   // planning works on any colour (migration 0033)
+          ? <Button label="Plan a sesh for later" icon="clock" ghost onPress={() => onOpenWeb('sesh')} /> : null}
+
         {friends.length ? <Button label="Crews and besties" ghost onPress={() => onOpenWeb('crews')} testID="home-crews" /> : null}
       </ScrollView>
 

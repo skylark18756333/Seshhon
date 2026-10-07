@@ -136,7 +136,7 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
     <PlannedList
       seshes={seshes}
       skipId={mine ? mine.id : null}
-      canPlan={me.colour !== 'off'}
+      canPlan   // planning works on any colour (migration 0033); starting a sesh now needs green
       v={v}
       onOpen={(id) => { setSeshId(id); top(); }}
       onJoin={(id) => f.act('join_sesh', { p_sesh: id }, "You're in. It goes live at the planned time.")}
@@ -177,12 +177,12 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
           </>
         ) : me.colour === 'thinking' ? (
           <>
-            <Text style={styles.muted}>{others.length ? 'Go green to start your own.' : 'No sesh yet. Go green to start one.'}</Text>
+            <Text style={styles.muted}>{others.length ? 'Go green to start your own now, or plan one for later on any colour.' : 'No sesh yet. Go green to start one now, or plan one for later on any colour.'}</Text>
             <Button label="Go green" colour={C.on} ink onPress={goGreen} />
           </>
         ) : (
           <>
-            <Text style={styles.muted}>You're red, so seshes are hidden. Go green to start one or see your friends' plans.</Text>
+            <Text style={styles.muted}>You're red, so tonight's seshes are hidden. You can still plan one for later and see your friends' plans below.</Text>
             <Button label="Go green" colour={C.on} ink onPress={goGreen} />
           </>
         )}
@@ -208,6 +208,14 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
         onStarted={f.refresh}
       />
       <Members s={mine} myId={me.id} photos={f.photos} />
+
+      {!later && me.colour !== 'on' ? (   // a planned sesh has gone live: ask, never switch anyone automatically
+        <View style={[styles.card, styles.lead]}>
+          <Text style={styles.h2}>Your sesh is on</Text>
+          <Text style={[styles.muted, styles.small]}>Go green so your friends can see you're out.</Text>
+          <Button label="Go green" colour={C.on} ink onPress={() => f.setColour('on')} />
+        </View>
+      ) : null}
 
       <PresCard
         s={mine}
@@ -284,7 +292,15 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
       {later ? (
         mine.mine ? (
           <>
-            <Button label="Start it now" onPress={() => f.act('start_planned_sesh', { p_sesh: mine.id }, "Sesh started. It's live now.").then((r) => { if (r) { setSeshId(null); top(); } })} />
+            <Button
+              label={me.colour === 'on' ? 'Start it now' : 'Go green and start it now'}
+              onPress={() => {
+                // Starting a sesh now needs green, so tapping this switches you to green first.
+                const start = () => f.act('start_planned_sesh', { p_sesh: mine.id }, "Sesh started. It's live now.");
+                (me.colour === 'on' ? start() : f.act('set_status', { new_colour: 'on' }, "You're green.").then(start))
+                  .then((r) => { if (r) { setSeshId(null); top(); } });
+              }}
+            />
             <Button label="Cancel the sesh" ghost onPress={() => { setSeshId(null); f.act('end_sesh', { p_sesh: mine.id }, 'Planned sesh cancelled.'); }} />
           </>
         ) : (
