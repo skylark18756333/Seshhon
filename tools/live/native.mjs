@@ -500,6 +500,174 @@ try {
   expect('last username cleared for the page', await natZ.page.evaluate(() => JSON.stringify(JSON.parse(localStorage.getItem('seshhon-page-store') || '{}')['seshhon-last-username'])), 'null');
   await natZ.ctx.close();
 
+  /* ---------- the native sign-up and login ---------- */
+  // Signing up, the email code, the recovery code, the tour, an invite link, logging out and in, the login code on
+  // a new phone, and "Forgot your password", all on the native screens (the human check is the test's pretend one).
+  const auth = path.join(out, 'native-auth');
+  fs.mkdirSync(auth, { recursive: true });
+  const ashot = async (p, file) => { await p.page.waitForTimeout(700); await p.page.screenshot({ path: path.join(auth, file), fullPage: true }); console.log('  saved native-auth/' + file); };
+  const fillL = (p, label, text) => p.page.getByLabel(label, { exact: true }).fill(text);
+  const lastMail = async () => (await fetch(API + '/__fake/last-email', { method: 'POST', headers: { apikey: 'test-anon-key' } })).json();
+  const memory = (p, key) => p.page.evaluate((k) => JSON.parse(JSON.parse(localStorage.getItem('seshhon-page-store') || '{}')[k] || 'null'), key);
+  const NAT = `http://127.0.0.1:${NATIVE_PORT}/`;
+
+  // Under 18: the screen that says so, and it stays that way on this phone.
+  const kid = await phone('under 18', NAT);
+  await has(kid, "Tell your friends you're up for a sesh.");
+  await fillL(kid, 'Your first name', 'Kid'); await fillL(kid, 'Date of birth', '01/01/' + (new Date().getFullYear() - 10));
+  await fillL(kid, 'Pick a username', 'kid_test'); await fillL(kid, 'Make a password', 'longenough1'); await fillL(kid, 'Your email', 'kid@example.com');
+  await tap(kid, 'Get started');
+  await has(kid, 'Frendzy is for people aged 18 and over.');
+  await kid.page.reload();
+  await has(kid, 'Frendzy is for people aged 18 and over.');
+  expect('no account made for under 18', psql("select count(*) from public.profiles where name = 'Kid'"), 0);
+  await kid.ctx.close();
+
+  // Sign up from an invite link (Ana's), with a check on each box first.
+  const nina = await phone('Nina', NAT + '?invite=' + code);
+  await has(nina, 'A friend invited you. Sign up and they will get your friend request.');
+  await ashot(nina, '1-sign-up.png');
+  await tap(nina, 'Get started');
+  await has(nina, 'Enter your first name to continue.');
+  await fillL(nina, 'Your first name', 'Nina');
+  await tap(nina, 'Get started'); await has(nina, 'Enter your date of birth.');
+  await fillL(nina, 'Date of birth', '20/03/1994');
+  await tap(nina, 'Get started'); await has(nina, 'Pick a username of 3 to 20 letters, numbers or _.');
+  await fillL(nina, 'Pick a username', 'nina_test');
+  await tap(nina, 'Get started'); await has(nina, 'Use a password of at least 10 characters.');
+  await fillL(nina, 'Make a password', 'longenough1');
+  await tap(nina, 'Get started'); await has(nina, 'Enter your email address. Login codes go there.');
+  await fillL(nina, 'Your email', 'nina@example.com');
+  await tap(nina, 'Show password');
+  expect('the eye shows the password', (await nina.page.getByLabel('Make a password', { exact: true }).getAttribute('type')) !== 'password', true);
+  await tap(nina, 'Get started');
+  await has(nina, 'Confirm your email');
+  expect('profile made for Nina', psql("select count(*) from public.profiles where name = 'Nina'"), 1);
+  expect("Nina's username", psql("select username from public.account_logins l join public.profiles p on p.id = l.user_id where p.name = 'Nina'"), 'nina_test');
+  const ninaId = id('Nina');
+  const ninaMail = await lastMail();
+  expect('setup code sent to her email', ninaMail.email, 'nina@example.com');
+  await ashot(nina, '2-confirm-email.png');
+  await fillL(nina, 'Code from the email', '000000');
+  await tap(nina, 'Confirm email'); await has(nina, 'That');   // the database's own words for a wrong code
+  await fillL(nina, 'Code from the email', ninaMail.code);
+  await tap(nina, 'Confirm email');
+  await has(nina, 'Save your recovery code');
+  await has(nina, 'We also emailed it to', 10000);
+  expect('email confirmed in the database', psql(`select email from private.two_step where user_id = '${ninaId}'`), 'nina@example.com');
+  const ninaCode = (await nina.page.getByTestId('recovery-code').innerText()).trim();
+  expect('a recovery code was shown', /^[A-Z0-9]{4}(-[A-Z0-9]{4}){3}$/.test(ninaCode), true);
+  expect('the recovery code was emailed too', (await lastMail()).recovery, ninaCode);
+  await ashot(nina, '3-recovery-code.png');
+  await tap(nina, "I've saved it");
+  await has(nina, 'Welcome, Nina.');   // the tour after sign-up
+  await ashot(nina, '4-tour.png');
+  await tap(nina, 'Show me');
+  await tap(nina, 'Skip');
+  await has(nina, 'Your status');
+  expect('the invite sent a friend request to Ana', psql(`select count(*) from public.friendships where requester = '${ninaId}' and addressee = '${anaId}'`), 1);
+  expect('the tour flag is cleared', await memory(nina, 'seshhon-tour-pending'), null);
+  expect('last username noted', await memory(nina, 'seshhon-last-username'), 'nina_test');
+  expect('signed in on the phone', await nina.page.evaluate(() => !!localStorage.getItem('seshhon-session-v1')), true);
+  await ashot(nina, '5-home-after-sign-up.png');
+
+  // Log out from the You page, and back in on the same phone: the password is wrong once, and the email code is skipped
+  // because this phone confirmed the email.
+  await tap(nina, 'You');
+  await openSet(nina, 'login');
+  await tap(nina, 'Log out');
+  await has(nina, 'Logged out. Log in again with your username and password.');
+  await has(nina, "Tell your friends you're up for a sesh.");
+  expect('sign-in cleared on log out', await nina.page.evaluate(() => localStorage.getItem('seshhon-session-v1')), 'null');
+  await tap(nina, 'I already have an account');
+  await has(nina, 'Log in');
+  expect('username filled in', await nina.page.getByLabel('Username or email', { exact: true }).inputValue(), 'nina_test');
+  await tap(nina, 'Log in'); await has(nina, 'Enter your username or email, and your password.');
+  await fillL(nina, 'Password', 'wrongpassword1');
+  await tap(nina, 'Log in'); await has(nina, "That username and password don't match.");
+  await ashot(nina, '6-log-in.png');
+  await fillL(nina, 'Password', 'longenough1');
+  await tap(nina, 'Log in');
+  await has(nina, 'Your status');
+  expect('back in without a code on the remembered phone', await nina.page.evaluate(() => document.body.innerText.includes('Check your email')), false);
+  await nina.ctx.close();
+
+  // A new phone logs in with the email: the password, then the code from the email. A wrong code is refused.
+  const ninaNew = await phone('Nina on a new phone', NAT);
+  await tap(ninaNew, 'I already have an account');
+  await fillL(ninaNew, 'Username or email', 'nina@example.com'); await fillL(ninaNew, 'Password', 'longenough1');
+  await tap(ninaNew, 'Log in');
+  await has(ninaNew, 'Check your email');
+  await has(ninaNew, 'We sent a 6-digit code to');
+  expect('login code emailed', (await lastMail()).email, 'nina@example.com');
+  await ashot(ninaNew, '7-login-code.png');
+  await tap(ninaNew, 'Log in'); await has(ninaNew, 'Enter the 6-digit code from the email.');
+  await fillL(ninaNew, 'Code from the email', '000000');
+  await tap(ninaNew, 'Log in'); await has(ninaNew, 'That');
+  await tap(ninaNew, 'Send a new code');
+  await has(ninaNew, 'We sent a 6-digit code to');
+  await fillL(ninaNew, 'Code from the email', (await lastMail()).code);
+  await tap(ninaNew, 'Log in');
+  await has(ninaNew, 'Your status');
+  await until(() => memory(ninaNew, 'seshhon-remembered-phone').then((m) => !!m && typeof m[ninaId] === 'string'));
+  expect('two phones remembered (sign-up and the new phone)', psql(`select count(*) from private.two_step_devices where user_id = '${ninaId}'`), 2);
+  await ninaNew.ctx.close();
+
+  // Forgot the password: the recovery code and a new password, the new recovery code, then log in (no email code, the
+  // recovery code vouches for this login).
+  const forgot = await phone('Nina forgot', NAT);
+  await tap(forgot, 'I already have an account');
+  await tap(forgot, 'Forgot your password? Use your recovery code');
+  await has(forgot, 'Use your recovery code');
+  await tap(forgot, 'Set new password'); await has(forgot, 'Enter your username or email, and your recovery code.');
+  await fillL(forgot, 'Username or email', 'nina_test'); await fillL(forgot, 'Recovery code', 'AAAA-BBBB-CCCC-DDDD');
+  await fillL(forgot, 'New password', 'short');
+  await tap(forgot, 'Set new password'); await has(forgot, 'Use a password of at least 10 characters.');
+  await fillL(forgot, 'New password', 'brandnewpass1');
+  await tap(forgot, 'Set new password');
+  await has(forgot, "That");   // a wrong recovery code is refused with the database's words
+  await ashot(forgot, '8-recover.png');
+  await fillL(forgot, 'Recovery code', ninaCode);
+  await tap(forgot, 'Set new password');
+  await has(forgot, 'Save your recovery code');
+  await has(forgot, 'We also emailed it to', 10000);
+  const newerCode = (await forgot.page.getByTestId('recovery-code').innerText()).trim();
+  expect('a new recovery code', newerCode !== ninaCode && /^[A-Z0-9]{4}(-[A-Z0-9]{4}){3}$/.test(newerCode), true);
+  await ashot(forgot, '9-new-recovery-code.png');
+  await tap(forgot, "I've saved it");
+  await has(forgot, 'Log in');
+  expect('username filled in after recovery', await forgot.page.getByLabel('Username or email', { exact: true }).inputValue(), 'nina_test');
+  await fillL(forgot, 'Password', 'brandnewpass1');
+  await tap(forgot, 'Log in');
+  await has(forgot, 'Your status');
+  expect('no email code after a recovery', await forgot.page.evaluate(() => document.body.innerText.includes('Check your email')), false);
+  await forgot.ctx.close();
+
+  // The 18+ check: the database asks for it, the pretend provider fails the first try and passes the next, and "Later"
+  // skips the email.
+  await fetch(API + '/__fake/age-check', { method: 'POST', headers: { apikey: 'test-anon-key', 'Content-Type': 'application/json' }, body: JSON.stringify({ required: true, outcome: 'failed' }) });
+  const omar = await phone('Omar', NAT);
+  await fillL(omar, 'Your first name', 'Omar'); await fillL(omar, 'Date of birth', '02/02/1992');
+  await fillL(omar, 'Pick a username', 'omar_test'); await fillL(omar, 'Make a password', 'longenough1'); await fillL(omar, 'Your email', 'omar@example.com');
+  await tap(omar, 'Get started');
+  await has(omar, 'Quick age check');
+  expect('no account yet while the age check is open', psql("select count(*) from public.profiles where name = 'Omar'"), 0);
+  await ashot(omar, '10-age-check.png');
+  await tap(omar, 'Start age check');
+  await has(omar, "We couldn't confirm you're 18 or over.");
+  await fetch(API + '/__fake/age-check', { method: 'POST', headers: { apikey: 'test-anon-key', 'Content-Type': 'application/json' }, body: JSON.stringify({ outcome: 'passed' }) });
+  await tap(omar, 'Start again');
+  await has(omar, 'Confirm your email');
+  expect('account made after the age check', psql("select count(*) from public.profiles where name = 'Omar'"), 1);
+  await tap(omar, 'Later');
+  await has(omar, 'Save your recovery code');
+  await tap(omar, "I've saved it");
+  await has(omar, 'Welcome, Omar.');
+  await tap(omar, 'Skip');
+  await has(omar, 'Your status');
+  await fetch(API + '/__fake/age-check', { method: 'POST', headers: { apikey: 'test-anon-key', 'Content-Type': 'application/json' }, body: JSON.stringify({ required: false }) });
+  await omar.ctx.close();
+
   /* ---------- the web half inside the app ---------- */
   // The web half inside the app: it starts on the tab the app asks for, tells the app when the sign-in
   // changes, and switches tabs when the app says so. The app itself is stubbed, as a WebView can't run here.

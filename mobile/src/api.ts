@@ -93,8 +93,8 @@ export function myAccount(): Promise<{ username?: string } | null> {
   return rpc('my_account').then((a: any) => a || null, () => null);
 }
 
-// The three things that have to be settled before the native screens can be shown. When any of them says
-// "not yet" the packed web app takes over, because it has the screens for them (and they are rare).
+// The three things that have to be settled before the native screens can be shown: the email login code, the
+// 18+ age check and what kind of account this is (venue and admin accounts are for frendzy.au on a computer).
 export type Gates = { twoStep: boolean; ageCheck: boolean; role: string };
 export function loadGates(): Promise<Gates> {
   return Promise.all([
@@ -102,6 +102,11 @@ export function loadGates(): Promise<Gates> {
     rpc('age_check_state').then((a: any) => !!(a && a.required && !a.passed), () => false),
     rpc('my_role').then((r: any) => (r && r.role) || 'user', () => 'user')
   ]).then(([twoStep, ageCheck, role]) => ({ twoStep, ageCheck, role }));
+}
+// Whether this person still needs the age check, and who runs it (loadAge in docs/app.js). An older database without it means "no".
+export type Age = { required: boolean; passed?: boolean; pending?: boolean; provider?: string };
+export function loadAge(): Promise<Age> {
+  return rpc('age_check_state').then((a: any) => a || { required: false }, () => ({ required: false }));
 }
 
 /* ---------- the Sesh tab ---------- */
