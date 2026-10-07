@@ -2010,6 +2010,7 @@
     var kept = {}, keptFocus = document.activeElement && document.activeElement.hasAttribute && document.activeElement.hasAttribute('data-keep') ? document.activeElement.id : null;
     Array.prototype.forEach.call(view.querySelectorAll('[data-keep]'), function (el) { kept[el.id] = el.value; });
     if (typing && !D) return; // do not wipe the sign-up form while someone is typing in it
+    var appBox = document.getElementById('app'); appBox.classList.remove('desk');
 
     if (!API_URL || !API_KEY) { tabs.hidden = true; view.innerHTML = notConnected(); return; }
     if (!ui.booted) { tabs.hidden = true; view.innerHTML = starting(); return; }
@@ -2044,6 +2045,7 @@
     else if (ui.screen && ui.screen.type === 'redeem') html = redeem(ui.screen.id);
     else html = topBar() + ({ home: home, sesh: sesh, map: mapTab, venues: venues, events: events, you: you, admin: adminPage,
       vhome: venueHome, vevents: function () { return venueItems(true); }, vdeals: function () { return venueItems(false); } }[ui.tab] || home)();
+    appBox.classList.toggle('desk', role() !== 'user' && !window.ReactNativeWebView);
     view.innerHTML = html;
     mountMap();
     mountMini();
