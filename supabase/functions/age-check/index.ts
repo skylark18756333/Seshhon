@@ -49,7 +49,7 @@ async function whoIs(req: Request): Promise<string | null> {
 }
 
 Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') return reply(204, {});
+  if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });   // a 204 can't have a body
   if (req.method !== 'POST') return reply(405, { message: 'Use POST.' });
   try {
     const userId = await whoIs(req);

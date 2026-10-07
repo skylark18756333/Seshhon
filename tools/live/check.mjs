@@ -553,7 +553,7 @@ try {
   ok((await lastEmail()).code === emailsBefore, 'and no code is emailed');
   await tab(fay2, 'You'); await tap(fay2, 'Log out');
   await has(fay2, 'I already have an account');
-  await tap(fay2, 'I already have an account'); await tap(fay2, 'Forgot your password? Use your recovery code');
+  await tap(fay2, 'I already have an account'); await tap(fay2, 'Forgot your password?'); await tap(fay2, 'Use your recovery code instead');
   await fay2.page.fill('#rec-user', 'fay_99'); await fay2.page.fill('#rec-code', 'AAAA-AAAA-AAAA-AAAA'); await fay2.page.fill('#rec-pass', 'brandnewpass');
   await tap(fay2, 'Set new password');
   ok(await has(fay2, "recovery code don't match"), 'a wrong recovery code is turned away');
@@ -601,7 +601,7 @@ try {
   await tab(fay2, 'You');
   ok(await has(fay2, 'logged in as fay_99'), 'and it is her account');
   await tap(fay2, 'Log out');
-  await tap(fay2, 'I already have an account'); await tap(fay2, 'Forgot your password? Use your recovery code');
+  await tap(fay2, 'I already have an account'); await tap(fay2, 'Forgot your password?'); await tap(fay2, 'Use your recovery code instead');
   await fay2.page.fill('#rec-user', 'fay@new.example.com'); await fay2.page.fill('#rec-code', code2); await fay2.page.fill('#rec-pass', 'anotherpass1');
   await tap(fay2, 'Set new password');
   ok(await has(fay2, "That email and recovery code don't match."), 'a replaced recovery code doesn\'t work with the email either');
@@ -611,6 +611,26 @@ try {
   ok(await fay2.page.locator('#login-user').inputValue() === 'fay_99', 'then the log-in form shows her username');
   await fay2.page.fill('#login-pass', 'anotherpass1'); await tap(fay2, 'Log in');
   ok(await has(fay2, 'Your status'), 'and the new password works');
+
+  console.log('Forgot password by email');
+  await tab(fay2, 'You'); await tap(fay2, 'Log out');
+  await tap(fay2, 'I already have an account'); await tap(fay2, 'Forgot your password?');
+  const before = await lastEmail();
+  await fay2.page.fill('#rs-email', 'nobody@example.com'); await tap(fay2, 'Email me a code');
+  ok(await has(fay2, 'If nobody@example.com has a Frendzy account'), 'an email with no account gets the same answer');
+  ok(JSON.stringify(await lastEmail()) === JSON.stringify(before), 'and nothing is sent');
+  await tap(fay2, 'Use a different email, or send a new code');
+  await fay2.page.fill('#rs-email', 'Fay@New.Example.com'); await tap(fay2, 'Email me a code');
+  ok(await has(fay2, 'Code from the email'), 'her confirmed email gets a code');
+  const reset = await lastEmail();
+  ok(reset.reset && reset.email === 'fay@new.example.com' && reset.username === 'fay_99', 'the code goes to her confirmed email, for her username');
+  await fay2.page.fill('#rn-code', reset.code === '000000' ? '111111' : '000000'); await fay2.page.fill('#rn-pass', 'resetbyemail1');
+  await tap(fay2, 'Set new password');
+  ok(await has(fay2, "That code isn't right"), 'a wrong code is turned away');
+  await fay2.page.fill('#rn-code', reset.code); await tap(fay2, 'Set new password');
+  ok(await has(fay2, 'Your password is changed') && await fay2.page.locator('#login-user').inputValue() === 'fay_99', 'the right code sets a new password and the log-in form has her username');
+  await fay2.page.fill('#login-pass', 'resetbyemail1'); await tap(fay2, 'Log in');
+  ok(await has(fay2, 'Your status') && !(await has(fay2, 'Check your email', 300)), 'and the new password works, without another email code straight after');
 
   console.log('Profile photos');
   const pim = await phone('Pim'), quin = await phone('Quin');

@@ -204,21 +204,25 @@ page. A recovery code still gets someone back in if they lose their email too.
   instead of the username. The database only gives back the username behind an email to someone who also typed
   the right password, so it never shows whether an email has an account. Wrong tries are limited to 10 an hour
   per email, and only hashes of emails are kept with them.
+- `supabase/migrations/0032_email_password_reset.sql`: "Forgot your password?" with an emailed code. Someone types
+  their confirmed email, gets a 6-digit code there, and picks a new password. The answer is the same whether or not
+  the email has an account. Codes last 15 minutes; each email gets at most 3 an hour and 10 a day. The recovery code
+  still works too ("Use your recovery code instead").
 - `supabase/functions/email-code/`: the Edge Function that emails the codes. It holds the email service key.
 
 To switch it on, in this order:
 
 1. Run `supabase/migrations/0018_email_two_step.sql`, then `0022_email_recovery_code.sql`, then
-   `0023_remember_this_phone.sql`, `0026_change_email.sql` and `0028_login_with_email.sql`, in the
+   `0023_remember_this_phone.sql`, `0026_change_email.sql`, `0028_login_with_email.sql` and `0032_email_password_reset.sql`, in the
    Supabase SQL editor.
-2. Make a free account with an email service. Brevo works without owning a web domain: add and verify a
-   sender address under **Senders**, then create an API key under **SMTP & API**. (Resend also works,
-   but needs a domain of your own.)
+2. Make a free account with an email service. Frendzy uses **Resend** with frendzy.au verified (its records
+   go on the `send` subdomain at Crazy Domains), sending from `no-reply@frendzy.au`. Brevo also works, even
+   without a domain of your own.
 3. In Supabase, go to Edge Functions, create a function called `email-code` with
    `supabase/functions/email-code/index.ts`, and turn **Verify JWT** off (it checks the sign-in itself).
    Or: `supabase functions deploy email-code --no-verify-jwt`.
-4. In Edge Functions, Secrets, add `BREVO_API_KEY` (or `RESEND_API_KEY`) and `EMAIL_FROM` (the verified
-   sender address).
+4. In Edge Functions, Secrets, add `RESEND_API_KEY` (or `BREVO_API_KEY`) and `EMAIL_FROM` (the verified
+   sender address, `no-reply@frendzy.au`). Only add one service's key: if `BREVO_API_KEY` is there, Brevo is used.
 5. Last, in Authentication, Hooks, add a **Customize Access Token (JWT) Claims** hook: type Postgres,
    schema `public`, function `two_step_token_hook`. This is what makes the database refuse a login
    until its code is typed. If logins ever break, switch the hook off: everyone can log in with just

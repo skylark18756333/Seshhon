@@ -63,7 +63,7 @@ async function findPlace(key: string, v: { name: string; lat: number | null; lng
 }
 
 Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') return reply(204, {});
+  if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });   // a 204 can't have a body
   if (req.method !== 'POST') return reply(405, { message: 'Use POST.' });
   const key = env('GOOGLE_PLACES_KEY');
   if (!key) return reply(200, { enabled: false });
