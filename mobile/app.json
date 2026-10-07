@@ -50,7 +50,8 @@
       "permissions": [
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION",
-        "CAMERA"
+        "CAMERA",
+        "POST_NOTIFICATIONS"
       ]
     },
     "web": {
@@ -66,6 +67,13 @@
           "photosPermission": "Frendzy uses your photos so you can pick a profile photo. Only your friends see it.",
           "cameraPermission": "Frendzy uses your camera for the 18+ age check selfie. The photo goes to our age check provider and is not kept by Frendzy.",
           "microphonePermission": false
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/android-icon-monochrome.png",
+          "color": "#3DDC84"
         }
       ]
     ]

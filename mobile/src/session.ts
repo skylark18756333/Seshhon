@@ -157,6 +157,10 @@ let session: Session | null = null;
 let refreshing: Promise<void> | null = null;
 const watchers = new Set<(s: Session | null) => void>();
 
+// Something to do while the old sign-in is still known as it is cleared (push.ts takes this phone's token off the account).
+let signOutHook: ((old: Session) => void) | null = null;
+export function onBeforeSignOut(fn: (old: Session) => void) { signOutHook = fn; }
+
 export function currentSession(): Session | null { return session; }
 export function onSessionChange(fn: (s: Session | null) => void): () => void {
   watchers.add(fn);
@@ -176,7 +180,9 @@ export async function loadStoredSession(): Promise<Session | null> {
 }
 // A sign-in the web page sent over, or a log out (null).
 export function setSession(next: Session | null) {
+  const before = session;
   session = tidy(next);
+  if (before && !session && signOutHook) { try { signOutHook(before); } catch (e) {} }
   writeStored(session ? JSON.stringify(session) : null);
   tell();
 }

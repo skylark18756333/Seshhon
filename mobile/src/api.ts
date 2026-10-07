@@ -188,3 +188,14 @@ export function loadFreeTime(): Promise<FreeTime | null> {
 export function loadCatchUps(): Promise<CatchUp[]> {
   return rpc('catch_up_suggestions').then((l: any) => (Array.isArray(l) ? l : []), () => []);
 }
+
+/* ---------- notifications (migration 0035) ---------- */
+export type PushKind = { kind: string; label: string; hint: string; on: boolean };
+export type PushSettings = { registered: boolean; kinds: PushKind[] };
+// 'off' when the database is older than the feature: the You page then leaves the Notifications section out.
+export function loadPushSettings(): Promise<PushSettings | 'off'> {
+  return rpc('my_push_settings').then((d: any) => ({ registered: !!(d && d.registered), kinds: d && Array.isArray(d.kinds) ? d.kinds : [] }), () => 'off' as const);
+}
+export function setPushSetting(kind: string, on: boolean): Promise<PushSettings> {
+  return rpc('set_push_setting', { p_kind: kind, p_enabled: on }).then((d: any) => ({ registered: !!(d && d.registered), kinds: d && Array.isArray(d.kinds) ? d.kinds : [] }));
+}
