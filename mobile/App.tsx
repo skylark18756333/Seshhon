@@ -17,6 +17,7 @@ import type { Colour } from './src/api';
 import Home from './src/Home';
 import AgeCheck from './src/AgeCheck';
 import Auth, { type AuthDone, type AuthStart } from './src/Auth';
+import Crews from './src/Crews';
 import { Glow, Toast } from './src/Parts';
 import { registerPushToken } from './src/push';
 import Sesh from './src/Sesh';
@@ -41,7 +42,7 @@ const AGE_CHECK_HOSTS = ['https://verify.didit.me/', 'https://age.yoti.com'];
 // Runs in the page before its own script: the page's "share" button uses the phone's share sheet, the page
 // starts on the tab the app asked for, and it starts signed in as whoever the app is signed in as.
 const PAGE_TABS = ['home', 'sesh', 'map', 'venues', 'events', 'you'];
-const NATIVE_TABS = ['home', 'sesh', 'you'];   // the tabs with a native screen
+const NATIVE_TABS = ['home', 'sesh', 'you', 'crews'];   // the tabs with a native screen ('crews' is opened from You or Home, and shows You in the tab bar)
 // venue: open the page on that venue's page (from the native Sesh tab); closing it goes back to the Sesh tab.
 function bridge(tab: string | null, venue: string | null): string {
   const saved = sessionForPage();
@@ -124,7 +125,7 @@ function Shell() {
   // tab. 'venue' is the packed page showing one venue, opened from the native Sesh tab.
   const [tab, setTab] = useState('home');
   const [venue, setVenue] = useState<string | null>(null);
-  // The tab to go back to from the You page (Android back button).
+  // The tab to go back to from the You page or Crews (Android back button, and Crews' own back arrow).
   const [before, setBefore] = useState('home');
   // A line for the page to show once it opens, after the native You page logged out or deleted the account.
   const [pageNote, setPageNote] = useState<string | null>(null);   // read when the sign-in screen opens
@@ -168,7 +169,7 @@ function Shell() {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
       if (onWeb && canGoBack && web.current) { web.current.goBack(); return true; }
       if (onWeb && native) { setTab(tab === 'venue' ? 'sesh' : 'home'); return true; }
-      if (native && tab === 'you') { setTab(before); return true; }
+      if (native && (tab === 'you' || tab === 'crews')) { setTab(before); return true; }
       return false;
     });
     return () => sub.remove();
@@ -224,7 +225,8 @@ function Shell() {
   // is just told to switch tabs, which keeps the map where it was.
   const pickTab = useCallback((next: string) => {
     if (next === tab) return;
-    if (next === 'you') setBefore(tab === 'venue' ? 'sesh' : tab);
+    // 'you' and 'crews' remember where they were opened from; from Crews to You, back goes where Crews came from.
+    if (next === 'you' || next === 'crews') setBefore(tab === 'crews' ? (before === 'you' ? 'home' : before) : tab === 'venue' ? 'sesh' : tab);
     if (!NATIVE_TABS.includes(next) && onWeb && web.current) {
       web.current.injectJavaScript('window.FrendzyNative && window.FrendzyNative.go(' + JSON.stringify(next) + '); true;');
       setTab(next);
@@ -384,8 +386,9 @@ function Shell() {
       {onWeb ? webView
         : tab === 'sesh' ? <Sesh f={f} onOpenWeb={pickTab} onVenue={openVenue} />
         : tab === 'you' ? <You f={f} onOpenWeb={pickTab} onSignedOut={signedOut} />
+        : tab === 'crews' ? <Crews f={f} onBack={() => setTab(before)} onPlanned={() => pickTab('sesh')} />
         : <Home f={f} onOpenWeb={pickTab} />}
-      <Tabs tab={tab === 'venue' ? 'sesh' : tab} requests={f.state ? f.state.requests_in.length : 0} onPick={pickTab} />
+      <Tabs tab={tab === 'venue' ? 'sesh' : tab === 'crews' ? 'you' : tab} requests={f.state ? f.state.requests_in.length : 0} onPick={pickTab} />
       {tour && me ? <Tour name={first(me.name)} onClose={() => { clearTour(); setTour(false); }} /> : null}
     </Layer>
   );

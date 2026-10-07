@@ -7,6 +7,8 @@
 // and every tap is checked in the database. It also checks the web half the app packs in: that it opens on the
 // tab the app asks for, switches tabs when the app says so, tells the app when it moves to another tab by
 // itself, opens on a venue when asked, and tells the app when the sign-in changes.
+// Then crews, besties and free time: Ana makes a crew, Jack and Mia join, they share exact times, Home suggests a
+// catch-up and Plan it makes a planned sesh invited to the crew.
 // Then the native You page, as Mia and Zoe on their own phones: a photo, Safety, adding a friend by username
 // and cancelling the request, removing a friend, a new username and password, an email for login codes,
 // log out and back in, and deleting an account, each checked in the database.
@@ -307,6 +309,7 @@ try {
   // A private sesh from Jack's phone: start_private_sesh. He leaves Ana's first.
   await tap(natJ, 'Leave the sesh');
   await has(natJ, "Ana's sesh");
+  await until(() => psql(`select count(*) from public.sesh_members where sesh_id = '${seshId}' and user_id = '${jackId}'`) === '0');   // the screen can move on a moment before the database answer is read
   expect('Jack left', psql(`select count(*) from public.sesh_members where sesh_id = '${seshId}' and user_id = '${jackId}'`), 0);
   await tap(natJ, 'Start a private sesh');
   await has(natJ, "Who's invited?");
@@ -327,6 +330,154 @@ try {
   await sshot(nat, '16-ended.png');
   await natJ.ctx.close();
   // Home's "Start a sesh" opens the native Sesh tab too.
+  await nat.page.getByRole('tab', { name: 'Home' }).click();
+  await has(nat, 'Up for it now');
+
+  /* ---------- crews, besties and free time ---------- */
+  // Ana makes a crew with Jack and Mia, shares exact times, ticks when she's free, and Home suggests a catch-up
+  // that "Plan it" turns into a planned sesh. Jack and Mia answer through the same database functions (as their
+  // own phones would); every step is checked in the database, including who can't see what.
+  const crewsDir = path.join(out, 'native-crews');
+  fs.mkdirSync(crewsDir, { recursive: true });
+  const cshot = async (p, file) => { await p.page.waitForTimeout(700); await p.page.screenshot({ path: path.join(crewsDir, file), fullPage: true }); console.log('  saved native-crews/' + file); };
+  const asUser = async (name, fn, args = {}) => {
+    const tok = JSON.parse(sessions[name]).access_token;
+    const r = await fetch(API + '/rest/v1/rpc/' + fn, { method: 'POST', headers: { apikey: 'test-anon-key', Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' }, body: JSON.stringify(args) });
+    const body = await r.json().catch(() => null);
+    if (!r.ok) throw new Error(name + ' ' + fn + ': ' + ((body && body.message) || r.status));
+    return body;
+  };
+  const day3 = psql("select to_char(private.free_today() + 3, 'YYYY-MM-DD')");
+  await tap(nat, 'You');
+  await has(nat, 'Crews and besties');
+  await nat.page.getByTestId('open-crews').click();
+  await has(nat, 'Your free time');
+  await has(nat, 'Not shared with anyone yet');
+  await cshot(nat, '1-crews-empty.png');
+
+  // Make a crew and invite two friends: make_crew, invite_to_crew. Nobody is in it until they accept.
+  await nat.page.getByLabel('Crew name', { exact: true }).fill('The Girls');
+  await tap(nat, 'Make crew');
+  await has(nat, 'Invite friends');
+  const crewId = psql(`select id from private.crews where name = 'The Girls' and owner = '${anaId}'`);
+  expect('a crew made by Ana', psql(`select count(*) from private.crews where owner = '${anaId}'`), 1);
+  await tap(nat, 'Invite friends');
+  await nat.page.getByRole('button', { name: 'Jack', exact: true }).click();
+  await nat.page.getByRole('button', { name: 'Mia', exact: true }).click();
+  expect('Tom, who is blocked, is not on the list', await nat.page.getByRole('button', { name: 'Tom', exact: true }).count(), 0);
+  await tap(nat, 'Invite 2');
+  await has(nat, 'Invited, waiting for them to join');
+  expect('two invited, not in yet', psql(`select count(*) from private.crew_members where crew_id = '${crewId}' and state = 'invited'`), 2);
+  await cshot(nat, '2-crew-invited.png');
+
+  // Jack answers on his own phone: the invite shows on his Crews screen and Join puts him in.
+  const natJ2 = await phone('Jack crews', `http://127.0.0.1:${NATIVE_PORT}/`, `localStorage.setItem('seshhon-session-v1', ${JSON.stringify(sessions.Jack)});`);
+  await has(natJ2, "You're green.");
+  await tap(natJ2, 'Crews and besties');
+  await has(natJ2, 'invited you to the crew');
+  await cshot(natJ2, '3-jack-invite.png');
+  await tap(natJ2, 'Join');
+  await until(() => psql(`select state from private.crew_members where crew_id = '${crewId}' and user_id = '${jackId}'`) === 'member');
+  expect('Jack joined', psql(`select state from private.crew_members where crew_id = '${crewId}' and user_id = '${jackId}'`), 'member');
+  expect('and shares nothing yet', psql(`select count(*) from private.share_settings where user_id = '${jackId}'`), 0);
+  await natJ2.page.getByTestId('crew-The Girls').click();
+  await has(natJ2, 'What you share with The Girls');
+  await tap(natJ2, 'Exact times');
+  await tap(natJ2, 'Whenever enough are free');
+  await until(() => psql(`select coalesce((select share || ',' || suggest from private.share_settings where user_id = '${jackId}'), '')`) === 'exact,enough');
+  expect("Jack's settings in the database", psql(`select share || ',' || suggest || ',' || min_free from private.share_settings where user_id = '${jackId}'`), 'exact,enough,3');
+  await cshot(natJ2, '4-jack-crew-settings.png');
+  await natJ2.page.getByTestId('crews-back').click();
+  await natJ2.page.getByTestId('open-free').click();
+  await natJ2.page.getByTestId('free-' + day3 + '-night').click();
+  await until(() => psql(`select count(*) from private.free_slots where user_id = '${jackId}' and free`) === '1');
+  expect("Jack's free night in the database", psql(`select part from private.free_slots where user_id = '${jackId}' and day = '${day3}' and free`), 'night');
+  await cshot(natJ2, '5-jack-free-grid.png');
+  await natJ2.ctx.close();
+
+  // Mia answers through the same functions.
+  await asUser('Mia', 'answer_crew_invite', { p_crew: crewId, p_accept: true });
+  await asUser('Mia', 'set_share_settings', { p_kind: 'crew', p_target: crewId, p_share: 'exact', p_hangouts: [], p_suggest: 'off', p_min: 3, p_quiet: [] });
+  await asUser('Mia', 'set_free', { p_day: day3, p_part: 'night', p_free: true });
+
+  // Ana's settings for the crew: exact times, suggestions whenever enough are free, coffee.
+  await nat.page.getByTestId('crews-back').click().catch(() => {});
+  await has(nat, 'The Girls');
+  await nat.page.getByTestId('crew-The Girls').click();
+  await has(nat, 'What you share with The Girls');
+  await has(nat, 'Jack');
+  expect('sharing and suggestions start off', psql(`select count(*) from private.share_settings where user_id = '${anaId}'`), 0);
+  await tap(nat, 'Exact times');
+  await tap(nat, 'Whenever enough are free');
+  await tap(nat, 'Coffee');
+  await until(() => psql(`select coalesce((select share || ',' || suggest || ',' || hangouts::text from private.share_settings where user_id = '${anaId}'), '')`) === 'exact,enough,{coffee}');
+  expect("Ana's settings in the database", psql(`select share || ',' || suggest || ',' || hangouts::text || ',' || min_free from private.share_settings where user_id = '${anaId}'`), 'exact,enough,{coffee},3');
+  await cshot(nat, '6-crew-settings.png');
+
+  // Ana ticks the same night in the free-time grid (set_free) and sets a usual pattern (set_free_pattern).
+  await nat.page.getByTestId('crews-back').click();
+  await nat.page.getByTestId('open-free').click();
+  await has(nat, 'Usually free');
+  await nat.page.getByTestId('free-' + day3 + '-night').click();
+  await until(() => psql(`select count(*) from private.free_slots where user_id = '${anaId}' and free`) === '1');
+  expect("Ana's free night in the database", psql(`select part from private.free_slots where user_id = '${anaId}' and day = '${day3}' and free`), 'night');
+  await tap(nat, 'Usually free Fri night');
+  await until(() => psql(`select count(*) from private.free_pattern where user_id = '${anaId}'`) === '1');
+  expect("Ana's usual pattern", psql(`select dow || ':' || part from private.free_pattern where user_id = '${anaId}'`), '5:night');
+  await tap(nat, 'Usually free Fri night');
+  await until(() => psql(`select count(*) from private.free_pattern where user_id = '${anaId}'`) === '0');
+  await cshot(nat, '7-free-grid.png');
+
+  // Home now has the suggestion card, with the people free and a Plan it button.
+  await tap(nat, 'Back');
+  await tap(nat, 'Back');
+  await nat.page.getByRole('tab', { name: 'Home' }).click();
+  await has(nat, 'works for The Girls', 15000);
+  await has(nat, '3 of 3 are free');
+  await cshot(nat, '8-home-catch-up.png');
+  await tap(nat, 'Plan it');
+  await has(nat, 'Planned for');
+  await until(() => psql(`select count(*) from public.seshes where creator = '${anaId}' and created_at > now() + interval '48 hours' and created_at < now() + interval '4 days' and private`) === '1');
+  expect('Plan it made a private planned sesh', psql(`select count(*) from public.seshes where creator = '${anaId}' and created_at > now() + interval '48 hours' and created_at < now() + interval '4 days' and private`), 1);
+  expect('invited to Jack and Mia only', psql(`select string_agg(p.name, ',' order by p.name) from public.sesh_invites i join public.profiles p on p.id = i.user_id join public.seshes s on s.id = i.sesh_id where s.creator = '${anaId}' and s.created_at > now() + interval '48 hours' and s.created_at < now() + interval '4 days'`), 'Jack,Mia');
+  await has(nat, "Tonight's sesh");
+  await cshot(nat, '9-planned-from-catch-up.png');
+
+  // Someone who is in no crew sees nothing of it, and no suggestions.
+  const zoeState = await asUser('Zoe', 'crews_state');
+  expect('Zoe sees no crews', zoeState.crews.length + zoeState.besties.length, 0);
+  expect('Zoe gets no suggestions', (await asUser('Zoe', 'catch_up_suggestions')).length, 0);
+  expect('Zoe only has her own, empty, free-time grid', await asUser('Zoe', 'my_free_time').then((t) => t.days.filter((d) => d.free.length).length), 0);
+
+  // Besties: Ana asks Jack from Crews and besties; Jack says yes.
+  await tap(nat, 'You');
+  await nat.page.getByTestId('open-crews').click();
+  await tap(nat, 'Add a bestie');
+  await nat.page.getByRole('button', { name: 'Jack', exact: true }).click();
+  await has(nat, 'Waiting for them to say yes');
+  expect('bestie request in the database', psql(`select state from private.besties where requester = '${anaId}' and addressee = '${jackId}'`), 'requested');
+  await asUser('Jack', 'answer_bestie', { p_user: anaId, p_accept: true });
+  await until(() => nat.page.evaluate(() => document.body.innerText.includes('1 of 5')), 20000);
+  await has(nat, 'not sharing');
+  await cshot(nat, '10-besties.png');
+  await nat.page.getByTestId('bestie-Jack').click();
+  await has(nat, 'What you share with Jack');
+  await tap(nat, 'Exact times');
+  await until(() => psql(`select coalesce((select share from private.share_settings where user_id = '${anaId}' and bestie = '${jackId}'), '')`) === 'exact');
+  expect('Ana shares exact times with her bestie', psql(`select share from private.share_settings where user_id = '${anaId}' and bestie = '${jackId}'`), 'exact');
+  await tap(nat, 'Remove bestie');
+  await tap(nat, 'Remove bestie');
+  await until(() => psql(`select count(*) from private.besties where requester = '${anaId}'`) === '0');
+  expect('bestie removed, with the sharing settings', psql(`select count(*) from private.share_settings where bestie = '${jackId}'`), 0);
+  await has(nat, 'Add a bestie');
+  // Leaving the crew: quiet, and the sharing stops straight away.
+  await nat.page.getByTestId('crew-The Girls').click();
+  await tap(nat, 'Leave crew');
+  await tap(nat, 'Leave');
+  await until(() => psql(`select count(*) from private.crew_members where user_id = '${anaId}'`) === '0');
+  expect('Ana left the crew; her settings for it are gone', psql(`select count(*) from private.share_settings where user_id = '${anaId}' and crew_id = '${crewId}'`), 0);
+  expect('the crew carries on, now run by Jack or Mia', psql(`select count(*) from private.crews where id = '${crewId}'`), 1);
+  await cshot(nat, '11-left-crew.png');
   await nat.page.getByRole('tab', { name: 'Home' }).click();
   await has(nat, 'Up for it now');
 

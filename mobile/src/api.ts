@@ -156,3 +156,35 @@ export function loadRole(): Promise<Role | 'off'> {
 export function loadEmailsOn(): Promise<boolean> {
   return rpc('two_step_state').then(() => true, () => false);
 }
+
+/* ---------- crews, besties and free time (migration 0031) ---------- */
+export type Share = 'off' | 'week' | 'exact';
+export type Suggest = 'off' | 'weekly' | 'enough';
+export type ShareSettings = { share: Share; hangouts: string[]; suggest: Suggest; min: number; quiet: number[] };
+export type CrewMember = { id: string; name: string; state: 'member' | 'invited'; week: boolean | null };
+export type Crew = { id: string; name: string; mine: boolean; state: 'member' | 'invited'; invited_by: string; settings: ShareSettings; members: CrewMember[] };
+// state: 'accepted', 'out' (I asked, waiting) or 'in' (they asked me).
+export type Bestie = { id: string; name: string; state: 'accepted' | 'out' | 'in'; settings: ShareSettings; week: boolean | null };
+export type CrewsState = { today: string; besties: Bestie[]; crews: Crew[] };
+export type FreeTime = { today: string; days: { day: string; free: string[] }[]; pattern: string[] };
+// A suggestion card: enough of a crew (or a bestie and me) are free in the same slot.
+export type CatchUp = { kind: 'crew' | 'bestie'; target: string; label: string; day: string; part: string; free: number; of: number; hangouts: string[]; names: string[] };
+
+const NO_SETTINGS: ShareSettings = { share: 'off', hangouts: [], suggest: 'off', min: 3, quiet: [] };
+function tidySettings(s: any): ShareSettings {
+  return { ...NO_SETTINGS, ...(s && typeof s === 'object' ? s : {}), hangouts: Array.isArray(s && s.hangouts) ? s.hangouts : [], quiet: Array.isArray(s && s.quiet) ? s.quiet : [] };
+}
+// 'off' when the database is older than the feature (migration 0031 not run yet): the screens then say so.
+export function loadCrews(): Promise<CrewsState | 'off'> {
+  return rpc('crews_state').then((d: any) => ({
+    today: (d && d.today) || '',
+    besties: ((d && d.besties) || []).map((b: Bestie) => ({ ...b, settings: tidySettings(b.settings) })),
+    crews: ((d && d.crews) || []).map((c: Crew) => ({ ...c, settings: tidySettings(c.settings), members: Array.isArray(c.members) ? c.members : [] }))
+  }), () => 'off' as const);
+}
+export function loadFreeTime(): Promise<FreeTime | null> {
+  return rpc('my_free_time').then((d: any) => (d && Array.isArray(d.days) ? { today: d.today, days: d.days, pattern: Array.isArray(d.pattern) ? d.pattern : [] } : null), () => null);
+}
+export function loadCatchUps(): Promise<CatchUp[]> {
+  return rpc('catch_up_suggestions').then((l: any) => (Array.isArray(l) ? l : []), () => []);
+}

@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { Colour, Friend } from './api';
 import Icon from './Icon';
+import { CatchUpCards } from './Crews';
 import { Button, Face, Toast, TopBar } from './Parts';
 import type { Frendzy } from './useFrendzy';
 import { C, COLOURS, F, LABELS, STATUS_COPY, STATUS_ICON, STOPS, fade, first, fmtLeft, initials } from './theme';
@@ -119,6 +120,8 @@ export default function Home({ f, onOpenWeb }: { f: Frendzy; onOpenWeb: (tab: st
           </View>
         )}
 
+        {friends.length ? <CatchUpCards f={f} onPlanned={() => onOpenWeb('sesh')} /> : null}
+
         {friends.length && colour !== 'off' ? (
           colour === 'on'
             ? <Button
@@ -131,6 +134,8 @@ export default function Home({ f, onOpenWeb }: { f: Frendzy; onOpenWeb: (tab: st
               />
             : <Button label="See what's on tonight" colour={C.thinking} ink onPress={() => onOpenWeb('events')} />
         ) : null}
+
+        {friends.length ? <Button label="Crews and besties" ghost onPress={() => onOpenWeb('crews')} testID="home-crews" /> : null}
       </ScrollView>
 
       <Toast text={f.toast} />
