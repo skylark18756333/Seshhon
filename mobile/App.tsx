@@ -19,7 +19,7 @@ import AgeCheck from './src/AgeCheck';
 import Auth, { type AuthDone, type AuthStart } from './src/Auth';
 import Crews from './src/Crews';
 import { Glow, Toast } from './src/Parts';
-import { registerPushToken } from './src/push';
+import { askAfterTour, registerPushToken, watchNotificationTaps } from './src/push';
 import Sesh from './src/Sesh';
 import Tabs from './src/Tabs';
 import Tour from './src/Tour';
@@ -247,6 +247,15 @@ function Shell() {
     setPage(WEB_URL); setOpens((n) => n + 1);
   }, []);
 
+  // Tapping a notification opens the screen it is about (Home, Sesh or Crews), once the native screens are up.
+  const [tapTab, setTapTab] = useState<string | null>(null);
+  useEffect(() => watchNotificationTaps(setTapTab), []);
+  useEffect(() => {
+    if (!native || !tapTab) return;
+    setTapTab(null);
+    pickTab(tapTab);
+  }, [native, tapTab, pickTab]);
+
   // The native You page logged out or deleted the account (it already cleared the sign-in): the login screen
   // opens and says what happened.
   const signedOut = useCallback((note: string) => {
@@ -271,7 +280,7 @@ function Shell() {
   useEffect(() => {
     if (!native) return;
     const s = currentSession();
-    registerPushToken(s ? s.user_id : null).catch(() => {});   // the spot for push notifications (not built yet)
+    registerPushToken(s ? s.user_id : null).catch(() => {});   // refreshes the push token when notifications are already allowed (never asks)
     if (tourPending()) setTour(true);
   }, [native]);
   // An invite link opened before or after signing in: the friend request goes out as soon as there is an account.
@@ -389,7 +398,7 @@ function Shell() {
         : tab === 'crews' ? <Crews f={f} onBack={() => setTab(before)} onPlanned={() => pickTab('sesh')} />
         : <Home f={f} onOpenWeb={pickTab} />}
       <Tabs tab={tab === 'venue' ? 'sesh' : tab === 'crews' ? 'you' : tab} requests={f.state ? f.state.requests_in.length : 0} onPick={pickTab} />
-      {tour && me ? <Tour name={first(me.name)} onClose={() => { clearTour(); setTour(false); }} /> : null}
+      {tour && me ? <Tour name={first(me.name)} onClose={() => { clearTour(); setTour(false); askAfterTour().catch(() => {}); }} /> : null}
     </Layer>
   );
 }
