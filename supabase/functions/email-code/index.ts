@@ -107,7 +107,7 @@ async function send(to: string, code: string, purpose: string, username = ''): P
 }
 
 Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') return reply(204, {});
+  if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });   // a 204 can't have a body
   if (req.method !== 'POST') return reply(405, { message: 'Use POST.' });
   if (!(env('BREVO_API_KEY') || env('RESEND_API_KEY')) || !env('EMAIL_FROM')) {
     return reply(503, { message: 'Email codes aren\'t set up yet. Try again later.' });
