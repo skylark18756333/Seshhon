@@ -212,6 +212,18 @@ a { color: var(--fg); }
 .map { height: 260px; border-radius: 18px; overflow: hidden; border: 1px solid var(--line); background: #141B2A; z-index: 0; }
 .map.big { height: min(62vh, 520px); min-height: 320px; }
 .bleed { margin-inline: -18px; }
+/* Venue and Frendzy staff accounts are run from a computer: on a wide screen they get a side menu and a two-column page. */
+@media (min-width: 900px) {
+  #app.desk { max-width: 1240px; flex-direction: row; }
+  #app.desk nav { order: -1; align-self: flex-start; display: flex; flex-direction: column; gap: 4px; width: 220px; margin: 20px 0 20px 20px; padding: 10px; border-radius: 22px; }
+  #app.desk nav button { justify-content: flex-start; gap: 12px; padding-inline: 14px; }
+  #app.desk nav button span:not(.badge) { position: static; width: auto; height: auto; overflow: visible; clip: auto; }
+  #app.desk main { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: start; column-gap: 24px; padding-inline: 32px; }
+  #app.desk main > * { grid-column: 1 / -1; }
+  #app.desk main > .card { grid-column: auto; align-self: start; }
+  #app.desk .top, #app.desk .bleed { margin-inline: -32px; }
+  #app.desk .top { padding-inline: 32px; }
+}
 .map.route { height: 230px; border-radius: 0; }
 .map.hero { height: 240px; border-radius: 0; border: 0; }
 .map.hero .leaflet-control-zoom { display: none; }
