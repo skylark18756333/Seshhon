@@ -794,6 +794,7 @@
       if (s === 'on') h += '<button class="btn" data-act="go-sesh">' + (sesh ? 'Open tonight\'s sesh' : 'Start a sesh') + '</button>';
       else h += '<button class="btn" style="--c:var(--thinking);--cf:var(--ink)" data-act="tab" data-v="events">See what\'s on tonight</button>';
     }
+    if (friends.length && s !== 'on') h += '<button class="btn ghost" data-act="go-plan">' + svg('clock', 16) + ' Plan a sesh for later</button>';   // any colour (migration 0033)
     return h;
   }
 
@@ -1284,7 +1285,7 @@
   // The Planned list under the Sesh tab: seshes still to come that you're in or can join.
   function plannedHtml(skipId) {
     var list = plannedSeshes().filter(function (s) { return s.id !== skipId; });
-    var canPlan = D.me.colour !== 'off';
+    var canPlan = true;   // planning works on any colour (migration 0033); starting a sesh now needs green
     if (!list.length && !canPlan) return '';
     var h = '<section class="stack" style="gap:10px;padding-top:18px;border-top:1px solid var(--line)"><h2>Planned</h2>';
     h += list.map(function (s) {
@@ -1354,9 +1355,9 @@
           '<button class="btn' + (others.length ? ' ghost' : '') + '" data-act="start-sesh">Start a sesh</button>' +
           '<button class="btn ghost" data-act="private-sesh">' + svg('lock', 16) + ' Start a private sesh</button>';
       } else if (me.colour === 'thinking') {
-        h += '<p class="muted">' + (others.length ? 'Go green to start your own.' : 'No sesh yet. Go green to start one.') + '</p><button class="btn" style="--c:var(--on);--cf:var(--ink)" data-act="status" data-v="on">Go green</button>';
+        h += '<p class="muted">' + (others.length ? 'Go green to start your own now, or plan one for later on any colour.' : 'No sesh yet. Go green to start one now, or plan one for later on any colour.') + '</p><button class="btn" style="--c:var(--on);--cf:var(--ink)" data-act="status" data-v="on">Go green</button>';
       } else {
-        h += '<p class="muted">You\'re red, so seshes are hidden. Go green to start one or see your friends\' plans.</p><button class="btn" style="--c:var(--on);--cf:var(--ink)" data-act="status" data-v="on">Go green</button>';
+        h += '<p class="muted">You\'re red, so tonight\'s seshes are hidden. You can still plan one for later and see your friends\' plans below.</p><button class="btn" style="--c:var(--on);--cf:var(--ink)" data-act="status" data-v="on">Go green</button>';
       }
       return h + plannedHtml();
     }
@@ -1364,6 +1365,10 @@
     h += '<div class="card"><div class="avatars">' + mine.members.map(function (m) { return avatar(m.name || '?', 'var(--on)', false, m.id); }).join('') + '</div>' +
       '<div><div style="font-weight:700">' + mine.members.length + ' in</div><div class="muted small">' +
       esc(mine.members.map(function (m) { return m.id === me.id ? 'You' : first(m.name); }).join(', ')) + '</div></div></div>';
+    if (!later && me.colour !== 'on') {   // a planned sesh has gone live: ask, never switch anyone automatically
+      h += '<div class="card lead"><h2>Your sesh is on</h2><p class="muted small">Go green so your friends can see you\'re out.</p>' +
+        '<button class="btn" style="--c:var(--on);--cf:var(--ink)" data-act="status-here" data-v="on">Go green</button></div>';
+    }
     h += presHtml(mine);
     if (mine.private) {
       var asked = (mine.invited || []).length;
@@ -1404,7 +1409,7 @@
     h += chatHtml(mine);
     if (later) {
       h += mine.mine
-        ? '<button class="btn" data-act="start-planned">Start it now</button><button class="btn ghost" data-act="end-sesh">Cancel the sesh</button>'
+        ? '<button class="btn" data-act="start-planned">' + (me.colour === 'on' ? 'Start it now' : 'Go green and start it now') + '</button><button class="btn ghost" data-act="end-sesh">Cancel the sesh</button>'
         : '<button class="btn ghost" data-act="leave-sesh">Can\'t make it</button>';
       return h;
     }
@@ -2164,6 +2169,7 @@
       if (p.picked[id]) delete p.picked[id]; else p.picked[id] = true;
       go(false);
     },
+    'go-plan': function () { ui.tab = 'sesh'; ui.screen = null; ui.seshId = null; ACT['plan-sesh'](); },
     'plan-sesh': function () {   // starts at the next half hour, at least an hour from now
       var t = new Date(now() + 3600000); t.setMinutes(t.getMinutes() < 30 ? 30 : 60, 0, 0);
       ui.plan = { at: localInput(t.getTime()), pick: false, picked: {} }; go(true);
@@ -2205,7 +2211,9 @@
     'join-planned': function (v) { act('join_sesh', { p_sesh: v }, 'You\'re in. It goes live at the planned time.'); },
     'start-planned': function () {
       var s = mySesh(); if (!s) return;
-      act('start_planned_sesh', { p_sesh: s.id }, 'Sesh started. It\'s live now.').then(function (r) { if (r) { ui.seshId = null; go(true); } });
+      var start = function () { return act('start_planned_sesh', { p_sesh: s.id }, 'Sesh started. It\'s live now.'); };
+      // Starting a sesh now needs green, so tapping this switches you to green first.
+      (D.me.colour === 'on' ? start() : act('set_status', { new_colour: 'on' }, 'You\'re green.').then(start)).then(function (r) { if (r) { ui.seshId = null; go(true); } });
     },
     'picker-cancel': function () { ui.picker = null; go(true); },
     'picker-go': function () {
