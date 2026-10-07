@@ -16,6 +16,7 @@
 import { chromium } from 'playwright';
 import { spawn, execSync } from 'node:child_process';
 import http from 'node:http';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -87,6 +88,15 @@ const has = async (p, s, t = 8000) => {
   try { await p.page.waitForFunction((x) => document.body.innerText.toLowerCase().includes(x.toLowerCase()), s, { timeout: t }); }
   catch (e) { console.log(p.name + ' never showed "' + s + '". On screen:\n' + (await p.page.evaluate(() => document.body.innerText))); throw e; }
 };
+// The 6-digit code an authenticator app shows for a base32 secret, `ahead` 30-second steps from now (RFC 6238).
+function totp(secret, ahead = 0) {
+  const A = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'; let bits = '';
+  for (const ch of secret.replace(/\s/g, '')) bits += A.indexOf(ch).toString(2).padStart(5, '0');
+  const key = Buffer.from(bits.match(/.{8}/g).map((b) => parseInt(b, 2)));
+  const msg = Buffer.alloc(8); msg.writeBigUInt64BE(BigInt(Math.floor(Date.now() / 30000) + ahead));
+  const h = crypto.createHmac('sha1', key).update(msg).digest(), o = h[19] & 15;
+  return String((h.readUInt32BE(o) & 0x7fffffff) % 1000000).padStart(6, '0');
+}
 const tap = (p, label) => p.page.getByRole('button', { name: label, exact: true }).first().click();
 async function join(p, name, dob) {
   const u = name.toLowerCase();
@@ -94,7 +104,6 @@ async function join(p, name, dob) {
   await p.page.fill('#join-user', u + '_test'); await p.page.fill('#join-pass', 'longenough1'); await p.page.fill('#join-email', u + '@example.com');
   await tap(p, 'Get started');
   await has(p, 'Confirm your email'); await tap(p, 'Later');
-  await has(p, 'Save your recovery code'); await tap(p, "I've saved it");
   await has(p, 'Your status');
   // Skip the walkthrough that opens after sign-up: it sits over the screen and would swallow taps.
   await p.page.evaluate(() => localStorage.removeItem('seshhon-tour-pending'));
@@ -557,21 +566,21 @@ try {
   await until(() => psql(`select count(*) from public.friendships where (requester = '${miaId}' and addressee = '${anaId}') or (requester = '${anaId}' and addressee = '${miaId}')`) === '0');
   expect('Mia and Ana no longer friends', psql(`select count(*) from public.friendships where (requester = '${miaId}' and addressee = '${anaId}') or (requester = '${anaId}' and addressee = '${miaId}')`), 0);
 
-  // A new username and password: save_account, then the new recovery code.
+  // A new username and password: save_account (no recovery code any more).
   await openSet(natM, 'login');
   await tap(natM, 'Change password');
   await natM.page.getByLabel('Username', { exact: true }).fill('mia_renamed');
   await natM.page.getByLabel('New password', { exact: true }).fill('short');
-  await tap(natM, 'Save and get a new recovery code');
+  await tap(natM, 'Save');
   await has(natM, 'Use a password of at least 10 characters.');
   await natM.page.getByLabel('New password', { exact: true }).fill('newpassword9');
-  await tap(natM, 'Save and get a new recovery code');
-  await has(natM, 'Save your recovery code');
+  await tap(natM, 'Save');
+  await has(natM, 'Saved. Use your new password next time you log in.');
+  expect('no recovery code shown', await natM.page.evaluate(() => document.body.innerText.includes('recovery code')), false);
   expect("Mia's new username", psql(`select username from public.account_logins where user_id = '${miaId}'`), 'mia_renamed');
   expect('the app noted it for the login screen', await natM.page.evaluate(() => JSON.parse(localStorage.getItem('seshhon-page-store') || '{}')['seshhon-last-username']), '"mia_renamed"');
-  await yshot(natM, '6-recovery-code.png');
-  await tap(natM, "I've saved it");
   await has(natM, "You're logged in as mia_renamed");
+  await yshot(natM, '6-password-changed.png');
 
   // Log out: the sign-in goes from this phone (where the app keeps it) and the walkthrough flag is cleared for the page.
   await tap(natM, 'Log out');
@@ -610,15 +619,12 @@ try {
   await tap(natM, 'Confirm email');
   await has(natM, 'Email confirmed. New logins will ask for a code from it.');
   expect('email confirmed in the database', psql(`select email from private.two_step where user_id = '${miaId}'`), 'mia.new@example.com');
-  await has(natM, 'Save your recovery code');   // a fresh recovery code, also emailed
-  await has(natM, 'We also emailed it to', 10000);
   await until(() => natM.page.evaluate(() => !!JSON.parse(JSON.parse(localStorage.getItem('seshhon-page-store') || '{}')['seshhon-remembered-phone'] || '{}')));
   const phonesKept = await natM.page.evaluate(() => JSON.parse(JSON.parse(localStorage.getItem('seshhon-page-store') || '{}')['seshhon-remembered-phone'] || '{}'));
   expect('this phone remembered for Mia', typeof phonesKept[miaId] === 'string' && phonesKept[miaId].length > 10, true);
   expect('remembered phone in the database', psql(`select count(*) from private.two_step_devices where user_id = '${miaId}'`), 1);
-  await yshot(natM, '9-email-confirmed.png');
-  await tap(natM, "I've saved it");
   await has(natM, 'New logins also need a code sent to');
+  await yshot(natM, '9-email-confirmed.png');
 
   // The tour, from "Show the tour".
   await openSet(natM, 'tour');
@@ -652,7 +658,7 @@ try {
   await natZ.ctx.close();
 
   /* ---------- the native sign-up and login ---------- */
-  // Signing up, the email code, the recovery code, the tour, an invite link, logging out and in, the login code on
+  // Signing up, the email code, the tour, the authenticator app, an invite link, logging out and in, the login code on
   // a new phone, and "Forgot your password", all on the native screens (the human check is the test's pretend one).
   const auth = path.join(out, 'native-auth');
   fs.mkdirSync(auth, { recursive: true });
@@ -703,15 +709,8 @@ try {
   await tap(nina, 'Confirm email'); await has(nina, 'That');   // the database's own words for a wrong code
   await fillL(nina, 'Code from the email', ninaMail.code);
   await tap(nina, 'Confirm email');
-  await has(nina, 'Save your recovery code');
-  await has(nina, 'We also emailed it to', 10000);
-  expect('email confirmed in the database', psql(`select email from private.two_step where user_id = '${ninaId}'`), 'nina@example.com');
-  const ninaCode = (await nina.page.getByTestId('recovery-code').innerText()).trim();
-  expect('a recovery code was shown', /^[A-Z0-9]{4}(-[A-Z0-9]{4}){3}$/.test(ninaCode), true);
-  expect('the recovery code was emailed too', (await lastMail()).recovery, ninaCode);
-  await ashot(nina, '3-recovery-code.png');
-  await tap(nina, "I've saved it");
-  await has(nina, 'Welcome, Nina.');   // the tour after sign-up
+  await has(nina, 'Welcome, Nina.');   // straight on, with no recovery code to save
+  expect('email confirmed in the database', psql(`select email from private.two_step where user_id = '${ninaId}'`), 'nina@example.com');   // the tour after sign-up
   await ashot(nina, '4-tour.png');
   await tap(nina, 'Show me');
   await tap(nina, 'Skip');
@@ -764,38 +763,53 @@ try {
   expect('two phones remembered (sign-up and the new phone)', psql(`select count(*) from private.two_step_devices where user_id = '${ninaId}'`), 2);
   await ninaNew.ctx.close();
 
-  // Forgot the password: the recovery code and a new password, the new recovery code, then log in (no email code, the
-  // recovery code vouches for this login).
-  const forgot = await phone('Nina forgot', NAT);
-  await tap(forgot, 'I already have an account');
-  await tap(forgot, 'Forgot your password?');
-  await tap(forgot, 'Use your recovery code instead');
-  await has(forgot, 'Enter the recovery code you saved');
-  await tap(forgot, 'Set new password'); await has(forgot, 'Enter your username or email, and your recovery code.');
-  await fillL(forgot, 'Username or email', 'nina_test'); await fillL(forgot, 'Recovery code', 'AAAA-BBBB-CCCC-DDDD');
-  await fillL(forgot, 'New password', 'short');
-  await tap(forgot, 'Set new password'); await has(forgot, 'Use a password of at least 10 characters.');
-  await fillL(forgot, 'New password', 'brandnewpass1');
-  await tap(forgot, 'Set new password');
-  await has(forgot, "That");   // a wrong recovery code is refused with the database's words
-  await ashot(forgot, '8-recover.png');
-  await fillL(forgot, 'Recovery code', ninaCode);
-  await tap(forgot, 'Set new password');
-  await has(forgot, 'Save your recovery code');
-  await has(forgot, 'We also emailed it to', 10000);
-  const newerCode = (await forgot.page.getByTestId('recovery-code').innerText()).trim();
-  expect('a new recovery code', newerCode !== ninaCode && /^[A-Z0-9]{4}(-[A-Z0-9]{4}){3}$/.test(newerCode), true);
-  await ashot(forgot, '9-new-recovery-code.png');
-  await tap(forgot, "I've saved it");
-  await has(forgot, 'Log in');
-  expect('username filled in after recovery', await forgot.page.getByLabel('Username or email', { exact: true }).inputValue(), 'nina_test');
-  await fillL(forgot, 'Password', 'brandnewpass1');
-  await tap(forgot, 'Log in');
-  await has(forgot, 'Your status');
-  expect('no email code after a recovery', await forgot.page.evaluate(() => document.body.innerText.includes('Check your email')), false);
-  await forgot.ctx.close();
+  // The authenticator app: set up on the You page with the key (nothing to scan on the phone itself), then a new
+  // phone asks for the app's code, with an email code as the backup.
+  const appPhone = await phone('Nina authenticator', NAT);
+  await tap(appPhone, 'I already have an account');
+  await fillL(appPhone, 'Username or email', 'nina_test'); await fillL(appPhone, 'Password', 'longenough1');
+  await tap(appPhone, 'Log in');
+  await has(appPhone, 'Check your email');
+  await has(appPhone, 'We sent a 6-digit code to');
+  await fillL(appPhone, 'Code from the email', (await lastMail()).code);
+  await tap(appPhone, 'Log in');
+  await has(appPhone, 'Your status');
+  await tap(appPhone, 'You');
+  await openSet(appPhone, 'app');
+  await tap(appPhone, 'Set up an authenticator app');
+  await has(appPhone, 'Open in authenticator app');
+  const appKey = (await appPhone.page.getByTestId('app-secret').innerText()).replace(/\s/g, '');
+  expect('a key for the authenticator app', /^[A-Z2-7]{32}$/.test(appKey), true);
+  await ashot(appPhone, '8-authenticator-setup.png');
+  await fillL(appPhone, 'Code from the app', totp(appKey) === '000000' ? '111111' : '000000');
+  await tap(appPhone, 'Turn on'); await has(appPhone, "That code isn't right");
+  await fillL(appPhone, 'Code from the app', totp(appKey));
+  await tap(appPhone, 'Turn on');
+  await has(appPhone, 'Authenticator app is on. New logins will ask for its code.');
+  expect('authenticator app on in the database', psql(`select count(*) from private.totp where user_id = '${ninaId}' and secret is not null`), 1);
+  await appPhone.ctx.close();
 
-  // Forgot the password and the recovery code: a code to the confirmed email, then a new password.
+  const appLogin = await phone('Nina app login', NAT);
+  await tap(appLogin, 'I already have an account');
+  await fillL(appLogin, 'Username or email', 'nina_test'); await fillL(appLogin, 'Password', 'longenough1');
+  const mailsBefore = JSON.stringify(await lastMail());
+  await tap(appLogin, 'Log in');
+  await has(appLogin, 'Enter your app code');
+  await has(appLogin, 'Email me a code instead');
+  expect('no email sent when the app is on', JSON.stringify(await lastMail()), mailsBefore);
+  await ashot(appLogin, '9-app-code.png');
+  await fillL(appLogin, 'Code from your authenticator app', totp(appKey, 1));
+  await tap(appLogin, 'Log in');
+  await has(appLogin, 'Your status');
+  await tap(appLogin, 'You');
+  await openSet(appLogin, 'app');
+  await tap(appLogin, 'Turn off');
+  await tap(appLogin, 'Turn it off');
+  await has(appLogin, 'Authenticator app turned off.');
+  expect('authenticator app off in the database', psql(`select count(*) from private.totp where user_id = '${ninaId}'`), 0);
+  await appLogin.ctx.close();
+
+  // Forgot the password: a code to the confirmed email, then a new password.
   const reset = await phone('Nina reset', NAT);
   await tap(reset, 'I already have an account');
   await tap(reset, 'Forgot your password?');
@@ -834,8 +848,6 @@ try {
   await has(omar, 'Confirm your email');
   expect('account made after the age check', psql("select count(*) from public.profiles where name = 'Omar'"), 1);
   await tap(omar, 'Later');
-  await has(omar, 'Save your recovery code');
-  await tap(omar, "I've saved it");
   await has(omar, 'Welcome, Omar.');
   await tap(omar, 'Skip');
   await has(omar, 'Your status');

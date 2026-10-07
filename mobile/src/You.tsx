@@ -1,5 +1,5 @@
 // The native You page, opened from your face at the top right. It shows the same things in the same words as
-// you(), accountCards(), sec(), safetyCard(), saveForm(), emailCard() and codeCard() in
+// you(), accountCards(), appCard(), sec(), safetyCard(), saveForm() and emailCard() in
 // docs/app.js, and its taps call the same database functions as the ACT list and the form handlers there.
 // Settings are drop-down sections, as on the web: tap a title to open or close it. Each remembers whether it
 // is open while you move between tabs, and one with something waiting for you (a question, a form step) is
@@ -9,7 +9,7 @@
 import Constants from 'expo-constants';
 import * as ImagePicker from 'expo-image-picker';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 import {
   addFriendByUsername, loadAccount, loadEmailsOn, loadSafety,
@@ -31,7 +31,6 @@ const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[A-Za-z]{2,}$/;
 // Which sections are open, kept while the app runs (ui.sets in docs/app.js).
 const openSets: Record<string, boolean> = {};
 
-type NewCode = { code: string; username: string; emailed?: string };
 type EmailStep = { email: string; hint: string; renew: boolean };
 
 // Crops the middle square of a photo and shrinks it to 160 x 160 on this phone before it is sent, as
@@ -86,7 +85,10 @@ export default function You({ f, onOpenWeb, onSignedOut }: { f: Frendzy; onOpenW
   const [editAccount, setEditAccount] = useState(false);
   const [changeEmail, setChangeEmail] = useState(false);
   const [emailStep, setEmailStep] = useState<EmailStep | null>(null);
-  const [newCode, setNewCode] = useState<NewCode | null>(null);
+  const [appSetup, setAppSetup] = useState<{ secret: string; uri: string } | null>(null);
+  const [appCode, setAppCode] = useState('');
+  const [appError, setAppError] = useState('');
+  const [appBusy, setAppBusy] = useState(false);
   const [saveUser, setSaveUser] = useState('');
   const [savePass, setSavePass] = useState('');
   const [saveEmail, setSaveEmail] = useState('');
@@ -96,14 +98,6 @@ export default function You({ f, onOpenWeb, onSignedOut }: { f: Frendzy; onOpenW
   const [ecError, setEcError] = useState('');
   const [ecBusy, setEcBusy] = useState(false);
 
-
-  // A copy of a new recovery code goes to the account's confirmed email (emailRecovery in docs/app.js).
-  const emailRecovery = useCallback((c: NewCode | null) => {
-    if (!c || c.emailed) return;
-    emailCode('recovery', { username: c.username, code: c.code }).then((r) => {
-      setNewCode((now) => (now && now.code === c.code ? { ...now, emailed: r.hint } : now));
-    }, () => {});
-  }, []);
 
   if (!me) return null;
   const a = account && account !== 'off' ? account : null;
@@ -173,14 +167,12 @@ export default function You({ f, onOpenWeb, onSignedOut }: { f: Frendzy; onOpenW
     if (hasEmail && !EMAIL_RE.test(em)) { setSaveError('Enter your email address. Login codes go there.'); return; }
     setSaveBusy(true); setSaveError('');
     try {
-      let code: NewCode | null = null;
       if (!addingEmail) {
         const r = await rpc('save_account', { p_username: su, p_password: sp });
         setEditAccount(false);
         rememberUsername(r.username);
         f.setUsername(r.username);
-        code = { code: r.recovery_code, username: r.username };
-        setNewCode(code);
+        if (a) f.say('Saved. Use your new password next time you log in.');
         loadAccount().then(setAccount);
       }
       let step: EmailStep | null = null;
@@ -193,7 +185,6 @@ export default function You({ f, onOpenWeb, onSignedOut }: { f: Frendzy; onOpenW
         } catch (x) { if (addingEmail) throw x; f.say((x as Error).message); }
       }
       setSavePass(''); setSaveEmail('');
-      if (!step) emailRecovery(code);   // a password change on an account that already has its email
     } catch (x) {
       setSaveError((x as Error).message);
     }
@@ -209,24 +200,40 @@ export default function You({ f, onOpenWeb, onSignedOut }: { f: Frendzy; onOpenW
       if (!r || !r.ok) { setEcError((r && r.message) || "That didn't work. Try again."); setEcBusy(false); return; }
       const changed = !!(a && a.email);
       setAccount((old) => (old && old !== 'off' ? { ...old, email: r.email } : old));
-      const renew = !!(emailStep && emailStep.renew) && !newCode;
       setEmailStep(null); setChangeEmail(false); setEcCode('');
       f.say(changed ? 'Email changed. Login codes now go to ' + r.email + '.' : 'Email confirmed. New logins will ask for a code from it.');
       rememberPhone();   // the phone that confirmed the email doesn't need a code at its next login
-      // From the You page, a fresh recovery code goes to the (new) email too. The old one only exists as a hash.
-      let next = newCode;
-      if (renew) {
-        try {
-          const c = await rpc('renew_recovery_code');
-          next = { code: c.recovery_code, username: c.username };
-          setNewCode(next);
-        } catch (e) {}
-      }
-      emailRecovery(next);
     } catch (x) {
       setEcError((x as Error).message);
     }
     setEcBusy(false);
+  };
+  // The authenticator app (appCard and the 'app-start', 'app-confirm' and 'app-off' handlers in docs/app.js). On the
+  // phone itself there is nothing to scan, so it opens the authenticator app with the otpauth link, or the key is typed in.
+  const startApp = () => {
+    setAppError(''); setAppCode('');
+    rpc('totp_start').then((r) => setAppSetup(r), (x: Error) => f.say(x.message));
+  };
+  const confirmApp = async () => {
+    const code = appCode.replace(/\D/g, '');
+    if (code.length !== 6) { setAppError('Enter the 6-digit code the app shows for Frendzy.'); return; }
+    setAppBusy(true); setAppError('');
+    try {
+      const r = await rpc('totp_confirm', { p_code: code });
+      if (!r || !r.ok) { setAppError((r && r.message) || "That didn't work. Try again."); setAppBusy(false); return; }
+      setAppSetup(null); setAppCode('');
+      setAccount((old) => (old && old !== 'off' ? { ...old, app: true } : old));
+      rememberPhone();   // this phone doesn't need a code at its next login
+      f.say('Authenticator app is on. New logins will ask for its code.');
+    } catch (x) { setAppError((x as Error).message); }
+    setAppBusy(false);
+  };
+  const appOff = () => {
+    setConfirm(null);
+    rpc('totp_off').then(() => {
+      setAccount((old) => (old && old !== 'off' ? { ...old, app: false } : old));
+      f.say('Authenticator app turned off.');
+    }, (x: Error) => f.say(x.message));
   };
   const resendEmail = () => {
     if (!emailStep) return;
@@ -422,16 +429,8 @@ export default function You({ f, onOpenWeb, onSignedOut }: { f: Frendzy; onOpenW
                   <Button small ghost label="Later" onPress={() => setEmailStep(null)} />
                 </View>
               </View>
-            ) : newCode ? (
-              <View style={[styles.card, styles.cardOn]}>
-                <Text style={styles.h2}>Save your recovery code</Text>
-                <Text style={[styles.muted, styles.small]}>If you forget your password, this code is the only way back into your account. Screenshot it or write it down. It won't be shown again.</Text>
-                <Text selectable style={[styles.linkbox, styles.code]} testID="recovery-code">{newCode.code}</Text>
-                <Text style={[styles.muted, styles.small]}>Your username is <Text style={styles.strong}>{newCode.username}</Text>.</Text>
-                {newCode.emailed ? <Text style={[styles.body, styles.small]}>We also emailed it to <Text style={styles.strong}>{newCode.emailed}</Text>. Keep that email.</Text> : null}
-                <Button label="I've saved it" onPress={() => setNewCode(null)} />
-              </View>
             ) : a && !editAccount ? (
+              <>
               <Section k="login" title="Username and password" hint={a.username} onToggle={toggle}>
                 <Text style={[styles.muted, styles.small]}>You're logged in as <Text style={styles.strong}>{a.username}</Text>. Use it to log in on another phone.</Text>
                 {a.email && !changeEmail ? (
@@ -456,6 +455,44 @@ export default function You({ f, onOpenWeb, onSignedOut }: { f: Frendzy; onOpenW
                   <Button small ghost label="Log out" onPress={logOut} />
                 </View>
               </Section>
+              <Section k="app" title="Authenticator app" hint={a.app ? 'On' : appSetup ? undefined : 'Off'} force={!!appSetup || confirm === 'app-off'} onToggle={toggle}>
+                {a.app ? (
+                  <>
+                    <Text style={[styles.muted, styles.small]}>On. New logins ask for the 6-digit code your authenticator app shows for Frendzy{a.email ? ', or you can get a code by email instead.' : '.'}</Text>
+                    {confirm === 'app-off' ? (
+                      <>
+                        <Text style={[styles.muted, styles.small]}>Turn it off? New logins will only need {a.email ? 'your password and an email code.' : 'your password.'}</Text>
+                        <View style={styles.row}>
+                          <Button small label="Turn it off" onPress={appOff} />
+                          <Button small ghost label="Keep it on" onPress={() => setConfirm(null)} />
+                        </View>
+                      </>
+                    ) : <View style={styles.start}><Button small ghost label="Turn off" onPress={() => setConfirm('app-off')} /></View>}
+                  </>
+                ) : appSetup ? (
+                  <View style={styles.stack12}>
+                    <Text style={[styles.muted, styles.small]}>1. Tap Open in authenticator app. Or, in your authenticator app, add an account and type in this key:</Text>
+                    <View style={styles.start}><Button small ghost label="Open in authenticator app" onPress={() => Linking.openURL(appSetup.uri).catch(() => f.say('No authenticator app found. Install one, or type the key into it.'))} /></View>
+                    <Text selectable style={styles.linkbox} testID="app-secret">{appSetup.secret.replace(/(.{4})/g, '$1 ').trim()}</Text>
+                    <Text style={[styles.muted, styles.small]}>2. Type the 6-digit code the app now shows for Frendzy.</Text>
+                    <Field label="Code from the app">
+                      <TextInput style={styles.input} value={appCode} onChangeText={setAppCode} onSubmitEditing={confirmApp} keyboardType="number-pad"
+                        autoComplete="one-time-code" textContentType="oneTimeCode" maxLength={7} accessibilityLabel="Code from the app" />
+                    </Field>
+                    {appError ? <Text style={styles.error}>{appError}</Text> : null}
+                    <View style={styles.row}>
+                      <Button small label="Turn on" disabled={appBusy} onPress={confirmApp} />
+                      <Button small ghost label="Cancel" onPress={() => { setAppSetup(null); setAppError(''); }} />
+                    </View>
+                  </View>
+                ) : (
+                  <>
+                    <Text style={[styles.muted, styles.small]}>For extra safety, use an app like Google Authenticator or Microsoft Authenticator. New logins will ask for the code it shows as well as your password.</Text>
+                    <View style={styles.start}><Button small ghost label="Set up an authenticator app" onPress={startApp} /></View>
+                  </>
+                )}
+              </Section>
+              </>
             ) : (
               <View style={styles.card}>
                 <Text style={styles.h2}>{a ? 'Change password' : 'Keep your account'}</Text>
@@ -472,7 +509,7 @@ export default function You({ f, onOpenWeb, onSignedOut }: { f: Frendzy; onOpenW
                   </Field>
                   {askEmail ? <EmailField label="Email" value={saveEmail} onChange={setSaveEmail} /> : null}
                   {saveError ? <Text style={styles.error}>{saveError}</Text> : null}
-                  <Button label={a ? 'Save and get a new recovery code' : 'Save my account'} disabled={saveBusy} onPress={() => submitSave(false)} />
+                  <Button label={a ? 'Save' : 'Save my account'} disabled={saveBusy} onPress={() => submitSave(false)} />
                 </View>
                 {a ? <Button ghost label="Cancel" onPress={() => { setEditAccount(false); setSaveError(''); setSavePass(''); }} /> : null}
               </View>

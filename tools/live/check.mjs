@@ -3,6 +3,7 @@
 import { chromium } from 'playwright';
 import { spawn, execSync } from 'node:child_process';
 import http from 'node:http';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -68,6 +69,15 @@ const text = (p) => p.page.locator('body').innerText();
 const has = async (p, s, t = 4000) => { try { await p.page.waitForFunction((x) => document.body.innerText.toLowerCase().includes(x.toLowerCase()), s, { timeout: t }); return true; } catch { return false; } };
 const gone = async (p, s, t = 4000) => { try { await p.page.waitForFunction((x) => !document.body.innerText.toLowerCase().includes(x.toLowerCase()), s, { timeout: t }); return true; } catch { return false; } };
 const lastEmail = () => fetch('http://127.0.0.1:54330/__fake/last-email', { method: 'POST', headers: { apikey: 'test-anon-key' } }).then((r) => r.json());
+// The 6-digit code an authenticator app shows for a base32 secret, `ahead` 30-second steps from now (RFC 6238).
+function totp(secret, ahead = 0) {
+  const A = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'; let bits = '';
+  for (const ch of secret.replace(/\s/g, '')) bits += A.indexOf(ch).toString(2).padStart(5, '0');
+  const key = Buffer.from(bits.match(/.{8}/g).map((b) => parseInt(b, 2)));
+  const msg = Buffer.alloc(8); msg.writeBigUInt64BE(BigInt(Math.floor(Date.now() / 30000) + ahead));
+  const h = crypto.createHmac('sha1', key).update(msg).digest(), o = h[19] & 15;
+  return String((h.readUInt32BE(o) & 0x7fffffff) % 1000000).padStart(6, '0');
+}
 const tap = (p, label) => p.page.getByRole('button', { name: label, exact: true }).first().click();
 async function signUp(p, name, link) {
   await p.page.goto(`http://127.0.0.1:${WEB_PORT}/${link || ''}`);
@@ -78,8 +88,6 @@ async function signUp(p, name, link) {
   await p.page.fill('#join-email', name.toLowerCase().replace(/[^a-z0-9_]/g, '') + '@example.com');
   await tap(p, 'Get started');
   await has(p, 'Confirm your email'); await tap(p, 'Later');   // email codes are checked in full for Ana and Fay
-  await has(p, 'Save your recovery code');
-  await tap(p, "I've saved it");
   await has(p, 'Your status');
   await skipTour(p);
 }
@@ -123,11 +131,7 @@ try {
   await ana.page.fill('#ec-code', '00000'); await tap(ana, 'Confirm email');
   ok(await has(ana, '6-digit code'), 'a short code is explained');
   await ana.page.fill('#ec-code', (await lastEmail()).code); await tap(ana, 'Confirm email');
-  ok(await has(ana, 'Save your recovery code') && await has(ana, 'ana_1'), 'after confirming the email, signing up shows the username and a recovery code');
-  ok(await has(ana, 'We also emailed it to a•••@example.com'), 'the recovery code is emailed to Ana as well');
-  ok(await ana.page.evaluate(async () => { const r = await (await fetch('http://127.0.0.1:54330/__fake/last-email', { method: 'POST', headers: { apikey: 'test-anon-key' } })).json(); return r.recovery === document.getElementById('recovery-code').innerText.trim(); }), 'and the email holds the same code that is on screen');
-  ok(await ana.page.locator('.tour').count() === 0, 'the walkthrough waits until the recovery code is saved');
-  await tap(ana, "I've saved it");
+  ok(await has(ana, 'Email confirmed') && !(await has(ana, 'recovery code', 500)), 'after confirming the email, sign-up is done, with no recovery code to save');
   ok(await has(ana, 'Welcome, Ana.'), 'the walkthrough opens straight after sign-up');
   ok(await ana.page.locator('#app[inert]').count() === 1, 'and the app behind it cannot be tapped');
   await tap(ana, 'Show me');
@@ -487,11 +491,6 @@ try {
   await fay.page.fill('#join-user', 'Fay_99'); await tap(fay, 'Get started');
   ok(await has(fay, 'Confirm your email'), 'Fay is asked to confirm her email');
   await fay.page.fill('#ec-code', (await lastEmail()).code); await tap(fay, 'Confirm email');
-  ok(await has(fay, 'Save your recovery code'), 'signing up shows a recovery code');
-  const code1 = (await fay.page.locator('#recovery-code').innerText()).trim();
-  ok(await has(fay, 'We also emailed it to f•••@example.com') && (await lastEmail()).recovery === code1, 'Fay\'s recovery code is emailed to her too');
-  ok(/^[A-Z2-9]{4}(-[A-Z2-9]{4}){3}$/.test(code1), 'the recovery code looks like XXXX-XXXX-XXXX-XXXX');
-  await tap(fay, "I've saved it");
   await skipTour(fay);
   await tab(fay, 'You');
   ok(await has(fay, 'logged in as fay_99'), 'Fay sees her username');
@@ -551,21 +550,15 @@ try {
   await tap(fay2, 'Log in');
   ok(await has(fay2, 'Your status') && !(await has(fay2, 'Check your email', 300)), 'this phone was remembered, so logging back in skips the email code');
   ok((await lastEmail()).code === emailsBefore, 'and no code is emailed');
-  await tab(fay2, 'You'); await tap(fay2, 'Log out');
-  await has(fay2, 'I already have an account');
-  await tap(fay2, 'I already have an account'); await tap(fay2, 'Forgot your password?'); await tap(fay2, 'Use your recovery code instead');
-  await fay2.page.fill('#rec-user', 'fay_99'); await fay2.page.fill('#rec-code', 'AAAA-AAAA-AAAA-AAAA'); await fay2.page.fill('#rec-pass', 'brandnewpass');
-  await tap(fay2, 'Set new password');
-  ok(await has(fay2, "recovery code don't match"), 'a wrong recovery code is turned away');
-  await fay2.page.fill('#rec-code', code1.toLowerCase()); await tap(fay2, 'Set new password');
-  ok(await has(fay2, 'Save your recovery code'), 'the right recovery code sets a new password and gives a new code');
-  const code2 = (await fay2.page.locator('#recovery-code').innerText()).trim();
-  ok(code2 !== code1, 'the used code is replaced');
-  ok(await has(fay2, 'We also emailed it to f•••@example.com') && (await lastEmail()).recovery === code2, 'and the new code is emailed to her');
-  await tap(fay2, "I've saved it");
-  ok(await fay2.page.locator('#login-user').inputValue() === 'fay_99', 'then the log-in form has the username filled in');
+  await tab(fay2, 'You'); await tap(fay2, 'Change password');
+  await fay2.page.fill('#save-pass', 'brandnewpass'); await tap(fay2, 'Save');
+  ok(await has(fay2, 'Use your new password next time') && !(await has(fay2, 'recovery code', 300)), 'Fay changes her password, with no recovery code to save');
+  await tap(fay2, 'Log out'); await tap(fay2, 'I already have an account');
   await fay2.page.fill('#login-pass', 'brandnewpass'); await tap(fay2, 'Log in');
-  ok(await has(fay2, 'Your status'), 'and the new password works, without an email code straight after a recovery');
+  ok(await has(fay2, 'Check your email'), 'a new password means this phone needs an email code again');
+  await fay2.page.waitForTimeout(500);
+  await fay2.page.fill('#ts-code', (await lastEmail()).code); await tap(fay2, 'Log in');
+  ok(await has(fay2, 'Your status'), 'and the new password works');
 
   console.log('Change email');
   execSync(`psql -X -q -h ${sock} -p ${dbPort} -U postgres -c "delete from private.two_step_sends"`);   // Fay has used her 5 emails this hour
@@ -575,10 +568,6 @@ try {
   await fay2.page.fill('#save-email', 'fay@new.example.com'); await tap(fay2, 'Send me a code');
   ok(await has(fay2, 'Confirm your email') && await has(fay2, 'f•••@new.example.com') && (await lastEmail()).email === 'fay@new.example.com', 'a code goes to the new email');
   await fay2.page.fill('#ec-code', (await lastEmail()).code); await tap(fay2, 'Confirm email');
-  ok(await has(fay2, 'Save your recovery code') && await has(fay2, 'We also emailed it to f•••@new.example.com'), 'once confirmed, a fresh recovery code is shown and emailed to the new address');
-  const code3 = (await fay2.page.locator('#recovery-code').innerText()).trim();
-  ok(code3 !== code2 && (await lastEmail()).recovery === code3, 'the emailed code is the new one');
-  await tap(fay2, "I've saved it");
   ok(await has(fay2, 'need a code sent to f•••@new.example.com'), 'new logins now need a code from the new email');
 
   console.log('Log in with email');
@@ -600,17 +589,36 @@ try {
   if (await has(fay2, 'Check your email', 300)) { await fay2.page.fill('#ts-code', (await lastEmail()).code); await tap(fay2, 'Log in'); }
   await tab(fay2, 'You');
   ok(await has(fay2, 'logged in as fay_99'), 'and it is her account');
-  await tap(fay2, 'Log out');
-  await tap(fay2, 'I already have an account'); await tap(fay2, 'Forgot your password?'); await tap(fay2, 'Use your recovery code instead');
-  await fay2.page.fill('#rec-user', 'fay@new.example.com'); await fay2.page.fill('#rec-code', code2); await fay2.page.fill('#rec-pass', 'anotherpass1');
-  await tap(fay2, 'Set new password');
-  ok(await has(fay2, "That email and recovery code don't match."), 'a replaced recovery code doesn\'t work with the email either');
-  await fay2.page.fill('#rec-code', code3); await tap(fay2, 'Set new password');
-  ok(await has(fay2, 'Save your recovery code'), 'her email and recovery code set a new password');
-  await tap(fay2, "I've saved it");
-  ok(await fay2.page.locator('#login-user').inputValue() === 'fay_99', 'then the log-in form shows her username');
-  await fay2.page.fill('#login-pass', 'anotherpass1'); await tap(fay2, 'Log in');
-  ok(await has(fay2, 'Your status'), 'and the new password works');
+
+  console.log('Authenticator app');
+  ok(await has(fay2, 'Authenticator app') && await has(fay2, 'Google Authenticator'), 'the You page offers an authenticator app');
+  await tap(fay2, 'Set up an authenticator app');
+  ok(await fay2.page.waitForSelector('.qr svg', { timeout: 4000 }).then(() => true, () => false), 'setting it up shows a QR code to scan');
+  ok((await fay2.page.locator('a', { hasText: 'Open in authenticator app' }).getAttribute('href')).startsWith('otpauth://totp/Frendzy:fay_99?secret='), 'and a link that opens the authenticator app on this phone');
+  const appKey = (await fay2.page.locator('#app-secret').innerText()).replace(/\s/g, '');
+  ok(/^[A-Z2-7]{32}$/.test(appKey), 'and the key to type in by hand');
+  if (process.env.SHOTS) await fay2.page.locator('[data-set="app"]').screenshot({ path: process.env.SHOTS + '/authenticator-setup.png' });
+  const nowCode = totp(appKey);
+  await fay2.page.fill('#app-code', nowCode === '000000' ? '111111' : '000000'); await tap(fay2, 'Turn on');
+  ok(await has(fay2, "That code isn't right"), 'a wrong code doesn\'t turn it on');
+  await fay2.page.fill('#app-code', nowCode); await tap(fay2, 'Turn on');
+  ok(await has(fay2, 'Authenticator app is on'), 'the code from the app turns it on');
+  const fay3 = await phone('Fay on a third phone');
+  await fay3.page.goto(`http://127.0.0.1:${WEB_PORT}/`);
+  await tap(fay3, 'I already have an account');
+  await fay3.page.fill('#login-user', 'fay_99'); await fay3.page.fill('#login-pass', 'brandnewpass');
+  const emailsBeforeApp = JSON.stringify(await lastEmail());
+  await tap(fay3, 'Log in');
+  ok(await has(fay3, 'Enter your app code') && await has(fay3, 'Email me a code instead'), 'a new phone now asks for the app\'s code, with email as a backup');
+  ok(JSON.stringify(await lastEmail()) === emailsBeforeApp, 'and no email is sent unless she asks');
+  await fay3.page.fill('#ts-code', nowCode); await tap(fay3, 'Log in');
+  ok(await has(fay3, "isn't right"), 'the code already used to turn it on doesn\'t work again');
+  await fay3.page.fill('#ts-code', totp(appKey, 1)); await tap(fay3, 'Log in');
+  ok(await has(fay3, 'Your status'), 'a fresh code from the app logs her in');
+  await tab(fay3, 'You');
+  await tap(fay3, 'Turn off'); await tap(fay3, 'Turn it off');
+  ok(await has(fay3, 'Authenticator app turned off') && await has(fay3, 'Set up an authenticator app'), 'she can turn it off again');
+  await fay3.ctx.close();
 
   console.log('Forgot password by email');
   await tab(fay2, 'You'); await tap(fay2, 'Log out');
