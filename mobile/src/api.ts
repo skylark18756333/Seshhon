@@ -139,7 +139,7 @@ export function loadPins(): Promise<Record<string, [number, number]>> {
 /* ---------- the You page ---------- */
 // Each of these is 'off' when the database is older than the feature, and the You page then leaves it out,
 // as loadAccount, loadSafety and loadRole in docs/app.js do.
-export type Account = { username: string; email?: string | null; pending_email?: string | null };
+export type Account = { username: string; email?: string | null; pending_email?: string | null; app?: boolean };
 export type Safety = { gender: string | null; women_only: boolean };
 export type Claim = { status: string; venue_name: string; note?: string | null };
 export type Role = { role: string; claim?: Claim | null };

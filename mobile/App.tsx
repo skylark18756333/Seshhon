@@ -113,7 +113,7 @@ function Shell() {
   // The sign-in, read off the phone at start-up: undefined while it is being read, null when nobody is signed in.
   const [session, setLocalSession] = useState<Session | null | undefined>(undefined);
   // True while the native sign-up or login screens are in the middle of something that needs a sign-in to exist
-  // (the age check, the email code, the recovery code): they keep the screen until they say they are done, so
+  // (the age check, the email code): they keep the screen until they say they are done, so
   // those steps are never cut short by the native Home.
   const [authOwns, setAuthOwns] = useState(false);
   // Which sign-in screen opens first, and a line for it to show (after a log out or a deleted account).
@@ -256,7 +256,7 @@ function Shell() {
     setVenue(null);
   }, []);
 
-  // The sign-up and login screens are done (a login, or the recovery code saved after sign-up): the native
+  // The sign-up and login screens are done (a login, or the email step after sign-up): the native
   // screens load, and a new account gets the tour.
   const authDone = useCallback((r: AuthDone) => {
     setPageNote(null);
@@ -321,7 +321,6 @@ function Shell() {
       <Layer>
         <TwoStep
           onDone={f.retry}
-          onRecover={() => { setAuthStart('recover'); setSession(null); }}
           onCancel={() => { clearTour(); setAuthStart('join'); setSession(null); }}
         />
       </Layer>

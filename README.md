@@ -189,7 +189,8 @@ When someone saves a username and password, they also give an email address and 
 A phone that has had its code is remembered for 30 days, so logging back in there needs only the password.
 The email is private: it is never shown to anyone (the owner only sees a hint like f•••@gmail.com).
 Accounts saved before this keep logging in with just their password until they add an email on the You
-page. A recovery code still gets someone back in if they lose their email too.
+page. Recovery codes are no longer shown in the app (people didn't save them): a forgotten password is reset
+with an emailed code, and staff can set a new password for an account with no email from the Admin page.
 
 - `supabase/migrations/0018_email_two_step.sql`: stores the email and hashed codes, and the login check.
 - `supabase/migrations/0026_change_email.sql`: changing the email from the You page. The new address is confirmed
@@ -206,14 +207,19 @@ page. A recovery code still gets someone back in if they lose their email too.
   per email, and only hashes of emails are kept with them.
 - `supabase/migrations/0032_email_password_reset.sql`: "Forgot your password?" with an emailed code. Someone types
   their confirmed email, gets a 6-digit code there, and picks a new password. The answer is the same whether or not
-  the email has an account. Codes last 15 minutes; each email gets at most 3 an hour and 10 a day. The recovery code
-  still works too ("Use your recovery code instead").
+  the email has an account. Codes last 15 minutes; each email gets at most 3 an hour and 10 a day.
+- `supabase/migrations/0034_authenticator_app.sql`: an optional authenticator app (Google Authenticator, Microsoft
+  Authenticator...) for login codes, turned on from the You page by scanning a QR code (on a computer) or tapping
+  "Open in authenticator app" (on the phone). New logins then ask for the app's 6-digit code, with an email code as
+  the backup. The codes are standard TOTP (30 seconds, 6 digits), checked in the database; each works once and
+  5 wrong ones pause them for 15 minutes. It also adds `admin_set_password` for the Admin page. The QR code is drawn
+  by `docs/vendor/qrcode/qrcode.js` (qrcode-generator 1.4.4, MIT).
 - `supabase/functions/email-code/`: the Edge Function that emails the codes. It holds the email service key.
 
 To switch it on, in this order:
 
 1. Run `supabase/migrations/0018_email_two_step.sql`, then `0022_email_recovery_code.sql`, then
-   `0023_remember_this_phone.sql`, `0026_change_email.sql`, `0028_login_with_email.sql` and `0032_email_password_reset.sql`, in the
+   `0023_remember_this_phone.sql`, `0026_change_email.sql`, `0028_login_with_email.sql`, `0032_email_password_reset.sql` and `0034_authenticator_app.sql`, in the
    Supabase SQL editor.
 2. Make a free account with an email service. Frendzy uses **Resend** with frendzy.au verified (its records
    go on the `send` subdomain at Crazy Domains), sending from `no-reply@frendzy.au`. Brevo also works, even

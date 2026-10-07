@@ -1,11 +1,11 @@
 // Signing up and logging in, as native screens. They show the same things in the same words as welcome(),
-// loginScreen(), recoverScreen(), resetScreen(), emailCard(), codeCard() and tooYoung() in docs/app.js, and the same database
-// functions and email-code function are called by the form handlers there (the 'join', 'login', 'recover',
+// loginScreen(), resetScreen(), emailCard() and tooYoung() in docs/app.js, and the same database
+// functions and email-code function are called by the form handlers there (the 'join', 'login',
 // 'reset-send', 'reset-new' and 'email-confirm' submit handlers, finishSignUp and saveNewLogin).
 // Steps: sign up (name, date of birth, username, password, email, human check) -> the 18+ age check if the
-// database asks for it -> confirm the email with a 6-digit code ("Later" skips) -> save the recovery code -> the
-// tour (App.tsx shows it). Log in (username or email + password + human check), "Forgot your password?" (a code
-// to the confirmed email, or the recovery code), and the login code and age check for an account that needs them (App.tsx shows those).
+// database asks for it -> confirm the email with a 6-digit code ("Later" skips) -> the tour (App.tsx shows it).
+// Log in (username or email + password + human check), "Forgot your password?" (a code to the confirmed email),
+// and the login code and age check for an account that needs them (App.tsx shows those).
 // Only the human check and the provider's age check page are web pages, in a small WebView (HumanCheck, AgeWeb).
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Linking, Text, TextInput, View } from 'react-native';
@@ -23,10 +23,9 @@ import { C } from './theme';
 const SITE = 'https://frendzy.au/';
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[A-Za-z]{2,}$/;
 
-export type AuthStart = 'join' | 'login' | 'recover';
+export type AuthStart = 'join' | 'login';
 export type AuthDone = { tour?: boolean; you?: boolean; note?: string };
-type Screen = 'join' | 'login' | 'recover' | 'reset' | 'tooyoung' | 'age' | 'email' | 'code';
-type NewCode = { code: string; username: string; after: 'home' | 'login'; emailed?: string };
+type Screen = 'join' | 'login' | 'reset' | 'tooyoung' | 'age' | 'email';
 type Login = { username: string; password: string; email: string };
 type Waiting = { name: string; dob: string; login: Login };
 
@@ -54,9 +53,8 @@ export default function Auth({ start, note, onDone }: { start: AuthStart; note: 
   const [loginName, setLoginName] = useState('');
   const [loginNote, setLoginNote] = useState<string | null>(null);
   const [waiting, setWaiting] = useState<Waiting | null>(null);
-  const [newCode, setNewCode] = useState<NewCode | null>(null);
   const [emailStep, setEmailStep] = useState<{ email: string; hint: string } | null>(null);
-  const ticket = useRef<string | null>(null);   // straight after a recovery code, the next login doesn't need the email code
+  const ticket = useRef<string | null>(null);   // straight after a password reset, the next login doesn't need the email code
   const [toast, setToast] = useState<string | null>(note);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const say = useCallback((text: string) => {
@@ -66,33 +64,23 @@ export default function Auth({ start, note, onDone }: { start: AuthStart; note: 
   }, []);
   useEffect(() => { if (note) say(note); return () => { if (toastTimer.current) clearTimeout(toastTimer.current); }; }, []);
 
-  // A copy of a new recovery code goes to the account's confirmed email (emailRecovery in docs/app.js). It stays on
-  // screen too, in case the email doesn't arrive. Accounts without a confirmed email just skip this.
-  const emailRecovery = useCallback((c: NewCode | null): Promise<void> => {
-    if (!c || c.emailed || !currentSession()) return Promise.resolve();
-    return emailCode('recovery', { username: c.username, code: c.code }).then((r) => {
-      setNewCode((now) => (now && now.code === c.code ? { ...now, emailed: r.hint } : now));
-    }, () => {});
-  }, []);
-
   // The details were checked and the 18+ check is out of the way (finishSignUp and saveNewLogin in docs/app.js).
   const finishSignUp = useCallback(async (w: Waiting) => {
     await rpc('api_sign_up', { p_name: w.name, p_birth_date: w.dob });
-    setTourPending();   // the tour after sign-up; App.tsx shows it once the recovery code is saved
+    setTourPending();   // the tour after sign-up; App.tsx shows it once the email step is done
     setWaiting(null);
     try {
       const r = await rpc('save_account', { p_username: w.login.username, p_password: w.login.password });
-      const code: NewCode = { code: r.recovery_code, username: r.username, after: 'home' };
       rememberUsername(r.username);
-      setNewCode(code);
       // Then a code to confirm the email. The account is saved either way; the email can be added later on the You page.
       let step: { email: string; hint: string } | null = null;
       if (w.login.email) {
         try { const sent = await emailCode('setup', { email: w.login.email }); step = { email: w.login.email, hint: sent.hint || '' }; }
         catch (x) { say((x as Error).message); }
       }
+      if (!step) { onDone({ tour: true }); return; }
       setEmailStep(step);
-      setScreen(step ? 'email' : 'code');
+      setScreen('email');
     } catch (e) {
       onDone({ tour: true, you: true, note: (e as Error).message + ' Pick another username below.' });
     }
@@ -118,48 +106,8 @@ export default function Auth({ start, note, onDone }: { start: AuthStart; note: 
         <EmailConfirm
           step={emailStep}
           onSay={say}
-          onConfirmed={() => { setEmailStep(null); setScreen('code'); emailRecovery(newCode); }}
-          onLater={() => { setEmailStep(null); setScreen('code'); }}
-        />
-        <Toast text={toast} />
-      </View>
-    );
-  }
-  if (screen === 'code' && newCode) {
-    return (
-      <View style={styles.fill}>
-        <Page>
-          <View style={styles.stack12}>
-            <Text style={styles.h2}>Save your recovery code</Text>
-            <Text style={[styles.muted, styles.small]}>If you forget your password, this code is the only way back into your account. Screenshot it or write it down. It won't be shown again.</Text>
-            <Text selectable style={[styles.linkbox, styles.code]} testID="recovery-code">{newCode.code}</Text>
-            <Text style={[styles.muted, styles.small]}>Your username is <Text style={styles.strong}>{newCode.username}</Text>.</Text>
-            {newCode.emailed ? <Text style={[styles.body, styles.small]}>We also emailed it to <Text style={styles.strong}>{newCode.emailed}</Text>. Keep that email.</Text> : null}
-            <Button label="I've saved it" onPress={() => {
-              if (newCode.after === 'login') { setLoginName(newCode.username); setNewCode(null); setScreen('login'); }
-              else { setNewCode(null); onDone({ tour: true }); }
-            }} />
-          </View>
-        </Page>
-        <Toast text={toast} />
-      </View>
-    );
-  }
-  if (screen === 'recover') {
-    return (
-      <View style={styles.fill}>
-        <Recover
-          initial={loginName}
-          onBack={() => setScreen('login')}
-          onRecovered={async (code, ticketValue) => {
-            // A copy goes to the confirmed email while the temporary sign-in still works; that sign-in was only for
-            // the recovery, so log in with the new password next.
-            setNewCode(code);
-            await emailRecovery(code);
-            ticket.current = ticketValue;
-            setSession(null);
-            setScreen('code');
-          }}
+          onConfirmed={() => { setEmailStep(null); onDone({ tour: true }); }}
+          onLater={() => { setEmailStep(null); onDone({ tour: true }); }}
         />
         <Toast text={toast} />
       </View>
@@ -171,7 +119,6 @@ export default function Auth({ start, note, onDone }: { start: AuthStart; note: 
         <Reset
           initial={loginName}
           onBack={() => setScreen('login')}
-          onRecover={() => setScreen('recover')}
           onReset={(username, ticketValue) => {
             // The temporary sign-in was only for the reset; log in with the new password next.
             ticket.current = ticketValue;
@@ -194,7 +141,7 @@ export default function Auth({ start, note, onDone }: { start: AuthStart; note: 
           onReset={(name) => { setLoginName(name); setLoginNote(null); setScreen('reset'); }}
           onJoin={() => setScreen(isUnderage() ? 'tooyoung' : 'join')}
           onLoggedIn={async () => {
-            // Straight after a recovery code, this login doesn't need the email code.
+            // Straight after a password reset, this login doesn't need the email code.
             const t = ticket.current; ticket.current = null;
             if (t) { try { const ok = await rpc('two_step_use_ticket', { p_ticket: t }); if (ok) await refreshSession(); } catch (e) {} }
             onDone({});
@@ -343,58 +290,8 @@ function Login({ initial, note, onJoin, onReset, onLoggedIn }: { initial: string
   );
 }
 
-/* ---------- forgot your password (recoverScreen() and the 'recover' form) ---------- */
-function Recover({ initial, onBack, onRecovered }: { initial: string; onBack: () => void; onRecovered: (code: NewCode, ticket: string | null) => Promise<void> }) {
-  const [user, setUser] = useState(initial);
-  const [code, setCode] = useState('');
-  const [pass, setPass] = useState('');
-  const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [checking, setChecking] = useState(false);
-  const check = useRef<HumanCheckHandle>(null);
-  const signedIn = !!currentSession();
-
-  const submit = async () => {
-    const fail = (msg: string) => { setError(msg); setBusy(false); };
-    const ru = user.trim();
-    if (!ru || !code.trim()) return fail('Enter your username or email, and your recovery code.');
-    if (pass.length < 10) return fail('Use a password of at least 10 characters.');
-    setBusy(true); setError('');
-    try {
-      if (!currentSession()) await signInAnonymously(await (check.current ? check.current.take() : Promise.resolve('')));
-      const r = await rpc('recover_account', { p_username: ru, p_code: code, p_password: pass });
-      if (!r || !r.ok) return fail((r && r.message) || "That didn't work. Try again.");
-      const fresh: NewCode = { code: r.recovery_code, username: r.username, after: 'login' };
-      await onRecovered(fresh, r.ticket || null);
-    } catch (x) { fail((x as Error).message); }
-  };
-
-  return (
-    <Page>
-      <Text style={styles.h1}>Use your recovery code</Text>
-      <Text style={styles.muted}>Enter the recovery code you saved when you made your password, and choose a new password.</Text>
-      <View style={styles.stack16}>
-        <Field label="Username or email">
-          <TextInput style={styles.input} value={user} onChangeText={setUser} autoComplete="username" autoCapitalize="none" autoCorrect={false} spellCheck={false} maxLength={254} accessibilityLabel="Username or email" />
-        </Field>
-        <Field label="Recovery code">
-          <TextInput style={styles.input} value={code} onChangeText={setCode} autoCapitalize="characters" autoCorrect={false} spellCheck={false} maxLength={24}
-            placeholder="XXXX-XXXX-XXXX-XXXX" placeholderTextColor={C.muted} accessibilityLabel="Recovery code" />
-        </Field>
-        <Field label="New password" note="At least 10 characters.">
-          <Password value={pass} onChange={setPass} onSubmit={submit} label="New password" />
-        </Field>
-        {signedIn ? null : <HumanCheck ref={check} onWait={setChecking} />}
-        {error ? <Text style={styles.error}>{error}</Text> : null}
-        <Button label={checking ? "Checking you're human…" : 'Set new password'} disabled={busy} onPress={submit} />
-      </View>
-      <Button ghost label="Back" onPress={onBack} />
-    </Page>
-  );
-}
-
 /* ---------- forgot your password: a code to the confirmed email (resetScreen() and the 'reset-send' and 'reset-new' forms) ---------- */
-function Reset({ initial, onBack, onRecover, onReset }: { initial: string; onBack: () => void; onRecover: () => void; onReset: (username: string, ticket: string | null) => void }) {
+function Reset({ initial, onBack, onReset }: { initial: string; onBack: () => void; onReset: (username: string, ticket: string | null) => void }) {
   const [email, setEmail] = useState(initial.indexOf('@') > 0 ? initial : '');
   const [sentTo, setSentTo] = useState<string | null>(null);
   const [code, setCode] = useState('');
@@ -460,10 +357,7 @@ function Reset({ initial, onBack, onRecover, onReset }: { initial: string; onBac
           </View>
         </>
       )}
-      <View style={styles.stack12}>
-        <Button ghost label="Use your recovery code instead" onPress={onRecover} />
-        <Button ghost label="Back" onPress={onBack} />
-      </View>
+      <Button ghost label="Back" onPress={onBack} />
     </Page>
   );
 }
