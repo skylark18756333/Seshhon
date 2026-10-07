@@ -649,13 +649,14 @@
   }
   function loginScreen() {
     return '<div class="stack" style="gap:24px;margin-block:auto">' + logo() + '<h1>Log in</h1>' +
+      (ui.loginNote ? '<p class="muted" id="login-note">' + esc(ui.loginNote) + '</p>' : '') +
       '<form id="login" class="stack" style="gap:16px" novalidate>' +
       '<div class="field"><label for="login-user">Username or email</label><input id="login-user" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="254" value="' + esc(ui.loginName || store(LAST_USER_KEY) || '') + '"></div>' +
       '<div class="field"><label for="login-pass">Password</label>' + passwordInput('login-pass', 'current-password') + '</div>' +
       (CAPTCHA_KEY ? '<div id="captcha"></div>' : '') +
       '<p id="login-error" class="error" hidden></p>' +
       '<button class="btn" type="submit" id="login-btn">Log in</button></form>' +
-      '<button class="btn ghost" data-act="auth" data-v="recover">Forgot your password? Use your recovery code</button>' +
+      '<button class="btn ghost" data-act="auth" data-v="reset">Forgot your password?</button>' +
       '<button class="btn ghost" data-act="auth" data-v="">Back</button></div>';
   }
   // After the password, a login on an account with email codes waits here for the code.
@@ -707,6 +708,28 @@
       '<p id="rec-error" class="error" hidden></p>' +
       '<button class="btn" type="submit" id="rec-btn">Set new password</button></form>' +
       '<button class="btn ghost" data-act="auth" data-v="login">Back</button></div>';
+  }
+  // Forgot your password: a 6-digit code goes to the account's confirmed email (migration 0032), then a new password.
+  // The answer is the same whether or not the email has an account.
+  function resetScreen() {
+    var top = '<div class="stack" style="gap:24px;margin-block:auto" id="reset">' + logo() + '<h1>Forgot your password?</h1>';
+    var bottom = '<button class="btn ghost" data-act="auth" data-v="recover">Use your recovery code instead</button>' +
+      '<button class="btn ghost" data-act="auth" data-v="login">Back</button></div>';
+    if (!ui.resetEmail) {
+      return top + '<p class="muted">Enter the email you confirmed for Frendzy. We\'ll send it a code to choose a new password.</p>' +
+        '<form id="reset-send" class="stack" style="gap:16px" novalidate>' +
+        '<div class="field"><label for="rs-email">Email</label><input id="rs-email" type="email" autocomplete="email" autocapitalize="none" spellcheck="false" maxlength="254" value="' + esc(ui.loginName && ui.loginName.indexOf('@') > 0 ? ui.loginName : '') + '"></div>' +
+        (CAPTCHA_KEY && !session ? '<div id="captcha"></div>' : '') +
+        '<p id="rs-error" class="error" hidden></p>' +
+        '<button class="btn" type="submit" id="rs-btn">Email me a code</button></form>' + bottom;
+    }
+    return top + '<p class="muted">If <strong>' + esc(ui.resetEmail) + '</strong> has a Frendzy account, we sent it a 6-digit code. Check your junk folder too.</p>' +
+      '<form id="reset-new" class="stack" style="gap:16px" novalidate>' +
+      '<div class="field"><label for="rn-code">Code from the email</label><input id="rn-code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="7" spellcheck="false"></div>' +
+      '<div class="field"><label for="rn-pass">New password</label>' + passwordInput('rn-pass', 'new-password') + '<span class="muted small">At least 10 characters.</span></div>' +
+      '<p id="rn-error" class="error" hidden></p>' +
+      '<button class="btn" type="submit" id="rn-btn">Set new password</button></form>' +
+      '<button class="btn ghost" data-act="reset-again">Use a different email, or send a new code</button>' + bottom;
   }
   // Shown once, right after a recovery code is made.
   function codeCard() {
@@ -2029,7 +2052,7 @@
       var want = ui.newCode ? 'newcode' : ui.auth || 'join';
       if (!document.getElementById(want)) {
         view.innerHTML = want === 'newcode' ? '<div class="stack" style="margin-block:auto">' + logo() + codeCard() + '</div>'
-          : want === 'login' ? loginScreen() : want === 'recover' ? recoverScreen() : welcome();
+          : want === 'login' ? loginScreen() : want === 'recover' ? recoverScreen() : want === 'reset' ? resetScreen() : welcome();
         mountCaptcha();
       }
       return;
@@ -2323,7 +2346,8 @@
     },
     'allow-back': function (v) { act('admin_allow_back', { p_id: v }, 'They can sign up again.').then(function (r) { if (r) loadAdminData().then(render); }); },
     'report-dismiss': function (v) { act('admin_dismiss_report', { p_report: v }, 'Dismissed.').then(function (r) { if (r) { ui.adata = r; render(); } }); },
-    auth: function (v) { ui.auth = v || null; view.innerHTML = ''; render(); },
+    auth: function (v) { ui.auth = v || null; ui.loginNote = null; if (v !== 'reset') ui.resetEmail = null; view.innerHTML = ''; render(); },
+    'reset-again': function () { ui.resetEmail = null; view.innerHTML = ''; render(); },
     'edit-account': function () { ui.editAccount = !ui.editAccount; go(false); },
     'ts-resend': function () { sendLoginCode(); },
     peek: function (id) {
@@ -2610,7 +2634,7 @@
         var ticket = ui.ticket; ui.ticket = null;
         return ticket ? rpc('two_step_use_ticket', { p_ticket: ticket }).then(function (ok) { if (ok) return refreshSession(); }, function () {}) : null;
       }).then(function () {
-        D = null; VENUES = null; venuesAsked = false; lastKey = ''; ui.auth = null; ui.loginName = ''; ui.account = undefined; ui.role = undefined; ui.vdata = null; ui.adata = null; ui.removed = null; ui.madeAccount = null; ui.found = null; ui.findQuery = ''; ui.safety = undefined; ui.hides = undefined; ui.age = null; ui.twoStep = undefined; ui.emailStep = null; ui.changeEmail = false;
+        D = null; VENUES = null; venuesAsked = false; lastKey = ''; ui.auth = null; ui.loginName = ''; ui.loginNote = null; ui.account = undefined; ui.role = undefined; ui.vdata = null; ui.adata = null; ui.removed = null; ui.madeAccount = null; ui.found = null; ui.findQuery = ''; ui.safety = undefined; ui.hides = undefined; ui.age = null; ui.twoStep = undefined; ui.emailStep = null; ui.changeEmail = false;
         document.activeElement && document.activeElement.blur(); view.innerHTML = '';
         return load().then(function () { if (D && D.me) return sendPendingInvite(); });
       }).catch(function (x) { lfail(x.message); });
@@ -2635,6 +2659,38 @@
           });
         })
         .catch(function (x) { rfail(x.message); });
+      return;
+    }
+    if (e.target.id === 'reset-send') {
+      var se = document.getElementById('rs-email').value.trim().toLowerCase();
+      var serr = document.getElementById('rs-error'), sbtn = document.getElementById('rs-btn');
+      var sfail = function (msg) { serr.textContent = msg; serr.hidden = false; sbtn.disabled = false; };
+      if (!/^[^@\s]+@[^@\s]+\.[a-z]{2,}$/.test(se)) return sfail('Enter the email you confirmed for Frendzy.');
+      sbtn.disabled = true; serr.hidden = true;
+      (session ? Promise.resolve() : captchaReady(sbtn).then(signInAnonymously))
+        .then(function () { return emailCode('reset', { email: se }); })
+        .then(function () { ui.resetEmail = se; document.activeElement && document.activeElement.blur(); view.innerHTML = ''; render(); })
+        .catch(function (x) { sfail(x.message); });
+      return;
+    }
+    if (e.target.id === 'reset-new') {
+      var nc = document.getElementById('rn-code').value.replace(/\D/g, ''), np = document.getElementById('rn-pass').value;
+      var nerr = document.getElementById('rn-error'), nbtn = document.getElementById('rn-btn');
+      var nfail = function (msg) { nerr.textContent = msg; nerr.hidden = false; nbtn.disabled = false; };
+      if (nc.length !== 6) return nfail('Enter the 6-digit code from the email.');
+      if (np.length < 10) return nfail('Use a password of at least 10 characters.');
+      if (!session) { ui.resetEmail = null; view.innerHTML = ''; render(); return; }
+      nbtn.disabled = true; nerr.hidden = true;
+      rpc('reset_password', { p_email: ui.resetEmail, p_code: nc, p_password: np })
+        .then(function (r) {
+          if (!r || !r.ok) return nfail((r && r.message) || 'That didn\'t work. Try again.');
+          // This phone's temporary sign-in was only for the reset; log in with the new password next.
+          session = null; store(SESSION_KEY, null); ui.twoStep = undefined; ui.ticket = r.ticket || null;
+          ui.resetEmail = null; ui.loginName = r.username; ui.auth = 'login';
+          ui.loginNote = 'Your password is changed. Log in with your username ' + r.username + ' and your new password.';
+          document.activeElement && document.activeElement.blur(); view.innerHTML = ''; render();
+        })
+        .catch(function (x) { nfail(x.message); });
       return;
     }
     if (e.target.id === 'two-step') {

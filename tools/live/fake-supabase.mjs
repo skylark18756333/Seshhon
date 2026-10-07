@@ -93,6 +93,14 @@ http.createServer(async (req, res) => {
       const [name, domain] = lastEmail.email.split('@');
       return send(res, 200, { sent: true, hint: name.slice(0, 1) + '•••@' + domain });
     }
+    if (body.action === 'reset') {
+      const r = await psql(`begin; set local role service_role; select public.reset_make_code(${lit(body.email)}); commit;`);
+      if (r.code !== 0) return send(res, 400, { message: (r.err.match(/ERROR:\s+(.*)/) || [, r.err])[1] });
+      const lines = r.out.split('\n').filter((l) => l && l !== 'BEGIN' && l !== 'COMMIT' && l !== 'SET');
+      const sends = JSON.parse(lines[lines.length - 1]).sends;
+      if (sends.length) lastEmail = { ...sends[0], reset: true };
+      return send(res, 200, { sent: true });
+    }
     const purpose = body.action === 'setup' ? 'setup' : 'login';
     const r = await psql(`begin; set local role service_role; select to_jsonb(public.two_step_make_code(${lit(uid)}, ${lit(sessions.get(token).sid)}, ${lit(purpose)}, ${lit(purpose === 'setup' ? body.email : null)})); commit;`);
     if (r.code !== 0) return send(res, 400, { message: (r.err.match(/ERROR:\s+(.*)/) || [, r.err])[1] });

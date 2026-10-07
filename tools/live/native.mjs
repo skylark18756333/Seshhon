@@ -768,8 +768,9 @@ try {
   // recovery code vouches for this login).
   const forgot = await phone('Nina forgot', NAT);
   await tap(forgot, 'I already have an account');
-  await tap(forgot, 'Forgot your password? Use your recovery code');
-  await has(forgot, 'Use your recovery code');
+  await tap(forgot, 'Forgot your password?');
+  await tap(forgot, 'Use your recovery code instead');
+  await has(forgot, 'Enter the recovery code you saved');
   await tap(forgot, 'Set new password'); await has(forgot, 'Enter your username or email, and your recovery code.');
   await fillL(forgot, 'Username or email', 'nina_test'); await fillL(forgot, 'Recovery code', 'AAAA-BBBB-CCCC-DDDD');
   await fillL(forgot, 'New password', 'short');
@@ -793,6 +794,28 @@ try {
   await has(forgot, 'Your status');
   expect('no email code after a recovery', await forgot.page.evaluate(() => document.body.innerText.includes('Check your email')), false);
   await forgot.ctx.close();
+
+  // Forgot the password and the recovery code: a code to the confirmed email, then a new password.
+  const reset = await phone('Nina reset', NAT);
+  await tap(reset, 'I already have an account');
+  await tap(reset, 'Forgot your password?');
+  await fillL(reset, 'Email', 'Nina@Example.com');
+  await tap(reset, 'Email me a code');
+  await has(reset, 'If nina@example.com has a Frendzy account');
+  const resetMail = await lastMail();
+  expect('a reset code emailed to her confirmed email', resetMail.reset && resetMail.email === 'nina@example.com' && resetMail.username === 'nina_test', true);
+  await fillL(reset, 'Code from the email', resetMail.code === '000000' ? '111111' : '000000'); await fillL(reset, 'New password', 'resetbyemail1');
+  await tap(reset, 'Set new password'); await has(reset, "That code isn't right");
+  await fillL(reset, 'Code from the email', resetMail.code);
+  await tap(reset, 'Set new password');
+  await has(reset, 'Your password is changed');
+  await ashot(reset, '9b-reset-by-email.png');
+  expect('username filled in after the reset', await reset.page.getByLabel('Username or email', { exact: true }).inputValue(), 'nina_test');
+  await fillL(reset, 'Password', 'resetbyemail1');
+  await tap(reset, 'Log in');
+  await has(reset, 'Your status');
+  expect('no email code straight after an email reset', await reset.page.evaluate(() => document.body.innerText.includes('Check your email')), false);
+  await reset.ctx.close();
 
   // The 18+ check: the database asks for it, the pretend provider fails the first try and passes the next, and "Later"
   // skips the email.

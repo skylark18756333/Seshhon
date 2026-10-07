@@ -1,11 +1,11 @@
 // Signing up and logging in, as native screens. They show the same things in the same words as welcome(),
-// loginScreen(), recoverScreen(), emailCard(), codeCard() and tooYoung() in docs/app.js, and the same database
-// functions and email-code function are called by the form handlers there (the 'join', 'login', 'recover' and
-// 'email-confirm' submit handlers, finishSignUp and saveNewLogin).
+// loginScreen(), recoverScreen(), resetScreen(), emailCard(), codeCard() and tooYoung() in docs/app.js, and the same database
+// functions and email-code function are called by the form handlers there (the 'join', 'login', 'recover',
+// 'reset-send', 'reset-new' and 'email-confirm' submit handlers, finishSignUp and saveNewLogin).
 // Steps: sign up (name, date of birth, username, password, email, human check) -> the 18+ age check if the
 // database asks for it -> confirm the email with a 6-digit code ("Later" skips) -> save the recovery code -> the
-// tour (App.tsx shows it). Log in (username or email + password + human check), "Forgot your password? Use your
-// recovery code", and the login code and age check for an account that needs them (App.tsx shows those).
+// tour (App.tsx shows it). Log in (username or email + password + human check), "Forgot your password?" (a code
+// to the confirmed email, or the recovery code), and the login code and age check for an account that needs them (App.tsx shows those).
 // Only the human check and the provider's age check page are web pages, in a small WebView (HumanCheck, AgeWeb).
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Linking, Text, TextInput, View } from 'react-native';
@@ -25,7 +25,7 @@ const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[A-Za-z]{2,}$/;
 
 export type AuthStart = 'join' | 'login' | 'recover';
 export type AuthDone = { tour?: boolean; you?: boolean; note?: string };
-type Screen = 'join' | 'login' | 'recover' | 'tooyoung' | 'age' | 'email' | 'code';
+type Screen = 'join' | 'login' | 'recover' | 'reset' | 'tooyoung' | 'age' | 'email' | 'code';
 type NewCode = { code: string; username: string; after: 'home' | 'login'; emailed?: string };
 type Login = { username: string; password: string; email: string };
 type Waiting = { name: string; dob: string; login: Login };
@@ -52,6 +52,7 @@ function dobIso(text: string): string {
 export default function Auth({ start, note, onDone }: { start: AuthStart; note: string | null; onDone: (r: AuthDone) => void }) {
   const [screen, setScreen] = useState<Screen>(isUnderage() && start === 'join' ? 'tooyoung' : start);
   const [loginName, setLoginName] = useState('');
+  const [loginNote, setLoginNote] = useState<string | null>(null);
   const [waiting, setWaiting] = useState<Waiting | null>(null);
   const [newCode, setNewCode] = useState<NewCode | null>(null);
   const [emailStep, setEmailStep] = useState<{ email: string; hint: string } | null>(null);
@@ -164,13 +165,34 @@ export default function Auth({ start, note, onDone }: { start: AuthStart; note: 
       </View>
     );
   }
+  if (screen === 'reset') {
+    return (
+      <View style={styles.fill}>
+        <Reset
+          initial={loginName}
+          onBack={() => setScreen('login')}
+          onRecover={() => setScreen('recover')}
+          onReset={(username, ticketValue) => {
+            // The temporary sign-in was only for the reset; log in with the new password next.
+            ticket.current = ticketValue;
+            setSession(null);
+            setLoginName(username);
+            setLoginNote('Your password is changed. Log in with your username ' + username + ' and your new password.');
+            setScreen('login');
+          }}
+        />
+        <Toast text={toast} />
+      </View>
+    );
+  }
   if (screen === 'login') {
     return (
       <View style={styles.fill}>
         <Login
           initial={loginName}
+          note={loginNote}
+          onReset={(name) => { setLoginName(name); setLoginNote(null); setScreen('reset'); }}
           onJoin={() => setScreen(isUnderage() ? 'tooyoung' : 'join')}
-          onRecover={(name) => { setLoginName(name); setScreen('recover'); }}
           onLoggedIn={async () => {
             // Straight after a recovery code, this login doesn't need the email code.
             const t = ticket.current; ticket.current = null;
@@ -270,7 +292,7 @@ function Join({ onLogin, onTooYoung, onReady }: { onLogin: () => void; onTooYoun
 }
 
 /* ---------- log in (loginScreen() and the 'login' form) ---------- */
-function Login({ initial, onJoin, onRecover, onLoggedIn }: { initial: string; onJoin: () => void; onRecover: (name: string) => void; onLoggedIn: () => Promise<void> }) {
+function Login({ initial, note, onJoin, onReset, onLoggedIn }: { initial: string; note: string | null; onJoin: () => void; onReset: (name: string) => void; onLoggedIn: () => Promise<void> }) {
   const [user, setUser] = useState(initial);
   const [pass, setPass] = useState('');
   const [error, setError] = useState('');
@@ -301,6 +323,7 @@ function Login({ initial, onJoin, onRecover, onLoggedIn }: { initial: string; on
   return (
     <Page>
       <Text style={styles.h1}>Log in</Text>
+      {note ? <Text style={styles.muted}>{note}</Text> : null}
       <View style={styles.stack16}>
         <Field label="Username or email">
           <TextInput style={styles.input} value={user} onChangeText={setUser} autoComplete="username" autoCapitalize="none" autoCorrect={false} spellCheck={false} maxLength={254} accessibilityLabel="Username or email" />
@@ -313,7 +336,7 @@ function Login({ initial, onJoin, onRecover, onLoggedIn }: { initial: string; on
         <Button label={checking ? "Checking you're human…" : 'Log in'} disabled={busy} onPress={submit} />
       </View>
       <View style={styles.stack12}>
-        <Button ghost label="Forgot your password? Use your recovery code" onPress={() => onRecover(user.trim())} />
+        <Button ghost label="Forgot your password?" onPress={() => onReset(user.trim())} />
         <Button ghost label="Back" onPress={onJoin} />
       </View>
     </Page>
@@ -366,6 +389,81 @@ function Recover({ initial, onBack, onRecovered }: { initial: string; onBack: ()
         <Button label={checking ? "Checking you're human…" : 'Set new password'} disabled={busy} onPress={submit} />
       </View>
       <Button ghost label="Back" onPress={onBack} />
+    </Page>
+  );
+}
+
+/* ---------- forgot your password: a code to the confirmed email (resetScreen() and the 'reset-send' and 'reset-new' forms) ---------- */
+function Reset({ initial, onBack, onRecover, onReset }: { initial: string; onBack: () => void; onRecover: () => void; onReset: (username: string, ticket: string | null) => void }) {
+  const [email, setEmail] = useState(initial.indexOf('@') > 0 ? initial : '');
+  const [sentTo, setSentTo] = useState<string | null>(null);
+  const [code, setCode] = useState('');
+  const [pass, setPass] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const check = useRef<HumanCheckHandle>(null);
+  const signedIn = !!currentSession();
+  const fail = (msg: string) => { setError(msg); setBusy(false); };
+
+  const send = async () => {
+    const se = email.trim().toLowerCase();
+    if (!EMAIL_RE.test(se)) return fail('Enter the email you confirmed for Frendzy.');
+    setBusy(true); setError('');
+    try {
+      if (!currentSession()) await signInAnonymously(await (check.current ? check.current.take() : Promise.resolve('')));
+      await emailCode('reset', { email: se });
+      setSentTo(se); setBusy(false);
+    } catch (x) { fail((x as Error).message); }
+  };
+  const submit = async () => {
+    const nc = code.replace(/\D/g, '');
+    if (nc.length !== 6) return fail('Enter the 6-digit code from the email.');
+    if (pass.length < 10) return fail('Use a password of at least 10 characters.');
+    if (!currentSession()) { setSentTo(null); return; }
+    setBusy(true); setError('');
+    try {
+      const r = await rpc('reset_password', { p_email: sentTo, p_code: nc, p_password: pass });
+      if (!r || !r.ok) return fail((r && r.message) || "That didn't work. Try again.");
+      onReset(r.username, r.ticket || null);
+    } catch (x) { fail((x as Error).message); }
+  };
+
+  return (
+    <Page>
+      <Text style={styles.h1}>Forgot your password?</Text>
+      {sentTo ? (
+        <>
+          <Text style={styles.muted}>If {sentTo} has a Frendzy account, we sent it a 6-digit code. Check your junk folder too.</Text>
+          <View style={styles.stack16}>
+            <Field label="Code from the email">
+              <TextInput style={styles.input} value={code} onChangeText={setCode} keyboardType="number-pad" autoComplete="one-time-code" maxLength={7} accessibilityLabel="Code from the email" />
+            </Field>
+            <Field label="New password" note="At least 10 characters.">
+              <Password value={pass} onChange={setPass} onSubmit={submit} label="New password" />
+            </Field>
+            {error ? <Text style={styles.error}>{error}</Text> : null}
+            <Button label="Set new password" disabled={busy} onPress={submit} />
+          </View>
+          <Button ghost label="Use a different email, or send a new code" onPress={() => { setSentTo(null); setCode(''); setError(''); }} />
+        </>
+      ) : (
+        <>
+          <Text style={styles.muted}>Enter the email you confirmed for Frendzy. We'll send it a code to choose a new password.</Text>
+          <View style={styles.stack16}>
+            <Field label="Email">
+              <TextInput style={styles.input} value={email} onChangeText={setEmail} keyboardType="email-address" autoComplete="email" autoCapitalize="none" autoCorrect={false} spellCheck={false} maxLength={254} accessibilityLabel="Email" />
+            </Field>
+            {signedIn ? null : <HumanCheck ref={check} onWait={setChecking} />}
+            {error ? <Text style={styles.error}>{error}</Text> : null}
+            <Button label={checking ? "Checking you're human…" : 'Email me a code'} disabled={busy} onPress={send} />
+          </View>
+        </>
+      )}
+      <View style={styles.stack12}>
+        <Button ghost label="Use your recovery code instead" onPress={onRecover} />
+        <Button ghost label="Back" onPress={onBack} />
+      </View>
     </Page>
   );
 }

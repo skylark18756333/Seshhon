@@ -3,12 +3,15 @@
 //   POST { action: "login" }                           -> { sent: true, hint }   a code for this login
 //   POST { action: "recovery", username, code }        -> { sent: true, hint }   a copy of a new recovery code,
 //        to the account's confirmed email (migration 0022). The code is checked against the stored hash first.
+//   POST { action: "reset", email }                    -> { sent: true }         forgot password: a code to set a new
+//        password (migration 0032), sent only if an account has confirmed this email. The answer is the same
+//        either way, so it never shows whether an email has an account.
 // The person's own sign-in token must be sent as "Authorization: Bearer ...". The database makes the code
 // and keeps only its hash; this function just sends it. The email service key never leaves this function.
 //
 // Secrets (Edge Functions > Secrets):
 //   BREVO_API_KEY or RESEND_API_KEY   one email service's API key
-//   EMAIL_FROM                        the sender address that service has verified, e.g. frenzy.codes@gmail.com
+//   EMAIL_FROM                        the sender address that service has verified, e.g. no-reply@frendzy.au
 
 declare const Deno: { env: { get(name: string): string | undefined }; serve(h: (req: Request) => Promise<Response>): void };
 const env = (name: string) => Deno.env.get(name);
@@ -57,12 +60,21 @@ async function whoIs(req: Request): Promise<{ user: string; session: string | nu
 function message(code: string, purpose: string, username = '') {
   if (purpose === 'recovery') {
     const intro = 'Here is your Frendzy recovery code for the username ' + username + '. Keep this email somewhere safe.';
-    const outro = 'If you forget your password, go to frendzy.au, tap Log in, then Forgot your password?, and enter this code. ' +
+    const outro = 'If you forget your password, go to frendzy.au, tap Log in, then Forgot your password?, then Use your recovery code, and enter this code. ' +
       'Each code works once, and you get a new one after using it. If you didn\'t make a Frendzy account, ignore this email.';
     return {
       subject: 'Your Frendzy recovery code',
       text: intro + '\n\n' + code + '\n\n' + outro + '\n\nhttps://frendzy.au',
       html: '<p>' + intro + '</p><p style="font-size:24px;font-weight:700;letter-spacing:2px">' + code + '</p><p>' + outro + '</p><p><a href="https://frendzy.au">frendzy.au</a></p>'
+    };
+  }
+  if (purpose === 'reset') {
+    const intro = 'Someone asked to reset the password for the Frendzy username ' + username + '. Type this code in Frendzy to choose a new password:';
+    const outro = 'It works for 15 minutes. If this wasn\'t you, ignore this email: your password stays the same.';
+    return {
+      subject: 'Reset your Frendzy password',
+      text: intro + '\n\n' + code + '\n\n' + outro + '\n\nhttps://frendzy.au',
+      html: '<p>' + intro + '</p><p style="font-size:28px;font-weight:700;letter-spacing:4px">' + code + '</p><p>' + outro + '</p><p><a href="https://frendzy.au">frendzy.au</a></p>'
     };
   }
   const subject = purpose === 'setup' ? 'Confirm your email for Frendzy' : 'Your Frendzy login code';
@@ -110,6 +122,12 @@ Deno.serve(async (req) => {
       const target = await db('two_step_recovery_target', { p_user: who.user, p_username: body.username, p_code: body.code });
       await send(target.email, body.code.trim().toUpperCase(), 'recovery', body.username.trim().toLowerCase());
       return reply(200, { sent: true, hint: hint(target.email) });
+    }
+    if (body.action === 'reset') {
+      if (typeof body.email !== 'string' || body.email.length > 254) return reply(400, { message: 'Enter a real email address.' });
+      const made = await db('reset_make_code', { p_email: body.email });
+      for (const s of made.sends || []) await send(s.email, s.code, 'reset', s.username);
+      return reply(200, { sent: true });
     }
     const purpose = body.action === 'setup' ? 'setup' : body.action === 'login' ? 'login' : null;
     if (!purpose) return reply(400, { message: 'Which code?' });
