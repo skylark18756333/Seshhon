@@ -267,6 +267,14 @@ export default function You({ f, onOpenWeb, onSignedOut }: { f: Frendzy; onOpenW
             </View>
           </View>
 
+          <Pressable style={styles.crewsRow} onPress={() => onOpenWeb('crews')} accessibilityRole="button" accessibilityLabel="Crews and besties" testID="open-crews">
+            <View style={styles.grow}>
+              <Text style={[styles.h2, { fontSize: 17 }]}>Crews and besties</Text>
+              <Text style={[styles.muted, styles.small]}>Share when you're free with the people you pick, and get catch-up ideas.</Text>
+            </View>
+            <View style={styles.chevronRight} />
+          </Pressable>
+
           <Text style={styles.pill}>Settings</Text>
 
           <Section k="photo" title="Your photo" hint={myPhoto ? 'Added' : 'None yet'} force={photoBusy} onToggle={toggle}>
@@ -591,6 +599,8 @@ const styles = StyleSheet.create({
   hint: { maxWidth: '45%' },
   chevron: { width: 9, height: 9, borderRightWidth: 2, borderBottomWidth: 2, borderColor: C.muted, transform: [{ rotate: '45deg' }], marginTop: -4 },
   chevronOpen: { transform: [{ rotate: '-135deg' }], marginTop: 4 },
+  crewsRow: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 64, paddingHorizontal: 16, paddingVertical: 12, borderRadius: 18, backgroundColor: C.surface },
+  chevronRight: { width: 9, height: 9, borderRightWidth: 2, borderBottomWidth: 2, borderColor: C.muted, transform: [{ rotate: '-45deg' }] },
   setBody: { gap: 10, paddingHorizontal: 16, paddingBottom: 16 },
   mePic: { borderWidth: 2, borderRadius: 40, padding: 3, margin: 4 },
   linkbox: { fontFamily: F.body, fontSize: 14, paddingVertical: 12, paddingHorizontal: 14, borderRadius: 12, backgroundColor: C.bg, borderWidth: 1, borderColor: C.line, color: C.fg, overflow: 'hidden' },

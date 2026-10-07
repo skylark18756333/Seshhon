@@ -87,3 +87,29 @@ export function fmtWhen(iso: string | number | null | undefined): string {
   const dayText = diff === 0 ? 'Today' : diff === 1 ? 'Tomorrow' : DAY_NAMES[d.getDay()] + ' ' + d.getDate() + ' ' + MONTHS[d.getMonth()];
   return dayText + ', ' + fmtTime(d.getTime());
 }
+
+const LONG_DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+// A day as the database sends it ("2026-10-09") in this phone's own calendar.
+export function dayOf(iso: string): Date {
+  const p = String(iso).split('-').map(Number);
+  return new Date(p[0], (p[1] || 1) - 1, p[2] || 1);
+}
+// "Fri 9 Oct".
+export function fmtDay(iso: string): string {
+  const d = dayOf(iso);
+  return DAY_NAMES[d.getDay()] + ' ' + d.getDate() + ' ' + MONTHS[d.getMonth()];
+}
+export const PART_NAMES: Record<string, string> = { morning: 'Morning', arvo: 'Arvo', night: 'Night' };
+// "Friday night", "Tomorrow arvo" or "Today morning".
+export function fmtSlot(iso: string, part: string): string {
+  const d = dayOf(iso), t = new Date();
+  const diff = Math.round((d.getTime() - new Date(t.getFullYear(), t.getMonth(), t.getDate()).getTime()) / 86400000);
+  return (diff === 0 ? 'Today' : diff === 1 ? 'Tomorrow' : LONG_DAYS[d.getDay()]) + ' ' + (PART_NAMES[part] || part).toLowerCase();
+}
+// When a part of a day starts, for planning a sesh: morning 10:00, arvo 2:00 pm, night 7:00 pm.
+export function slotStart(iso: string, part: string): Date {
+  const d = dayOf(iso);
+  d.setHours(part === 'morning' ? 10 : part === 'arvo' ? 14 : 19, 0, 0, 0);
+  return d;
+}
+export const HANGOUTS: [string, string][] = [['night_out', 'Night out'], ['coffee', 'Coffee'], ['lunch', 'Lunch'], ['gym', 'Gym'], ['footy', 'Footy']];
