@@ -1,5 +1,6 @@
-// "Check your email": after the password, a login on an account with email codes waits here for the code. The words
-// and steps are those of twoStepScreen() and the two-step form in docs/app.js.
+// "Check your email" / "Enter your app code": after the password, a login on an account with email codes or an
+// authenticator app (0034) waits here for a code. The words and steps are those of twoStepScreen() and the two-step
+// form in docs/app.js. With the app turned on, its code is asked for first, and an email code is the backup.
 import React, { useEffect, useRef, useState } from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
 import { Button } from './Parts';
@@ -8,7 +9,9 @@ import { Field, Page, styles } from './Forms';
 import { currentSession, emailCode, forgetPhone, refreshSession, rememberPhone, rpc } from './session';
 import { C } from './theme';
 
-export default function TwoStep({ onDone, onRecover, onCancel }: { onDone: () => void; onRecover: () => void; onCancel: () => void }) {
+export default function TwoStep({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
+  const [ways, setWays] = useState<{ app: boolean; email: boolean } | null>(null);
+  const [mode, setMode] = useState<'app' | 'email'>('email');
   const [note, setNote] = useState('');
   const [error, setError] = useState('');
   const [code, setCode] = useState('');
@@ -25,14 +28,23 @@ export default function TwoStep({ onDone, onRecover, onCancel }: { onDone: () =>
       if (alive.current) { setNote(''); setError(x.message); }
     });
   };
-  useEffect(send, []);
+  // Which codes this account uses (an older database without 0034 has email codes only).
+  useEffect(() => {
+    rpc('two_step_state').then((t) => {
+      if (!alive.current) return;
+      const w = { app: !!(t && t.app), email: !(t && t.app) || !!(t && t.email) };
+      setWays(w); setMode(w.app ? 'app' : 'email');
+      if (!w.app) send();
+    }, () => { if (alive.current) { setWays({ app: false, email: true }); send(); } });
+  }, []);
+  const byApp = mode === 'app';
 
   const submit = async () => {
     const digits = code.replace(/\D/g, '');
-    if (digits.length !== 6) { setError('Enter the 6-digit code from the email.'); return; }
+    if (digits.length !== 6) { setError(byApp ? 'Enter the 6-digit code from your authenticator app.' : 'Enter the 6-digit code from the email.'); return; }
     setBusy(true); setError('');
     try {
-      const r = await rpc('two_step_check', { p_code: digits });
+      const r = await rpc(byApp ? 'totp_check' : 'two_step_check', { p_code: digits });
       if (!r || !r.ok) { setError((r && r.message) || "That didn't work. Try again."); setBusy(false); return; }
       // A fresh sign-in token, now with full access.
       await refreshSession();
@@ -46,12 +58,12 @@ export default function TwoStep({ onDone, onRecover, onCancel }: { onDone: () =>
 
   return (
     <Page>
-      <Text style={styles.h1}>Check your email</Text>
-      {note ? <Text style={styles.muted}>{note}</Text> : null}
+      <Text style={styles.h1}>{byApp ? 'Enter your app code' : 'Check your email'}</Text>
+      {byApp ? <Text style={styles.muted}>Open your authenticator app and type the 6-digit code it shows for Frendzy.</Text> : note ? <Text style={styles.muted}>{note}</Text> : null}
       <View style={styles.stack16}>
-        <Field label="Code from the email">
+        <Field label={byApp ? 'Code from your authenticator app' : 'Code from the email'}>
           <TextInput style={styles.input} value={code} onChangeText={setCode} onSubmitEditing={submit} keyboardType="number-pad"
-            autoComplete="one-time-code" textContentType="oneTimeCode" maxLength={7} autoCorrect={false} accessibilityLabel="Code from the email" />
+            autoComplete="one-time-code" textContentType="oneTimeCode" maxLength={7} autoCorrect={false} accessibilityLabel={byApp ? 'Code from your authenticator app' : 'Code from the email'} />
         </Field>
         <Pressable style={styles.check} onPress={() => setRemember((x) => !x)} accessibilityRole="checkbox" accessibilityState={{ checked: remember }}
           accessibilityLabel="Remember this phone for 30 days">
@@ -62,8 +74,10 @@ export default function TwoStep({ onDone, onRecover, onCancel }: { onDone: () =>
         <Button label="Log in" disabled={busy} onPress={submit} />
       </View>
       <View style={styles.stack12}>
-        <Button ghost label="Send a new code" onPress={send} />
-        <Button ghost label="Can't get the email? Use your recovery code" onPress={onRecover} />
+        {byApp
+          ? (ways && ways.email ? <Button ghost label="Email me a code instead" onPress={() => { setMode('email'); setCode(''); send(); }} /> : null)
+          : <Button ghost label="Send a new code" onPress={send} />}
+        {!byApp && ways && ways.app ? <Button ghost label="Use your authenticator app instead" onPress={() => { setMode('app'); setCode(''); setError(''); }} /> : null}
         <Button ghost label="Cancel" onPress={onCancel} />
       </View>
     </Page>

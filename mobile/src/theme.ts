@@ -29,11 +29,14 @@ const NEON = {
   faceRing: 'rgba(255, 255, 255, 0.85)',  // the ring round a friend's face
   mineWhen: 'rgba(5, 5, 6, 0.55)',        // the time on your own chat messages
   whenText: 'rgba(255, 255, 255, 0.55)',
+  accentTo: '',                           // a second colour: buttons fade from accent to this (Midnight Pop)
+  heroFrom: '#E05A2A',                    // the big venue card in a sesh fades between these two
+  heroTo: '#3A1030',
   dark: true
 };
 type Look = typeof NEON;
 
-export const LOOKS: { id: string; name: string; note: string; colours: Look }[] = [
+export const LOOKS: { id: string; name: string; note: string; colours: Look; fonts?: Partial<typeof F> }[] = [
   { id: 'neon', name: 'Neon Night', note: 'Black and glowing', colours: NEON },
   { id: 'day', name: 'Daylight', note: 'Light and clean', colours: {
     ...NEON,
@@ -56,6 +59,8 @@ export const LOOKS: { id: string; name: string; note: string; colours: Look }[] 
     faceRing: '#FFFFFF',
     mineWhen: 'rgba(255, 255, 255, 0.6)',
     whenText: 'rgba(17, 17, 20, 0.5)',
+    heroFrom: '#FF7A45',
+    heroTo: '#E0407A',
     dark: false
   } },
   { id: 'pop', name: 'Midnight Pop', note: 'Deep purple and pink', colours: {
@@ -75,8 +80,11 @@ export const LOOKS: { id: string; name: string; note: string; colours: Look }[] 
     logoGlow: 'rgba(255, 120, 200, 0.8)',
     bubbleBg: 'rgba(26, 15, 48, 0.8)',
     mineWhen: 'rgba(255, 255, 255, 0.7)',
-    whenText: 'rgba(255, 255, 255, 0.55)'
-  } }
+    whenText: 'rgba(255, 255, 255, 0.55)',
+    accentTo: '#8A4DFF',
+    heroFrom: '#8A4DFF',
+    heroTo: '#FF4FA0'
+  }, fonts: { display: 'Poppins-ExtraBold', displayBold: 'Poppins-Bold' } }
 ];
 
 // The picked look is kept on the phone, and read before any screen draws so the app opens in it.
@@ -100,6 +108,7 @@ export function setLook(id: string) {
   if (!look || id === lookId) return;
   lookId = id;
   Object.assign(C, look.colours);
+  Object.assign(F, FONTS, look.fonts || {});
   version++;
   try {
     if (Platform.OS === 'web') { if (typeof localStorage !== 'undefined') localStorage.setItem(LOOK_KEY, id); }
@@ -136,7 +145,8 @@ export function themed<T extends object>(make: () => T): T {
 }
 
 // The fonts from docs/fonts, turned into the .ttf files phones can load (assets/fonts, see README).
-export const F = {
+// Midnight Pop swaps the two display fonts for Poppins; F is changed in place like C.
+const FONTS = {
   neon: 'TiltNeon-Regular',       // the Frendzy wordmark
   display: 'Montserrat-ExtraBold',
   displayBold: 'Montserrat-Bold',
@@ -144,6 +154,7 @@ export const F = {
   bodyMid: 'Inter-Medium',
   bodyBold: 'Inter-Bold'
 };
+export const F: typeof FONTS = { ...FONTS, ...((LOOKS.find((l) => l.id === lookId) || LOOKS[0]).fonts || {}) };
 
 export const STOPS: Colour[] = ['on', 'thinking', 'off'];   // left to right on the status switch: G, A, R
 export const COLOURS: Record<Colour, string> = { on: C.on, thinking: C.thinking, off: C.off };
@@ -154,7 +165,7 @@ export const STATUS_ICON: Record<Colour, string> = { on: 'tick', thinking: 'quer
 export const STATUS_COPY: Record<Colour, [string, string]> = {
   on: ["You're green.", "Ready to go out. Friends on green or amber can see you're up for a sesh."],
   thinking: ["You're amber.", 'Thinking about it. Friends see you might be keen.'],
-  off: ["You're red.", "You're off and hidden, and you can't see who else is out until you slide back."]
+  off: ["You're red.", "You're off and hidden, and you can't see who else is out until you tap green or amber up top."]
 };
 
 /* ---------- small helpers, ported from docs/app.js ---------- */
