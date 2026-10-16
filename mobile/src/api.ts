@@ -30,7 +30,9 @@ export type Message = { id: string; sender: string; name: string; body: string; 
 // One stop of the Sesh Map (pub crawl), as sesh_crawl() sends it.
 export type CrawlStop = { venue_id: string; position: number; done: boolean; mine: boolean };
 // A venue, as api_venues() sends it.
-export type Venue = { id: string; name: string; kind?: string | null; closes?: string | null; hours?: string | null; is_example?: boolean };
+export type Venue = { id: string; name: string; kind?: string | null; closes?: string | null; hours?: string | null; is_example?: boolean; average?: number | string | null; ratings?: number; my_stars?: number; my_tags?: string[] };
+// Busy and trending venues for the map (api_buzz, migration 0020): counts only, never who. busy is 0 to 3.
+export type Buzz = { id: string; busy: number; trending: boolean };
 
 // Someone you blocked (blocked_list), shown on the You page so you can unblock them.
 export type Blocked = { id: string; name: string };
@@ -198,4 +200,14 @@ export function loadPushSettings(): Promise<PushSettings | 'off'> {
 }
 export function setPushSetting(kind: string, on: boolean): Promise<PushSettings> {
   return rpc('set_push_setting', { p_kind: kind, p_enabled: on }).then((d: any) => ({ registered: !!(d && d.registered), kinds: d && Array.isArray(d.kinds) ? d.kinds : [] }));
+}
+
+/* ---------- the Map tab ---------- */
+// Which venues are busy tonight or trending (api_buzz). An older database without it just means no glows.
+export function loadBuzz(): Promise<Record<string, Buzz>> {
+  return rpc('api_buzz').then((l: any) => {
+    const out: Record<string, Buzz> = {};
+    (Array.isArray(l) ? l : []).forEach((b: Buzz) => { out[b.id] = b; });
+    return out;
+  }, () => ({}));
 }

@@ -27,6 +27,9 @@ function fetchAll(): Promise<void> {
   return asking;
 }
 
+// Fetch the venues again now (after a rating, say), as freshVenues does in docs/app.js.
+export function refreshVenues(): Promise<void> { return fetchAll(); }
+
 export type Venues = { list: Venue[]; byId: Record<string, Venue>; pins: Record<string, [number, number]> | null };
 
 // The venues, fetched when the Sesh tab opens and again if they are more than 5 minutes old.
@@ -76,17 +79,18 @@ function perthNow(): { dow: number; min: number } {
   } catch (e) { const d = new Date(); dow = (d.getDay() + 6) % 7; min = d.getHours() * 60 + d.getMinutes(); }
   return { dow: Math.max(0, dow), min };
 }
+// { open, soon, text } or null when the hours are unknown (openState in docs/app.js).
+export function openState(ven: Venue): { open: boolean; soon?: boolean; text: string } | null {
+  if (!ven.hours) return null;
+  if (!(ven.hours in hoursCache)) hoursCache[ven.hours] = SeshHours.parse(ven.hours);
+  const h = hoursCache[ven.hours];
+  if (!h) return null;
+  const t = perthNow();
+  return SeshHours.status(h, t.dow, t.min);
+}
 export function hoursLine(ven: Venue): string {
-  if (ven.hours) {
-    if (!(ven.hours in hoursCache)) hoursCache[ven.hours] = SeshHours.parse(ven.hours);
-    const h = hoursCache[ven.hours];
-    if (h) {
-      const t = perthNow();
-      const st = SeshHours.status(h, t.dow, t.min);
-      if (st) return st.text;
-    }
-  }
-  return ven.closes || 'Hours unknown';
+  const st = openState(ven);
+  return st ? st.text : (ven.closes || 'Hours unknown');
 }
 
 /* ---------- the vote ---------- */
