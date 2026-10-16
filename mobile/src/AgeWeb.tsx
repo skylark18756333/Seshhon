@@ -6,7 +6,7 @@ import React from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
-import { C, F } from './theme';
+import { C, F, themed } from './theme';
 
 const WEB_URL: string = (Constants.expoConfig?.extra?.webUrl as string) || 'https://frendzy.au/';
 const WEB_ORIGIN = new URL(WEB_URL).origin;
@@ -43,9 +43,9 @@ export default function AgeWeb({ url, onReturn, onClose }: { url: string; onRetu
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   fill: { flex: 1, backgroundColor: C.bg },
   bar: { flexDirection: 'row', justifyContent: 'flex-end', paddingHorizontal: 12 },
   close: { minHeight: 44, paddingHorizontal: 12, justifyContent: 'center' },
   closeText: { fontFamily: F.bodyBold, fontSize: 16, color: C.fg }
-});
+}));

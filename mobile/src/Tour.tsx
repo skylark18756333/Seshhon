@@ -6,7 +6,7 @@ import Svg, { Circle, Path } from 'react-native-svg';
 import type { Colour } from './api';
 import Logo from './Logo';
 import { Face } from './Parts';
-import { C, COLOURS, F, LABELS } from './theme';
+import { C, COLOURS, F, LABELS, themed } from './theme';
 
 const ZEST = '#B8F23E';
 const PIN_BLUE = '#1F7BFF';
@@ -21,13 +21,8 @@ function steps(name: string): Step[] {
       body: "Frendzy is for getting off your phone and out with your mates. Here's how it works in five quick steps."
     },
     {
-      art: (
-        <View style={styles.slide}>
-          <View style={[styles.knob, { backgroundColor: 'rgba(61, 220, 132, 0.22)' }]} />
-          {['G', 'A', 'R'].map((x) => <View key={x} style={styles.stop}><Text style={styles.stopText}>{x}</Text></View>)}
-        </View>
-      ),
-      title: "Slide to show you're up for it",
+      art: <View style={styles.bigLogo}><Logo status="on" /></View>,
+      title: "Tap a light to show you're up for it",
       body: (
         <Text>
           <Text style={[styles.strong, { color: C.on }]}>Green</Text> means you're keen to go out. <Text style={[styles.strong, { color: C.thinking }]}>Amber</Text> means you're thinking about it.{' '}
@@ -158,7 +153,7 @@ export default function Tour({ name, onClose }: { name: string; onClose: () => v
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   dim: { flex: 1, justifyContent: 'flex-end', alignItems: 'center', padding: 16, backgroundColor: 'rgba(5, 5, 6, 0.82)' },
   card: { width: '100%', maxWidth: 420, backgroundColor: '#131418', borderWidth: 1, borderColor: C.line, borderRadius: 26, paddingTop: 18, paddingHorizontal: 20, paddingBottom: 20, gap: 14 },
   headRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 40 },
@@ -178,10 +173,6 @@ const styles = StyleSheet.create({
   btnText: { fontFamily: F.bodyBold, fontSize: 16, color: C.accentInk },
 
   bigLogo: { transform: [{ scale: 1.5 }] },
-  slide: { flexDirection: 'row', width: '86%', maxWidth: 280, height: 76, padding: 5, borderRadius: 38, backgroundColor: C.track, borderWidth: 1, borderColor: C.trackLine },
-  knob: { position: 'absolute', top: 5, bottom: 5, left: 5, width: '31%', borderRadius: 33 },
-  stop: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  stopText: { fontFamily: F.bodyBold, fontSize: 18, color: C.fg },
   faces: { flexDirection: 'row', width: '86%', justifyContent: 'space-around' },
   face: { alignItems: 'center', gap: 4 },
   faceRing: { borderWidth: 2, borderRadius: 32, padding: 2, shadowOpacity: 0.8, shadowRadius: 12, shadowOffset: { width: 0, height: 0 } },
@@ -202,4 +193,4 @@ const styles = StyleSheet.create({
   tag: { position: 'absolute', transform: [{ translateX: -50 }], backgroundColor: 'rgba(16, 17, 21, 0.92)', borderRadius: 10, paddingVertical: 5, paddingHorizontal: 10 },
   tagName: { fontFamily: F.bodyMid, fontSize: 14, color: C.fg },
   tagSmall: { fontFamily: F.body, fontSize: 12, color: '#C9CCD3' }
-});
+}));

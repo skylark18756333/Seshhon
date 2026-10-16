@@ -13,7 +13,7 @@ import Icon from './Icon';
 import { Button, Toast } from './Parts';
 import { rpc, type ApiError } from './session';
 import type { Frendzy } from './useFrendzy';
-import { C, F, HANGOUTS, PART_NAMES, fmtDay, fmtSlot, first, slotStart } from './theme';
+import { C, F, HANGOUTS, PART_NAMES, fmtDay, fmtSlot, first, slotStart, themed } from './theme';
 
 const PARTS = ['morning', 'arvo', 'night'];
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -524,7 +524,7 @@ function FreeGrid({ free, run }: { free: FreeTime | null; run: Run }) {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   fill: { flex: 1 },
   top: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingTop: 12, paddingBottom: 6, maxWidth: 440, width: '100%', alignSelf: 'center' },
   backBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
@@ -560,4 +560,4 @@ const styles = StyleSheet.create({
   chipOn: { backgroundColor: C.on, borderColor: C.on },
   chipText: { fontFamily: F.bodyBold, fontSize: 13, color: C.fg },
   chipTextOn: { color: C.ink }
-});
+}));

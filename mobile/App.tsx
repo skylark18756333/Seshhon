@@ -25,14 +25,10 @@ import Tabs from './src/Tabs';
 import Tour from './src/Tour';
 import TwoStep from './src/TwoStep';
 import You from './src/You';
-import { C, first } from './src/theme';
+import { C, first, themed, useLook } from './src/theme';
 import { useFrendzy } from './src/useFrendzy';
 import { SESSION_KEY, clearTour, currentSession, loadStoredSession, onSessionChange, pageStoreScript, pageStored, pendingInvite, rpc, sessionForPage, setPendingInvite, setSession, tourPending, type ApiError, type Session } from './src/session';
 import APP_HTML from './web/app-html.generated';
-
-const BG = C.bg;
-const FG = '#F4F1EA';
-const GREEN = C.on;
 
 const WEB_URL: string = (Constants.expoConfig?.extra?.webUrl as string) || 'https://frendzy.au/';
 const WEB_ORIGIN = new URL(WEB_URL).origin;
@@ -63,9 +59,12 @@ function bridge(tab: string | null, venue: string | null): string {
     ${pageStoreScript()}
   } catch (e) {}
   // Inside the app the app draws the status glow behind the status bar, so the page's own background is clear.
+  // The page's header bar is clear too, and the app already keeps the page below the status bar: otherwise the
+  // header's dark see-through strip cuts a hard line across the glow (seen on Events).
   document.addEventListener('DOMContentLoaded', function () {
     var st = document.createElement('style');
-    st.textContent = 'html,body{background:transparent !important}';
+    st.textContent = 'html,body{background:transparent !important}body{padding-top:0 !important}'
+      + '.top{position:relative !important;background:transparent !important;-webkit-backdrop-filter:none !important;backdrop-filter:none !important}';
     document.head.appendChild(st);
   });
   navigator.share = function (data) {
@@ -113,7 +112,7 @@ function Shell() {
   // The sign-in, read off the phone at start-up: undefined while it is being read, null when nobody is signed in.
   const [session, setLocalSession] = useState<Session | null | undefined>(undefined);
   // True while the native sign-up or login screens are in the middle of something that needs a sign-in to exist
-  // (the age check, the email code, the recovery code): they keep the screen until they say they are done, so
+  // (the age check, the email code): they keep the screen until they say they are done, so
   // those steps are never cut short by the native Home.
   const [authOwns, setAuthOwns] = useState(false);
   // Which sign-in screen opens first, and a line for it to show (after a log out or a deleted account).
@@ -238,6 +237,17 @@ function Shell() {
     if (!NATIVE_TABS.includes(next)) { setPage(WEB_URL); setOpens((n) => n + 1); }
   }, [tab, onWeb]);
 
+  // The GO button in the tab bar: tonight's sesh if you're in one. Otherwise it starts one if you're green, or
+  // turns you green and opens the Sesh tab, where you can start one.
+  const goOut = useCallback(() => {
+    const st = f.state;
+    if (!st || !st.me) return;
+    const live = st.seshes.some((s) => s.am_member && !(s.planned && s.starts_at && new Date(s.starts_at).getTime() > Date.now()));
+    if (live) { pickTab('sesh'); return; }
+    if (st.me.colour !== 'on') { f.setColour('on'); pickTab('sesh'); return; }
+    f.act('start_sesh', {}, 'Sesh started. Friends who are around can join.').then(() => pickTab('sesh'));
+  }, [f, pickTab]);
+
   // A venue from the native Sesh tab: the packed page opens on that venue's page (it has the map and the
   // venue's details); its back button returns to the Sesh tab.
   const openVenue = useCallback((id: string) => {
@@ -265,7 +275,7 @@ function Shell() {
     setVenue(null);
   }, []);
 
-  // The sign-up and login screens are done (a login, or the recovery code saved after sign-up): the native
+  // The sign-up and login screens are done (a login, or the email step after sign-up): the native
   // screens load, and a new account gets the tour.
   const authDone = useCallback((r: AuthDone) => {
     setPageNote(null);
@@ -330,7 +340,6 @@ function Shell() {
       <Layer>
         <TwoStep
           onDone={f.retry}
-          onRecover={() => { setAuthStart('recover'); setSession(null); }}
           onCancel={() => { clearTour(); setAuthStart('join'); setSession(null); }}
         />
       </Layer>
@@ -397,13 +406,14 @@ function Shell() {
         : tab === 'you' ? <You f={f} onOpenWeb={pickTab} onSignedOut={signedOut} />
         : tab === 'crews' ? <Crews f={f} onBack={() => setTab(before)} onPlanned={() => pickTab('sesh')} />
         : <Home f={f} onOpenWeb={pickTab} />}
-      <Tabs tab={tab === 'venue' ? 'sesh' : tab === 'crews' ? 'you' : tab} requests={f.state ? f.state.requests_in.length : 0} onPick={pickTab} />
+      <Tabs tab={tab === 'venue' ? 'sesh' : tab === 'crews' ? 'you' : tab} requests={f.state ? f.state.requests_in.length : 0} onPick={pickTab} onGo={goOut} />
       {tour && me ? <Tour name={first(me.name)} onClose={() => { clearTour(); setTour(false); askAfterTour().catch(() => {}); }} /> : null}
     </Layer>
   );
 }
 
 export default function App() {
+  useLook();   // draws everything again in the new colours when the look is changed in You
   // The web app's fonts, as .ttf files a phone can load (see assets/fonts).
   const [fontsReady] = useFonts({
     'TiltNeon-Regular': require('./assets/fonts/TiltNeon-Regular.ttf'),
@@ -411,24 +421,26 @@ export default function App() {
     'Montserrat-ExtraBold': require('./assets/fonts/Montserrat-ExtraBold.ttf'),
     'Inter-Regular': require('./assets/fonts/Inter-Regular.ttf'),
     'Inter-Medium': require('./assets/fonts/Inter-Medium.ttf'),
-    'Inter-Bold': require('./assets/fonts/Inter-Bold.ttf')
+    'Inter-Bold': require('./assets/fonts/Inter-Bold.ttf'),
+    'Poppins-Bold': require('./assets/fonts/Poppins-Bold.ttf'),           // Midnight Pop's headings
+    'Poppins-ExtraBold': require('./assets/fonts/Poppins-ExtraBold.ttf')
   });
   return (
     <SafeAreaProvider>
-      <StatusBar style="light" />
+      <StatusBar style={C.dark ? 'light' : 'dark'} />
       {fontsReady ? <Shell /> : <Layer><View style={styles.fill} /></Layer>}
     </SafeAreaProvider>
   );
 }
 
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: BG },
-  fill: { flex: 1, backgroundColor: BG },
+const styles = themed(() => StyleSheet.create({
+  root: { flex: 1, backgroundColor: C.bg },
+  fill: { flex: 1, backgroundColor: C.bg },
   clear: { backgroundColor: 'transparent' },
   clearFill: { flex: 1, backgroundColor: 'transparent' },
-  offline: { flex: 1, backgroundColor: BG, alignItems: 'center', justifyContent: 'center', padding: 32 },
-  title: { color: FG, fontSize: 24, fontWeight: '800', marginBottom: 12 },
-  body: { color: FG, opacity: 0.8, fontSize: 16, lineHeight: 22, textAlign: 'center', marginBottom: 24 },
-  button: { backgroundColor: GREEN, paddingVertical: 14, paddingHorizontal: 28, borderRadius: 28 },
-  buttonText: { color: BG, fontSize: 16, fontWeight: '800' }
-});
+  offline: { flex: 1, backgroundColor: C.bg, alignItems: 'center', justifyContent: 'center', padding: 32 },
+  title: { color: C.fg, fontSize: 24, fontWeight: '800', marginBottom: 12 },
+  body: { color: C.fg, opacity: 0.8, fontSize: 16, lineHeight: 22, textAlign: 'center', marginBottom: 24 },
+  button: { backgroundColor: C.on, paddingVertical: 14, paddingHorizontal: 28, borderRadius: 28 },
+  buttonText: { color: C.bg, fontSize: 16, fontWeight: '800' }
+}));
