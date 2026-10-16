@@ -559,6 +559,7 @@ try {
   await nat.page.getByRole('tab', { name: 'Home' }).click();
   await has(nat, 'Up for it now');
   // The GO button in the tab bar starts a sesh and opens it.
+  await nat.page.waitForTimeout(3000);   // let Home catch up with the sesh that just ended, so GO sees the true state
   const seshesBefore = Number(psql(`select count(*) from public.seshes where creator = '${anaId}' and ended_at is null`));
   await nat.page.getByTestId('go').click();
   await has(nat, 'Live now');
