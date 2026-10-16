@@ -529,6 +529,25 @@ try {
   await until(() => psql(`select coalesce((select women_only::text from private.safety where user_id = '${miaId}'), '')`) === 'false');
   expect('women only turned off again', psql(`select women_only from private.safety where user_id = '${miaId}'`), 'f');
 
+  // Notifications: a browser can't receive real pushes, so a stand-in phone hands out a token. This checks the switches
+  // (defaults, saving, the database's own answers) and that turning notifications on saves the token through the function.
+  await natM.page.evaluate(() => { window.__SESHHON_FAKE_PUSH__ = { permission: 'undetermined', token: 'ExponentPushToken[miamiamiamiamiamiamia]' }; });
+  await openSet(natM, 'notifications');
+  await has(natM, 'Friend requests'); await has(natM, 'Friends going Green'); await has(natM, 'Crew catch-ups');
+  expect('only the two answer-type switches start on', await natM.page.evaluate(() => ['Friend requests', 'Sesh invites', 'Friends going Green', 'Crew catch-ups'].map((l) => document.querySelector('input[aria-label="' + l + '"]').checked).join()), 'true,true,false,false');
+  expect('no token before asking', psql(`select count(*) from private.push_tokens where user_id = '${miaId}'`), 0);
+  await tap(natM, 'Turn on notifications');
+  await has(natM, 'Notifications are on.');
+  expect('the token was saved for Mia through register_push_token', psql(`select count(*) from private.push_tokens where user_id = '${miaId}'`), 1);
+  await natM.page.locator('input[aria-label="Friends going Green"]').click();
+  await until(() => psql(`select count(*) from private.push_settings where user_id = '${miaId}' and kind = 'friend_green' and enabled`) === '1');
+  expect('Friends going Green switched on in the database', psql(`select enabled from private.push_settings where user_id = '${miaId}' and kind = 'friend_green'`), 't');
+  await natM.page.locator('input[aria-label="Sesh invites"]').click();
+  await until(() => psql(`select count(*) from private.push_settings where user_id = '${miaId}' and kind = 'invite' and not enabled`) === '1');
+  expect('Sesh invites switched off in the database', psql(`select enabled from private.push_settings where user_id = '${miaId}' and kind = 'invite'`), 'f');
+  await yshot(natM, '3b-notifications.png');
+  await natM.page.locator('input[aria-label="Sesh invites"]').click();   // back on, so later steps are unaffected
+
   // Add a friend by username (request_friend_by_username), then cancel the request from Your friends.
   await openSet(natM, 'add');
   await natM.page.getByLabel('Add by username', { exact: true }).fill('nobody_here');
@@ -675,7 +694,7 @@ try {
   await kid.ctx.close();
 
   // Sign up from an invite link (Ana's), with a check on each box first.
-  const nina = await phone('Nina', NAT + '?invite=' + code);
+  const nina = await phone('Nina', NAT + '?invite=' + code, `window.__SESHHON_FAKE_PUSH__ = { permission: 'granted', token: 'ExponentPushToken[ninaninaninaninaninanina]' };`);
   await has(nina, 'A friend invited you. Sign up and they will get your friend request.');
   await ashot(nina, '1-sign-up.png');
   await tap(nina, 'Get started');
@@ -724,11 +743,15 @@ try {
 
   // Log out from the You page, and back in on the same phone: the password is wrong once, and the email code is skipped
   // because this phone confirmed the email.
+  await until(() => psql(`select count(*) from private.push_tokens where user_id = '${ninaId}'`) === '1');
+  expect("Nina's push token was saved after she signed in", psql(`select count(*) from private.push_tokens where user_id = '${ninaId}'`), 1);
   await tap(nina, 'You');
   await openSet(nina, 'login');
   await tap(nina, 'Log out');
+  await until(() => psql(`select count(*) from private.push_tokens where user_id = '${ninaId}'`) === '0');
   await has(nina, 'Logged out. Log in again with your username and password.');
   await has(nina, "Tell your friends you're up for a sesh.");
+  expect('and removed again on log out', psql(`select count(*) from private.push_tokens where user_id = '${ninaId}'`), 0);
   expect('sign-in cleared on log out', await nina.page.evaluate(() => localStorage.getItem('seshhon-session-v1')), 'null');
   await tap(nina, 'I already have an account');
   await has(nina, 'Log in');
