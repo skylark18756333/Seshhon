@@ -15,10 +15,11 @@ import Svg, { Circle, Path, Polyline, Text as SvgText } from 'react-native-svg';
 import { getMessages, reportMessage, seshCrawl, sendMessage, type CrawlStop, type Friend, type Member, type Message, type Sesh as SeshT } from './api';
 import { CHAT_POLL_MS, RADIUS_KM } from './config';
 import Icon from './Icon';
-import { Avatar, Button, Toast, TopBar } from './Parts';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Avatar, Button, Face, Toast, TopBar } from './Parts';
 import type { ApiError } from './session';
 import type { Frendzy } from './useFrendzy';
-import { C, COLOURS, F, LABELS, first, fmtLeft, fmtTime, fmtWhen, themed } from './theme';
+import { C, COLOURS, F, LABELS, STOPS, first, fmtLeft, fmtTime, fmtWhen, themed } from './theme';
 import { awayText, distanceAway, fmtKm, hoursLine, km, leaderOf, useVenues, votePicks, type Venues } from './venues';
 
 const CRAWL_MAX = 12;
@@ -151,6 +152,7 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
     return (
       <Frame f={f} onOpenWeb={onOpenWeb} scroll={scroll}>
         <SeshHeader s={null} later={false} startMs={0} creator="" onBack={() => {}} onStarted={f.refresh} />
+        {me.colour !== 'off' && friends.length ? <People friends={friends} seshes={seshes} v={v} photos={f.photos} /> : null}
         {others.length ? (
           <View style={styles.stack}>
             {others.map((s) => (
@@ -259,6 +261,7 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
           s={mine}
           myId={me.id}
           v={v}
+          photos={f.photos}
           onVote={(venue) => {
             const current = (mine.votes.filter((x) => x.user_id === me.id)[0] || { venue_id: null }).venue_id;
             f.act('cast_vote', { p_sesh: mine.id, p_venue: current === venue ? null : venue });
@@ -671,38 +674,97 @@ function LockedCard({ id, v, onVenue }: { id: string; v: Venues; onVenue: (id: s
   );
 }
 
-function VoteSection({ s, myId, v, onVote, onMap, onLock }: { s: SeshT; myId: string; v: Venues; onVote: (venue: string) => void; onMap: () => void; onLock: () => void }) {
+// Your friends, keenest first, each with where they are tonight: in a sesh (and where), or their status.
+function People({ friends, seshes, v, photos }: { friends: Friend[]; seshes: SeshT[]; v: Venues; photos: Record<string, string> }) {
+  const sorted = friends.slice().sort((x, y) => STOPS.indexOf(x.colour) - STOPS.indexOf(y.colour));
+  return (
+    <View style={styles.stack}>
+      <Text style={styles.h2}>Your people</Text>
+      {sorted.map((fr) => {
+        const away = fr.colour === 'off';
+        const out = seshes.filter((s) => !isPlanned(s) && s.members.some((m) => m.id === fr.id))[0];
+        const where = out && out.locked_venue && v.byId[out.locked_venue] ? v.byId[out.locked_venue].name : null;
+        const line = out ? 'In a sesh' + (where ? ', ' + where : '') : { on: 'Green, up for it', thinking: 'Amber, thinking about it', off: 'Red' }[fr.colour];
+        return (
+          <View key={fr.id} style={[styles.card, styles.person, away && { opacity: 0.5 }, !away && { borderColor: COLOURS[fr.colour] + '66' }]}>
+            <View style={[styles.personRing, { borderColor: away ? C.line : COLOURS[fr.colour] }]}>
+              <Face id={fr.id} name={fr.name} photos={photos} size={44} font={16} away={away} />
+            </View>
+            <View style={styles.grow}>
+              <Text style={styles.title}>{first(fr.name)}</Text>
+              <Text style={[styles.small, { color: away ? C.muted : COLOURS[fr.colour] }]}>{line}</Text>
+            </View>
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
+function VoteSection({ s, myId, v, photos, onVote, onMap, onLock }: {
+  s: SeshT; myId: string; v: Venues; photos: Record<string, string>; onVote: (venue: string) => void; onMap: () => void; onLock: () => void;
+}) {
   const tally = leaderOf(s), total = s.votes.length;
   const myVote = (s.votes.filter((x) => x.user_id === myId)[0] || { venue_id: null }).venue_id;
   const picks = votePicks(v, tally);
   const best = tally.best && v.byId[tally.best];
+  // The card on top, kept by venue so it stays put when votes move the list around.
+  const [cur, setCur] = useState<string | null>(null);
+  const found = picks.findIndex((x) => x.id === cur);
+  const index = found >= 0 ? found : 0;
+  const ven = picks[index];
+  const n = ven && tally.by[ven.id] ? tally.by[ven.id].n : 0, isMine = !!ven && myVote === ven.id, isLead = !!ven && tally.best === ven.id;
+  const voters = ven ? s.votes.filter((x) => x.venue_id === ven.id).map((x) => s.members.filter((m) => m.id === x.user_id)[0]).filter(Boolean) as Member[] : [];
   return (
     <>
       <View style={[styles.row, styles.between]}>
         <Text style={styles.h2}>Where to?</Text>
         <Text style={[styles.muted, styles.small]}>{total} vote{total === 1 ? '' : 's'} in</Text>
       </View>
-      <View style={styles.stack}>
-        {!picks.length ? <Text style={[styles.muted, styles.small]}>No venues within {RADIUS_KM} km yet. Find one on the map and vote for it there.</Text> : null}
-        {picks.map((ven) => {
-          const n = tally.by[ven.id] ? tally.by[ven.id].n : 0, isMine = myVote === ven.id, isLead = tally.best === ven.id;
-          return (
-            <View key={ven.id} style={[styles.card, isLead && styles.lead]}>
+      {!picks.length ? <Text style={[styles.muted, styles.small]}>No venues within {RADIUS_KM} km yet. Find one on the map and vote for it there.</Text> : null}
+      {ven ? (
+        <>
+          {/* One place at a time, like a stack of cards: tick to vote for it, cross to see the next one. */}
+          <View style={styles.spotStack}>
+            <View style={[styles.spotBack, styles.spotBack2]} />
+            <View style={[styles.spotBack, styles.spotBack1]} />
+            <LinearGradient colors={[C.heroFrom, C.heroTo]} start={{ x: 0, y: 0 }} end={{ x: 0.4, y: 1 }} style={[styles.spot, isLead && styles.spotLead]} testID={'spot-' + ven.id}>
               <View style={[styles.row, styles.between]}>
-                <View style={styles.grow}>
-                  <Text style={styles.title}>{ven.name}</Text>
-                  <Text style={[styles.muted, styles.small]}>{[ven.kind, hoursLine(ven), distanceAway(v, ven.id)].filter(Boolean).join(', ')}</Text>
+                <Text style={styles.spotCount}>{index + 1} of {picks.length}</Text>
+                <View style={styles.row}>
+                  {voters.map((m, i) => (
+                    <View key={m.id} style={[styles.spotFace, i ? { marginLeft: -12 } : null]}>
+                      <Face id={m.id} name={m.name} photos={photos} size={34} font={12} />
+                    </View>
+                  ))}
                 </View>
-                <Button small ghost={!isMine} label={isMine ? 'Your vote' : 'Vote'} pressed={isMine} testID={'vote-' + ven.id} onPress={() => onVote(ven.id)} />
               </View>
-              <View style={styles.row}>
-                <View style={styles.bar}><View style={[styles.barFill, isLead && { backgroundColor: C.accent }, { width: `${total ? Math.round(n / total * 100) : 0}%` }]} /></View>
-                <Text style={[styles.small, styles.strongText]}>{n} vote{n === 1 ? '' : 's'}</Text>
+              <View style={styles.spotArt}><Icon name="venues" size={72} colour="rgba(255, 255, 255, 0.35)" /></View>
+              <View>
+                {isMine ? <Text style={styles.spotMine}>Your vote</Text> : null}
+                <Text style={styles.spotName}>{ven.name}</Text>
+                <Text style={styles.spotInfo}>{[ven.kind, hoursLine(ven), distanceAway(v, ven.id)].filter(Boolean).join(', ')}</Text>
+                <Text style={styles.spotInfo}>{n} vote{n === 1 ? '' : 's'}{isLead ? ', in the lead' : ''}</Text>
               </View>
-            </View>
-          );
-        })}
-      </View>
+            </LinearGradient>
+          </View>
+          <View style={[styles.row, styles.spotButtons]}>
+            <Pressable style={[styles.spotBtn, styles.spotNo]} onPress={() => setCur(picks[(index + 1) % picks.length].id)}
+              accessibilityRole="button" accessibilityLabel="Next place" testID={'skip-' + ven.id}>
+              <Icon name="cross" size={26} weight={3} colour={C.off} />
+            </Pressable>
+            <Pressable style={[styles.spotBtn, styles.spotYes, isMine && styles.spotYesOn]} onPress={() => onVote(ven.id)}
+              accessibilityRole="button" accessibilityLabel={isMine ? 'Your vote' : 'Vote for ' + ven.name} accessibilityState={{ selected: isMine }} testID={'vote-' + ven.id}>
+              <Icon name="tick" size={28} weight={3} colour="#04210F" />
+            </Pressable>
+          </View>
+          <Text style={[styles.muted, styles.small, styles.center]}>
+            {best ? 'Leading: ' : 'No votes yet. Tick the place you want to go.'}
+            {best ? <Text style={styles.strongText}>{best.name}</Text> : null}
+            {best ? ', ' + (tally.by[best.id] ? tally.by[best.id].n : 0) + ' of ' + s.members.length + ' picked it' : ''}
+          </Text>
+        </>
+      ) : null}
       <Button ghost label="Find more on the map" onPress={onMap} />
       {s.mine ? (
         best ? <Button label={'Lock in ' + best.name} onPress={onLock} /> : <Button label="Lock in once someone votes" disabled onPress={() => {}} />
@@ -975,6 +1037,29 @@ function LinkBtn({ label, onPress }: { label: string; onPress: () => void }) {
 }
 
 const styles = themed(() => StyleSheet.create({
+  // Your people
+  person: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, borderWidth: 1, borderColor: C.line },
+  personRing: { borderWidth: 3, borderRadius: 30, padding: 2 },
+  // Pick the spot: the stack of venue cards
+  spotStack: { height: 360, marginHorizontal: 8, marginTop: 4 },
+  spotBack: { position: 'absolute', top: 14, bottom: -8, left: 18, right: 18, borderRadius: 28, backgroundColor: C.surface2, borderWidth: 1, borderColor: C.line },
+  spotBack1: { transform: [{ rotate: '-3deg' }] },
+  spotBack2: { transform: [{ rotate: '4deg' }], left: 28, right: 28 },
+  spot: { flex: 1, borderRadius: 28, padding: 18, justifyContent: 'space-between', overflow: 'hidden' },
+  spotLead: { borderWidth: 2, borderColor: C.on },
+  spotCount: { fontFamily: F.bodyBold, fontSize: 12, color: '#fff', backgroundColor: 'rgba(0, 0, 0, 0.35)', paddingVertical: 5, paddingHorizontal: 10, borderRadius: 999, overflow: 'hidden' },
+  spotFace: { borderRadius: 19, borderWidth: 2, borderColor: C.on },
+  spotArt: { position: 'absolute', top: 80, left: 0, right: 0, alignItems: 'center' },
+  spotMine: { alignSelf: 'flex-start', fontFamily: F.bodyBold, fontSize: 12, color: '#04210F', backgroundColor: C.on, paddingVertical: 4, paddingHorizontal: 10, borderRadius: 999, overflow: 'hidden', marginBottom: 6 },
+  spotName: { fontFamily: F.display, fontSize: 28, lineHeight: 32, letterSpacing: -0.6, color: '#fff' },
+  spotInfo: { fontFamily: F.body, fontSize: 14, lineHeight: 20, color: 'rgba(255, 255, 255, 0.88)' },
+  spotButtons: { justifyContent: 'center', gap: 24, marginTop: 8 },
+  spotBtn: { width: 62, height: 62, borderRadius: 31, alignItems: 'center', justifyContent: 'center' },
+  spotNo: { backgroundColor: C.surface, borderWidth: 1, borderColor: C.line },
+  spotYes: { backgroundColor: C.on, shadowColor: C.on, shadowOpacity: 0.6, shadowRadius: 14, shadowOffset: { width: 0, height: 0 } },
+  spotYesOn: { borderWidth: 3, borderColor: C.fg },
+  center: { textAlign: 'center' },
+
   fill: { flex: 1 },
   view: { paddingHorizontal: 18, paddingTop: 20, paddingBottom: 24, gap: 20, maxWidth: 440, width: '100%', alignSelf: 'center' },
   head: { gap: 6 },

@@ -59,9 +59,12 @@ function bridge(tab: string | null, venue: string | null): string {
     ${pageStoreScript()}
   } catch (e) {}
   // Inside the app the app draws the status glow behind the status bar, so the page's own background is clear.
+  // The page's header bar is clear too, and the app already keeps the page below the status bar: otherwise the
+  // header's dark see-through strip cuts a hard line across the glow (seen on Events).
   document.addEventListener('DOMContentLoaded', function () {
     var st = document.createElement('style');
-    st.textContent = 'html,body{background:transparent !important}';
+    st.textContent = 'html,body{background:transparent !important}body{padding-top:0 !important}'
+      + '.top{position:relative !important;background:transparent !important;-webkit-backdrop-filter:none !important;backdrop-filter:none !important}';
     document.head.appendChild(st);
   });
   navigator.share = function (data) {
@@ -234,6 +237,17 @@ function Shell() {
     if (!NATIVE_TABS.includes(next)) { setPage(WEB_URL); setOpens((n) => n + 1); }
   }, [tab, onWeb]);
 
+  // The GO button in the tab bar: tonight's sesh if you're in one. Otherwise it starts one if you're green, or
+  // turns you green and opens the Sesh tab, where you can start one.
+  const goOut = useCallback(() => {
+    const st = f.state;
+    if (!st || !st.me) return;
+    const live = st.seshes.some((s) => s.am_member && !(s.planned && s.starts_at && new Date(s.starts_at).getTime() > Date.now()));
+    if (live) { pickTab('sesh'); return; }
+    if (st.me.colour !== 'on') { f.setColour('on'); pickTab('sesh'); return; }
+    f.act('start_sesh', {}, 'Sesh started. Friends who are around can join.').then(() => pickTab('sesh'));
+  }, [f, pickTab]);
+
   // A venue from the native Sesh tab: the packed page opens on that venue's page (it has the map and the
   // venue's details); its back button returns to the Sesh tab.
   const openVenue = useCallback((id: string) => {
@@ -393,7 +407,7 @@ function Shell() {
         : tab === 'you' ? <You f={f} onOpenWeb={pickTab} onSignedOut={signedOut} />
         : tab === 'crews' ? <Crews f={f} onBack={() => setTab(before)} onPlanned={() => pickTab('sesh')} />
         : <Home f={f} onOpenWeb={pickTab} />}
-      <Tabs tab={tab === 'venue' ? 'sesh' : tab === 'crews' ? 'you' : tab} requests={f.state ? f.state.requests_in.length : 0} onPick={pickTab} />
+      <Tabs tab={tab === 'venue' ? 'sesh' : tab === 'crews' ? 'you' : tab} requests={f.state ? f.state.requests_in.length : 0} onPick={pickTab} onGo={goOut} />
       {tour && me ? <Tour name={first(me.name)} onClose={() => { clearTour(); setTour(false); askAfterTour().catch(() => {}); }} /> : null}
     </Layer>
   );
@@ -408,7 +422,9 @@ export default function App() {
     'Montserrat-ExtraBold': require('./assets/fonts/Montserrat-ExtraBold.ttf'),
     'Inter-Regular': require('./assets/fonts/Inter-Regular.ttf'),
     'Inter-Medium': require('./assets/fonts/Inter-Medium.ttf'),
-    'Inter-Bold': require('./assets/fonts/Inter-Bold.ttf')
+    'Inter-Bold': require('./assets/fonts/Inter-Bold.ttf'),
+    'Poppins-Bold': require('./assets/fonts/Poppins-Bold.ttf'),           // Midnight Pop's headings
+    'Poppins-ExtraBold': require('./assets/fonts/Poppins-ExtraBold.ttf')
   });
   return (
     <SafeAreaProvider>

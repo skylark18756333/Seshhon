@@ -90,6 +90,14 @@ const has = async (p, s, t = 8000) => {
   catch (e) { console.log(p.name + ' never showed "' + s + '". On screen:\n' + (await p.page.evaluate(() => document.body.innerText))); throw e; }
 };
 const tap = (p, label) => p.page.getByRole('button', { name: label, exact: true }).first().click();
+// The Sesh tab shows one place at a time: tap the cross until that venue's card is on top, then tick it.
+async function voteFor(p, venue) {
+  for (let i = 0; i < 20 && !(await p.page.getByTestId('vote-' + venue).isVisible()); i++) {
+    await p.page.locator('[data-testid^="skip-"]').first().click();
+    await p.page.waitForTimeout(150);
+  }
+  await p.page.getByTestId('vote-' + venue).click();
+}
 async function join(p, name, dob) {
   const u = name.toLowerCase();
   await p.page.fill('#name', name); await p.page.fill('#dob', dob);
@@ -142,16 +150,16 @@ try {
   await shot(nat, '1-home-green.png');
 
   // Changing status must go to the same database function the web app calls.
-  await nat.page.getByRole('button', { name: 'Amber', exact: true }).first().click();
+  await nat.page.getByRole('button', { name: 'Switch to Amber', exact: true }).first().click();
   await has(nat, "You're amber.");
   await nat.page.waitForTimeout(800);
   console.log('status in the database after tapping Amber: ' + psql("select colour from public.statuses s join public.profiles p on p.id = s.user_id where p.name = 'Ana'"));
   await shot(nat, '2-home-amber.png');
-  await nat.page.getByRole('button', { name: 'Red', exact: true }).first().click();
+  await nat.page.getByRole('button', { name: 'Switch to Red', exact: true }).first().click();
   await has(nat, "You're red.");
   await shot(nat, '3-home-red.png');
   console.log('status in the database after tapping Red: ' + psql("select coalesce((select colour::text from public.statuses s join public.profiles p on p.id = s.user_id where p.name = 'Ana' and s.expires_at > now() and s.colour <> 'off'), 'off')"));
-  await nat.page.getByRole('button', { name: 'Green', exact: true }).first().click();
+  await nat.page.getByRole('button', { name: 'Switch to Green', exact: true }).first().click();
   await has(nat, "You're green.");
   // The other tabs open the packed web app; in a browser the WebView itself can't run, so this only shows the bar.
   await nat.page.getByRole('tab', { name: 'Map' }).click();
@@ -175,14 +183,14 @@ try {
   await has(nat, 'Where to?');
   const seshId = psql(`select id from public.seshes where creator = '${anaId}' and ended_at is null`);
   expect('a live sesh started by Ana', psql(`select count(*) from public.seshes where creator = '${anaId}' and ended_at is null`), 1);
-  // The vote list: the venues within 5 km of the city centre, with their opening hours and distance.
+  // The places to vote on: the venues within 5 km of the city centre, one card at a time, with hours and distance.
   const venues = psql("select string_agg(id || '|' || name, ';' order by name) from public.venues where lat is not null").split(';').map((x) => x.split('|'));
   const [venueA, nameA] = venues[0], [venueB, nameB] = venues[1];
-  await has(nat, nameA, 15000);
+  await nat.page.locator('[data-testid^="vote-"]').first().waitFor({ timeout: 15000 });   // the first place's card
   await sshot(nat, '2-sesh-started.png');
 
   // Ana votes; the vote must land in the database, and tapping again takes it back, as on the web.
-  await nat.page.getByTestId('vote-' + venueA).click();
+  await voteFor(nat, venueA);
   await has(nat, 'Your vote');
   await until(() => psql(`select count(*) from public.venue_votes where sesh_id = '${seshId}'`) === '1');
   expect("Ana's vote in the database", psql(`select venue_id from public.venue_votes where sesh_id = '${seshId}' and user_id = '${anaId}'`), venueA);
@@ -197,10 +205,10 @@ try {
   await has(natJ, 'Live now');
   expect('Jack is in the sesh', psql(`select count(*) from public.sesh_members where sesh_id = '${seshId}' and user_id = '${jackId}'`), 1);
   // Jack votes for the other venue, then changes to Ana's: two votes for one venue.
-  await natJ.page.getByTestId('vote-' + venueB).click();
+  await voteFor(natJ, venueB);
   await until(() => psql(`select count(*) from public.venue_votes where sesh_id = '${seshId}'`) === '2');
   expect("Jack's first vote", psql(`select venue_id from public.venue_votes where sesh_id = '${seshId}' and user_id = '${jackId}'`), venueB);
-  await natJ.page.getByTestId('vote-' + venueA).click();
+  await voteFor(natJ, venueA);
   await until(() => psql(`select venue_id from public.venue_votes where sesh_id = '${seshId}' and user_id = '${jackId}'`) === venueA);
   expect('votes counted for ' + nameA, psql(`select count(*) from public.venue_votes where sesh_id = '${seshId}' and venue_id = '${venueA}'`), 2);
   await has(natJ, '2 votes in');
@@ -237,6 +245,13 @@ try {
   await until(() => psql(`select coalesce(locked_venue::text, '') from public.seshes where id = '${seshId}'`) === venueA);
   expect('locked venue in the database', psql(`select locked_venue from public.seshes where id = '${seshId}'`), venueA);
   await has(natJ, 'Locked in', 10000);
+  // Home shows the sesh as a card, with where it's going.
+  await nat.page.getByRole('tab', { name: 'Home' }).click();
+  await has(nat, 'Your sesh');
+  await has(nat, nameA);
+  await sshot(nat, '9b-home-night-card.png');
+  await nat.page.getByRole('tab', { name: 'Sesh' }).click();
+  await has(nat, 'Locked in');
 
   // The Sesh Map: stops are added from the map (the web half), so two are added straight through the
   // database as Jack and Ana would, then Ana ticks one off and moves one on the native screen.
@@ -331,7 +346,16 @@ try {
   expect('its chat gone', psql(`select count(*) from public.messages where sesh_id = '${seshId}'`), 0);
   await sshot(nat, '16-ended.png');
   await natJ.ctx.close();
-  // Home's "Start a sesh" opens the native Sesh tab too.
+  await nat.page.getByRole('tab', { name: 'Home' }).click();
+  await has(nat, 'Up for it now');
+  // The GO button in the tab bar starts a sesh and opens it.
+  const seshesBefore = Number(psql(`select count(*) from public.seshes where creator = '${anaId}' and ended_at is null`));
+  await nat.page.getByTestId('go').click();
+  await has(nat, 'Live now');
+  expect('GO started a sesh', Number(psql(`select count(*) from public.seshes where creator = '${anaId}' and ended_at is null`)), seshesBefore + 1);
+  await sshot(nat, '16b-go-started.png');
+  await tap(nat, 'End the sesh');
+  await has(nat, 'Sesh ended.');
   await nat.page.getByRole('tab', { name: 'Home' }).click();
   await has(nat, 'Up for it now');
 
@@ -647,10 +671,10 @@ try {
   await has(natM, 'Welcome, Mia.');
   await yshot(natM, '10-tour.png');
   await tap(natM, 'Show me');
-  await has(natM, "Slide to show you're up for it");
+  await has(natM, "Tap a light to show you're up for it");
   await tap(natM, 'Skip');
   await natM.page.waitForTimeout(500);
-  expect('tour closed', await natM.page.evaluate(() => document.body.innerText.includes('Slide to show')), false);
+  expect('tour closed', await natM.page.evaluate(() => document.body.innerText.includes('Tap a light to show')), false);
   await openSet(natM, 'about');
   await has(natM, 'Privacy Policy');
   await yshot(natM, '11-about.png');

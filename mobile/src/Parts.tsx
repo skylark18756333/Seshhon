@@ -93,6 +93,9 @@ export function Button({ label, onPress, small, ghost, colour, ink, disabled, ic
       testID={testID}
       style={[styles.btn, small && styles.btnSmall, ghost && styles.btnGhost, colour ? { backgroundColor: colour } : null, disabled && styles.btnOff]}
     >
+      {C.accentTo && !ghost && !colour && !disabled
+        ? <LinearGradient colors={[C.accent, C.accentTo]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.btnFade} />
+        : null}
       <View style={styles.btnRow}>
         {icon ? <Icon name={icon} size={small ? 14 : 16} colour={iconColour} /> : null}
         <Text style={textStyle}>{label}</Text>
@@ -119,8 +122,9 @@ const styles = themed(() => StyleSheet.create({
   avatar: { borderWidth: 2, backgroundColor: C.surface2, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   avatarText: { fontFamily: F.bodyBold, color: C.fg },
 
-  btn: { minHeight: 54, paddingHorizontal: 20, borderRadius: 27, backgroundColor: C.accent, alignItems: 'center', justifyContent: 'center' },
+  btn: { minHeight: 54, paddingHorizontal: 20, borderRadius: 27, backgroundColor: C.accent, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   btnRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  btnFade: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, borderRadius: 27 },
   btnSmall: { minHeight: 44, paddingHorizontal: 18, borderRadius: 22 },
   btnGhost: { backgroundColor: C.surface, borderWidth: 1, borderColor: C.line },
   btnOff: { backgroundColor: C.surface2, borderWidth: 0 },
@@ -130,5 +134,5 @@ const styles = themed(() => StyleSheet.create({
   btnTextOff: { color: C.muted },
 
   toast: { position: 'absolute', left: 16, right: 16, bottom: 16, alignItems: 'center' },
-  toastText: { fontFamily: F.bodyBold, fontSize: 14, color: C.ink, backgroundColor: C.fg, paddingVertical: 12, paddingHorizontal: 18, borderRadius: 24, textAlign: 'center', overflow: 'hidden' }
+  toastText: { fontFamily: F.bodyBold, fontSize: 14, color: C.bg, backgroundColor: C.fg, paddingVertical: 12, paddingHorizontal: 18, borderRadius: 24, textAlign: 'center', overflow: 'hidden' }
 }));
