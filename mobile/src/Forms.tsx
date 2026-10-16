@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import Icon from './Icon';
 import Logo from './Logo';
-import { C, F } from './theme';
+import { C, F, themed } from './theme';
 
 // One of the full-screen steps: the logo, then the content, centred when it is short and scrolling when it is long.
 export function Page({ children }: { children: React.ReactNode }) {
@@ -43,7 +43,7 @@ export function Password({ value, onChange, label, current, onSubmit }: { value:
   );
 }
 
-export const styles = StyleSheet.create({
+export const styles = themed(() => StyleSheet.create({
   fill: { flex: 1 },
   page: { flexGrow: 1, justifyContent: 'center', paddingHorizontal: 18, paddingVertical: 24, gap: 24, maxWidth: 440, width: '100%', alignSelf: 'center' },
   stack12: { gap: 12 },
@@ -66,4 +66,4 @@ export const styles = StyleSheet.create({
   check: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 44 },
   box: { width: 24, height: 24, borderRadius: 7, borderWidth: 2, borderColor: C.muted, alignItems: 'center', justifyContent: 'center' },
   boxOn: { backgroundColor: C.on, borderColor: C.on }
-});
+}));

@@ -18,7 +18,7 @@ import Icon from './Icon';
 import { Avatar, Button, Toast, TopBar } from './Parts';
 import type { ApiError } from './session';
 import type { Frendzy } from './useFrendzy';
-import { C, COLOURS, F, LABELS, first, fmtLeft, fmtTime, fmtWhen } from './theme';
+import { C, COLOURS, F, LABELS, first, fmtLeft, fmtTime, fmtWhen, themed } from './theme';
 import { awayText, distanceAway, fmtKm, hoursLine, km, leaderOf, useVenues, votePicks, type Venues } from './venues';
 
 const CRAWL_MAX = 12;
@@ -906,7 +906,7 @@ function Chat({ f, seshId, myId, confirm, setConfirm }: { f: Frendzy; seshId: st
                 {mineMsg ? null : <Text style={styles.who}>{first(m.name)}</Text>}
                 <View style={[styles.msg, mineMsg ? styles.msgMe : styles.msgThem]}>
                   <Text style={[styles.msgText, mineMsg && { color: C.accentInk }]}>{m.body}</Text>
-                  <Text style={[styles.when, mineMsg ? { textAlign: 'right', color: 'rgba(5, 5, 6, 0.55)' } : null]}>{fmtTime(m.at)}</Text>
+                  <Text style={[styles.when, mineMsg ? { textAlign: 'right', color: C.mineWhen } : null]}>{fmtTime(m.at)}</Text>
                   {mineMsg ? null : confirm === 'report:' + m.id ? (
                     <View style={styles.acts}>
                       <Text style={[styles.small, styles.body]}>Report this message?</Text>
@@ -974,7 +974,7 @@ function LinkBtn({ label, onPress }: { label: string; onPress: () => void }) {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   fill: { flex: 1 },
   view: { paddingHorizontal: 18, paddingTop: 20, paddingBottom: 24, gap: 20, maxWidth: 440, width: '100%', alignSelf: 'center' },
   head: { gap: 6 },
@@ -1028,7 +1028,7 @@ const styles = StyleSheet.create({
   msgThem: { backgroundColor: C.surface2, borderBottomLeftRadius: 6 },
   msgMe: { backgroundColor: C.accent, borderBottomRightRadius: 6 },
   msgText: { fontFamily: F.body, fontSize: 16, color: C.fg },
-  when: { marginTop: 3, fontFamily: F.body, fontSize: 12, color: 'rgba(255, 255, 255, 0.55)' },
+  when: { marginTop: 3, fontFamily: F.body, fontSize: 12, color: C.whenText },
   acts: { flexDirection: 'row', alignItems: 'center', gap: 14, flexWrap: 'wrap' },
   linkBtn: { minHeight: 32, paddingVertical: 4, justifyContent: 'center' },
   linkBtnText: { fontFamily: F.body, fontSize: 12, color: C.muted, textDecorationLine: 'underline' },
@@ -1036,4 +1036,4 @@ const styles = StyleSheet.create({
   chatInput: { flex: 1, minWidth: 0, height: 50, borderRadius: 25, borderWidth: 1, borderColor: C.line, backgroundColor: C.surface, paddingHorizontal: 18, color: C.fg, fontFamily: F.body, fontSize: 16 },
   send: { width: 50, height: 50, borderRadius: 25, backgroundColor: C.accent, alignItems: 'center', justifyContent: 'center' },
   sendOff: { backgroundColor: C.surface2 }
-});
+}));

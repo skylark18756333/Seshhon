@@ -8,7 +8,7 @@ import type { Colour } from './api';
 import Icon from './Icon';
 import Logo from './Logo';
 import type { Frendzy } from './useFrendzy';
-import { C, COLOURS, F, fade, hue, initials } from './theme';
+import { C, COLOURS, F, fade, hue, initials, themed } from './theme';
 
 // The top of the screen glows in your status colour, so you can tell at a glance where you are. App.tsx draws it
 // from the very top edge, behind the status bar. Plain Views only (no gradient library, no SVG, no shadows), so it
@@ -49,7 +49,7 @@ export function Face({ id, name, photos, size, font, away }: { id: string; name:
   const pic = photos[id];
   const h = hue(name);
   return (
-    <View style={[styles.face, { width: size, height: size, borderRadius: size / 2, opacity: away ? 0.45 : 1, borderColor: away ? C.line : 'rgba(255, 255, 255, 0.85)' }]}>
+    <View style={[styles.face, { width: size, height: size, borderRadius: size / 2, opacity: away ? 0.45 : 1, borderColor: away ? C.line : C.faceRing }]}>
       {pic
         ? <Image source={{ uri: pic }} style={{ width: size, height: size, borderRadius: size / 2 }} />
         : (
@@ -106,7 +106,7 @@ export function Toast({ text }: { text: string | null }) {
   return <View style={styles.toast} pointerEvents="none"><Text style={styles.toastText}>{text}</Text></View>;
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   glow: { position: 'absolute', left: 0, right: 0 },
   top: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, paddingHorizontal: 18, paddingTop: 12, paddingBottom: 10, maxWidth: 440, width: '100%', alignSelf: 'center' },
   topRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
@@ -131,4 +131,4 @@ const styles = StyleSheet.create({
 
   toast: { position: 'absolute', left: 16, right: 16, bottom: 16, alignItems: 'center' },
   toastText: { fontFamily: F.bodyBold, fontSize: 14, color: C.ink, backgroundColor: C.fg, paddingVertical: 12, paddingHorizontal: 18, borderRadius: 24, textAlign: 'center', overflow: 'hidden' }
-});
+}));

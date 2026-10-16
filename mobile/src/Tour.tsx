@@ -6,7 +6,7 @@ import Svg, { Circle, Path } from 'react-native-svg';
 import type { Colour } from './api';
 import Logo from './Logo';
 import { Face } from './Parts';
-import { C, COLOURS, F, LABELS } from './theme';
+import { C, COLOURS, F, LABELS, themed } from './theme';
 
 const ZEST = '#B8F23E';
 const PIN_BLUE = '#1F7BFF';
@@ -158,7 +158,7 @@ export default function Tour({ name, onClose }: { name: string; onClose: () => v
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   dim: { flex: 1, justifyContent: 'flex-end', alignItems: 'center', padding: 16, backgroundColor: 'rgba(5, 5, 6, 0.82)' },
   card: { width: '100%', maxWidth: 420, backgroundColor: '#131418', borderWidth: 1, borderColor: C.line, borderRadius: 26, paddingTop: 18, paddingHorizontal: 20, paddingBottom: 20, gap: 14 },
   headRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 40 },
@@ -202,4 +202,4 @@ const styles = StyleSheet.create({
   tag: { position: 'absolute', transform: [{ translateX: -50 }], backgroundColor: 'rgba(16, 17, 21, 0.92)', borderRadius: 10, paddingVertical: 5, paddingHorizontal: 10 },
   tagName: { fontFamily: F.bodyMid, fontSize: 14, color: C.fg },
   tagSmall: { fontFamily: F.body, fontSize: 12, color: '#C9CCD3' }
-});
+}));
