@@ -10,16 +10,17 @@ import Constants from 'expo-constants';
 import * as ImagePicker from 'expo-image-picker';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import React, { useCallback, useEffect, useState } from 'react';
-import { KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
+import { KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, Share, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import {
-  addFriendByUsername, loadAccount, loadEmailsOn, loadSafety,
-  type Account, type Safety
+  addFriendByUsername, loadAccount, loadEmailsOn, loadPushSettings, loadSafety, setPushSetting,
+  type Account, type PushSettings, type Safety
 } from './api';
 import Icon from './Icon';
 import { Avatar, Button, Face, Toast, TopBar } from './Parts';
 import {
   clearTour, currentSession, emailCode, forgetPhone, rememberPhone, rememberUsername, rpc, setSession, type ApiError
 } from './session';
+import { enablePush, pushPermission, type PushPermission } from './push';
 import Tour from './Tour';
 import type { Frendzy } from './useFrendzy';
 import { C, COLOURS, F, LABELS, first } from './theme';
@@ -71,6 +72,26 @@ export default function You({ f, onOpenWeb, onSignedOut }: { f: Frendzy; onOpenW
     });
     return () => { gone = true; };
   }, []);
+
+  // Notifications (migration 0035): the switch per type, and whether this phone has allowed them.
+  const [push, setPush] = useState<PushSettings | 'off' | undefined>(undefined);
+  const [permission, setPermission] = useState<PushPermission>('undetermined');
+  useEffect(() => {
+    let gone = false;
+    Promise.all([loadPushSettings(), pushPermission()]).then(([p, perm]) => { if (!gone) { setPush(p); setPermission(perm); } });
+    return () => { gone = true; };
+  }, []);
+  const turnOnPush = async () => {
+    const r = await enablePush();
+    setPermission(await pushPermission());
+    if (r === 'on') { f.say('Notifications are on.'); loadPushSettings().then(setPush); }
+    else if (r === 'denied') f.say("Notifications are blocked. Turn them on for Frendzy in your phone's settings.");
+    else f.say("Notifications aren't available on this phone yet.");
+  };
+  const switchPush = (kind: string, on: boolean) => {
+    setPush((cur) => (cur && cur !== 'off' ? { ...cur, kinds: cur.kinds.map((k) => (k.kind === kind ? { ...k, on } : k)) } : cur));
+    setPushSetting(kind, on).then(setPush, (e: ApiError) => { if (!e.signedOut) f.say(e.message); loadPushSettings().then(setPush); });
+  };
 
   const [, setTick] = useState(0);
   const toggle = (key: string) => { openSets[key] = !openSets[key]; setTick((n) => n + 1); };
@@ -391,6 +412,42 @@ export default function You({ f, onOpenWeb, onSignedOut }: { f: Frendzy; onOpenW
                   </View>
                 </>
               ) : null}
+            </Section>
+          ) : null}
+
+          {push && push !== 'off' && push.kinds.length ? (
+            <Section k="notifications" title="Notifications" hint={permission === 'granted' && push.registered ? 'On' : 'Off'} onToggle={toggle}>
+              <Text style={[styles.muted, styles.small]}>
+                Choose what Frendzy can ping you about. Notifications only say who it is from. They never show where anyone is, and nothing is sent about someone who has hidden their status from you.
+              </Text>
+              {permission === 'granted' && push.registered ? null : (
+                <View style={styles.stack8}>
+                  <Text style={[styles.muted, styles.small]}>
+                    {permission === 'denied' ? "Notifications are blocked for Frendzy on this phone. Turn them on in your phone's settings." : 'Notifications are off on this phone.'}
+                  </Text>
+                  <View style={styles.start}>
+                    {permission === 'denied'
+                      ? <Button small label="Open phone settings" onPress={() => Linking.openSettings().catch(() => {})} />
+                      : <Button small label="Turn on notifications" onPress={turnOnPush} />}
+                  </View>
+                </View>
+              )}
+              {push.kinds.map((k) => (
+                <View key={k.kind} style={styles.row}>
+                  <View style={styles.grow}>
+                    <Text style={styles.body}>{k.label}</Text>
+                    <Text style={[styles.muted, styles.small]}>{k.hint}</Text>
+                  </View>
+                  <Switch
+                    value={k.on}
+                    onValueChange={(v) => switchPush(k.kind, v)}
+                    trackColor={{ false: C.line, true: C.on }}
+                    thumbColor={C.fg}
+                    accessibilityLabel={k.label}
+                    testID={'push-' + k.kind}
+                  />
+                </View>
+              ))}
             </Section>
           ) : null}
 
