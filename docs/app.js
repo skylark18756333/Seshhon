@@ -320,7 +320,7 @@
   var D = null;            // the latest answer from api_state()
   var lastKey = '';        // used to skip redraws when nothing changed
   var clockOffset = 0;     // server time minus this phone's time
-  var ui = { messages: [], tab: 'home', screen: null, confirm: null, staffError: '', offline: false, booted: false, linkShown: false, age: null, ageNote: '', ageBusy: false, auth: null, account: undefined, newCode: null, editAccount: false, twoStep: undefined, emailStep: null, sets: {} };
+  var ui = { messages: [], tab: 'home', screen: null, confirm: null, staffError: '', offline: false, booted: false, linkShown: false, age: null, ageNote: '', ageBusy: false, auth: null, account: undefined, editAccount: false, twoStep: undefined, emailStep: null, sets: {} };
   ui.radiusKm = Math.min(25, Math.max(1, Number(store(RADIUS_KEY)) || 5));
   var seen = null;         // friend id -> colour at the last look, for "just went on" notices
   var acting = false;
@@ -472,7 +472,7 @@
         if (!ui.twoStep.needed) return load(quiet);
         return useRememberedPhone().then(function (skipped) {
           if (skipped) { ui.twoStep = { needed: false }; return load(quiet); }
-          ui.booted = true; render(); return sendLoginCode();
+          ui.booted = true; render(); return ui.twoStep.app ? null : sendLoginCode();
         });
       });
     }
@@ -659,17 +659,21 @@
       '<button class="btn ghost" data-act="auth" data-v="reset">Forgot your password?</button>' +
       '<button class="btn ghost" data-act="auth" data-v="">Back</button></div>';
   }
-  // After the password, a login on an account with email codes waits here for the code.
+  // After the password, a login on an account with login codes waits here for the code: from the authenticator
+  // app (migration 0034) if it's on, otherwise from the email. With both, either one works.
+  function twoStepMode() { var t = ui.twoStep || {}; return t.mode || (t.app ? 'app' : 'email'); }
   function twoStepScreen() {
-    return '<div class="stack" style="gap:24px;margin-block:auto" id="two-step-screen">' + logo() + '<h1>Check your email</h1>' +
-      '<p class="muted" id="ts-note">' + (ui.twoStep && ui.twoStep.hint ? 'We sent a 6-digit code to ' + esc(ui.twoStep.hint) + '.' : '') + '</p>' +
+    var t = ui.twoStep || {}, app = twoStepMode() === 'app';
+    return '<div class="stack" style="gap:24px;margin-block:auto" id="two-step-screen">' + logo() + '<h1>' + (app ? 'Enter your app code' : 'Check your email') + '</h1>' +
+      '<p class="muted" id="ts-note">' + (app ? 'Open your authenticator app and type the 6-digit code it shows for Frendzy.'
+        : t.hint ? 'We sent a 6-digit code to ' + esc(t.hint) + '.' : '') + '</p>' +
       '<form id="two-step" class="stack" style="gap:16px" novalidate>' +
-      '<div class="field"><label for="ts-code">Code from the email</label><input id="ts-code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="7" spellcheck="false"></div>' +
+      '<div class="field"><label for="ts-code">' + (app ? 'Code from your authenticator app' : 'Code from the email') + '</label><input id="ts-code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="7" spellcheck="false"></div>' +
       '<label class="check"><input id="ts-remember" type="checkbox" checked> Remember this phone for 30 days</label>' +
       '<p id="ts-error" class="error" hidden></p>' +
       '<button class="btn" type="submit" id="ts-btn">Log in</button></form>' +
-      '<button class="btn ghost" data-act="ts-resend">Send a new code</button>' +
-      '<button class="btn ghost" data-act="ts-recover">Can\'t get the email? Use your recovery code</button>' +
+      (app ? (t.email ? '<button class="btn ghost" data-act="ts-email">Email me a code instead</button>' : '')
+        : '<button class="btn ghost" data-act="ts-resend">Send a new code</button>' + (t.app ? '<button class="btn ghost" data-act="ts-app">Use your authenticator app instead</button>' : '')) +
       '<button class="btn ghost" data-act="logout">Cancel</button></div>';
   }
   // Confirming the login email, right after saving a username and password (or adding an email later).
@@ -685,36 +689,12 @@
   function emailField(label) {
     return '<div class="field"><label for="save-email">' + label + '</label><input id="save-email" data-keep type="email" autocomplete="email" autocapitalize="none" spellcheck="false" maxlength="254"><span class="muted small">For login codes only. Nobody else ever sees it.</span></div>';
   }
-  // A copy of a new recovery code goes to the account's confirmed email (migration 0022). It stays on
-  // screen too, in case the email doesn't arrive. Accounts without a confirmed email just skip this.
-  function emailRecovery() {
-    var c = ui.newCode;
-    if (!c || c.emailed || !session) return Promise.resolve();
-    return emailCode('recovery', { username: c.username, code: c.code }).then(function (r) {
-      c.emailed = r.hint;
-      var el = document.getElementById('rc-emailed');
-      if (el && ui.newCode === c) el.innerHTML = 'We also emailed it to <strong>' + esc(r.hint) + '</strong>. Keep that email.';
-    }, function () {});
-  }
   function emailsOn() { return !!(ui.twoStep && !ui.twoStep.off); }
-  function recoverScreen() {
-    return '<div class="stack" style="gap:24px;margin-block:auto">' + logo() + '<h1>Use your recovery code</h1>' +
-      '<p class="muted">Enter the recovery code you saved when you made your password, and choose a new password.</p>' +
-      '<form id="recover" class="stack" style="gap:16px" novalidate>' +
-      '<div class="field"><label for="rec-user">Username or email</label><input id="rec-user" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="254" value="' + esc(ui.loginName || '') + '"></div>' +
-      '<div class="field"><label for="rec-code">Recovery code</label><input id="rec-code" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="24" placeholder="XXXX-XXXX-XXXX-XXXX"></div>' +
-      '<div class="field"><label for="rec-pass">New password</label>' + passwordInput('rec-pass', 'new-password') + '<span class="muted small">At least 10 characters.</span></div>' +
-      (CAPTCHA_KEY && !session ? '<div id="captcha"></div>' : '') +
-      '<p id="rec-error" class="error" hidden></p>' +
-      '<button class="btn" type="submit" id="rec-btn">Set new password</button></form>' +
-      '<button class="btn ghost" data-act="auth" data-v="login">Back</button></div>';
-  }
   // Forgot your password: a 6-digit code goes to the account's confirmed email (migration 0032), then a new password.
   // The answer is the same whether or not the email has an account.
   function resetScreen() {
     var top = '<div class="stack" style="gap:24px;margin-block:auto" id="reset">' + logo() + '<h1>Forgot your password?</h1>';
-    var bottom = '<button class="btn ghost" data-act="auth" data-v="recover">Use your recovery code instead</button>' +
-      '<button class="btn ghost" data-act="auth" data-v="login">Back</button></div>';
+    var bottom = '<button class="btn ghost" data-act="auth" data-v="login">Back</button></div>';
     if (!ui.resetEmail) {
       return top + '<p class="muted">Enter the email you confirmed for Frendzy. We\'ll send it a code to choose a new password.</p>' +
         '<form id="reset-send" class="stack" style="gap:16px" novalidate>' +
@@ -731,22 +711,13 @@
       '<button class="btn" type="submit" id="rn-btn">Set new password</button></form>' +
       '<button class="btn ghost" data-act="reset-again">Use a different email, or send a new code</button>' + bottom;
   }
-  // Shown once, right after a recovery code is made.
-  function codeCard() {
-    return '<div class="stack" style="gap:12px" id="newcode"><h2>Save your recovery code</h2>' +
-      '<p class="muted small">If you forget your password, this code is the only way back into your account. Screenshot it or write it down. It won\'t be shown again.</p>' +
-      '<div class="linkbox" style="font-size:20px;font-weight:700;letter-spacing:1px;text-align:center" id="recovery-code">' + esc(ui.newCode.code) + '</div>' +
-      '<p class="muted small">Your username is <strong>' + esc(ui.newCode.username) + '</strong>.</p>' +
-      '<p class="small" id="rc-emailed">' + (ui.newCode.emailed ? 'We also emailed it to <strong>' + esc(ui.newCode.emailed) + '</strong>. Keep that email.' : '') + '</p>' +
-      '<button class="btn" data-act="code-saved">I\'ve saved it</button></div>';
-  }
   function saveForm(username, askEmail) {
     return '<form id="save-account" class="stack" style="gap:12px" novalidate>' +
       '<div class="field"><label for="save-user">Username</label><input id="save-user" data-keep type="text" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="20" value="' + esc(username || '') + '"><span class="muted small">3 to 20 letters, numbers or _. Friends who know it can add you.</span></div>' +
       '<div class="field"><label for="save-pass">' + (username ? 'New password' : 'Password') + '</label>' + passwordInput('save-pass', 'new-password', true) + '<span class="muted small">At least 10 characters.</span></div>' +
       (askEmail ? emailField('Email') : '') +
       '<p id="save-error" class="error" hidden></p>' +
-      '<button class="btn" type="submit" id="save-btn">' + (username ? 'Save and get a new recovery code' : 'Save my account') + '</button></form>';
+      '<button class="btn" type="submit" id="save-btn">' + (username ? 'Save' : 'Save my account') + '</button></form>';
   }
 
   function home() {
@@ -1712,7 +1683,6 @@
     if (ui.account !== 'off' && ui.account !== undefined) {
       var a = ui.account;
       if (ui.emailStep) h += '<div class="card" style="border-color:var(--on)">' + emailCard() + '</div>';
-      else if (ui.newCode) h += '<div class="card" style="border-color:var(--on)">' + codeCard() + '</div>';
       else if (a && !ui.editAccount) {
         h += sec('login', '<div class="card"><h2>Username and password</h2><p class="muted small">You\'re logged in as <strong>' + esc(a.username) + '</strong>. Use it to log in on another phone.</p>' +
           (a.email && !ui.changeEmail ? '<p class="muted small">New logins also need a code sent to <strong>' + esc(a.email) + '</strong>.</p>'
@@ -1724,6 +1694,7 @@
               (a.email ? '<button class="btn small-btn ghost" type="button" data-act="change-email">Cancel</button>' : '') + '</div></form>' : '') +
           '<div class="row">' + (a.email && !ui.changeEmail && emailsOn() ? '<button class="btn small-btn ghost" data-act="change-email">Change email</button>' : '') +
           '<button class="btn small-btn ghost" data-act="edit-account">Change password</button><button class="btn small-btn ghost" data-act="logout">Log out</button></div></div>', false, a.username);
+        h += appCard(a);
       } else {
         h += '<div class="card"><h2>' + (a ? 'Change password' : 'Keep your account') + '</h2>' +
           (a ? '' : '<p class="muted small">Right now your account only lives in this browser. Add a username and password so you can log in on a new phone.' + (emailsOn() ? ' Each new login will also need a code we email you.' : '') + '</p>') +
@@ -1750,6 +1721,26 @@
 
   // Settings are drop-down sections: a card whose title you tap to open or close it. Each remembers whether it's open
   // while the screen redraws, and one with something waiting for you (a form step, a question) is always open.
+  // Login codes from an authenticator app (0034), an optional extra to the emailed codes.
+  function appCard(a) {
+    var t = ui.totpSetup;
+    if (a.app) return sec('app', '<div class="card"><h2>Authenticator app</h2><p class="muted small">On. New logins ask for the 6-digit code your authenticator app shows for Frendzy' +
+      (a.email ? ', or you can get a code by email instead.' : '.') + '</p>' +
+      (ui.confirm === 'app-off'
+        ? '<p class="muted small">Turn it off? New logins will only need ' + (a.email ? 'your password and an email code.' : 'your password.') + '</p><div class="row"><button class="btn small-btn" data-act="app-off">Turn it off</button><button class="btn small-btn ghost" data-act="cancel-confirm">Keep it on</button></div>'
+        : '<button class="btn small-btn ghost" data-act="ask" data-v="app-off">Turn off</button>') + '</div>', ui.confirm === 'app-off', 'On');
+    if (!t) return sec('app', '<div class="card"><h2>Authenticator app</h2><p class="muted small">For extra safety, use an app like Google Authenticator or Microsoft Authenticator. New logins will ask for the code it shows as well as your password.</p>' +
+      '<button class="btn small-btn ghost" data-act="app-start">Set up an authenticator app</button></div>', false, 'Off');
+    var qr = '';
+    try { var q = qrcode(0, 'M'); q.addData(t.uri); q.make(); qr = '<div class="qr" style="width:min(220px,100%);align-self:center;border-radius:12px;overflow:hidden;line-height:0">' + q.createSvgTag({ cellSize: 4, margin: 4, scalable: true }).replace('<svg ', '<svg style="display:block;width:100%;height:auto" aria-label="QR code for your authenticator app" ') + '</div>'; } catch (x) { qr = ''; }
+    return sec('app', '<div class="card"><h2>Authenticator app</h2><form id="app-confirm" class="stack" style="gap:12px" novalidate>' +
+      '<p class="muted small">1. In your authenticator app, add an account and scan this code. On this phone, tap Open in authenticator app.</p>' + qr +
+      '<a class="btn small-btn ghost" style="text-decoration:none;align-self:flex-start;display:inline-flex;align-items:center;justify-content:center" href="' + esc(t.uri) + '">Open in authenticator app</a>' +
+      '<p class="muted small">Or type this key into the app:</p><div class="linkbox" id="app-secret">' + esc(t.secret.replace(/(.{4})/g, '$1 ').trim()) + '</div>' +
+      '<p class="muted small">2. Type the 6-digit code the app now shows for Frendzy.</p>' +
+      '<div class="field"><label for="app-code">Code from the app</label><input id="app-code" data-keep type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="7" spellcheck="false"></div>' +
+      '<p id="app-error" class="error" hidden></p><div class="row"><button class="btn small-btn" type="submit" id="app-btn">Turn on</button><button class="btn small-btn ghost" type="button" data-act="app-cancel">Cancel</button></div></form></div>', true);
+  }
   function sec(key, card, force, hint) {
     var m = card && /^<div class="card"( style="[^"]*")?><h2>([\s\S]*?)<\/h2>([\s\S]*)<\/div>$/.exec(card);
     if (!m) return card || '';
@@ -1906,15 +1897,14 @@
   }
 
   // Frendzy staff only. The database refuses all of this for anyone else.
-  // Admin: create an account with no email (username and password only), or find and delete one.
+  // Admin: create an account with no email (username and password only), or find one to set a new password or delete it.
   function adminAccounts() {
     var h = '<div class="card"><h2>Accounts</h2>';
     if (ui.madeAccount) {
       var m = ui.madeAccount;
       return h + '<p class="small">Made <strong>' + esc(m.name) + '</strong>' + (m.venue_name ? ' as the venue account for <strong>' + esc(m.venue_name) + '</strong>' : '') + '.</p>' +
-        '<p class="muted small">Give them these. The recovery code is shown only once; it lets them set a new password if they forget it.</p>' +
+        '<p class="muted small">Give them their username and the password you set. If they forget it, find them below and set a new one.</p>' +
         '<div class="linkbox">Username: <strong>' + esc(m.username) + '</strong></div>' +
-        '<div class="linkbox" style="font-size:18px;font-weight:700;letter-spacing:1px;text-align:center">' + esc(m.recovery_code) + '</div>' +
         '<button class="btn small-btn" data-act="made-done">Done</button></div>';
     }
     if (ui.newAccount) {
@@ -1947,10 +1937,14 @@
     if (!list.length) return '<p class="muted small">No accounts match.</p>';
     var kinds = { user: '', venue: 'Venue account', admin: 'Frendzy staff' };
     return list.map(function (u) {
-      var asking = ui.confirm === 'del-account:' + u.id;
+      var asking = ui.confirm === 'del-account:' + u.id, setting = ui.confirm === 'set-pass:' + u.id;
       return '<div class="stack" style="gap:6px;padding-top:8px;border-top:1px solid var(--line)"><div class="row between"><div class="grow">' + esc(u.name) +
         '<div class="muted small">' + esc([u.username ? '@' + u.username : 'No username', kinds[u.role] || ''].filter(Boolean).join(', ')) + '</div></div>' +
-        (u.me || u.role === 'admin' ? '' : asking ? '' : '<button class="btn small-btn ghost" data-act="ask" data-v="del-account:' + esc(u.id) + '">Delete</button>') + '</div>' +
+        (u.me || u.role === 'admin' || asking || setting ? '' : (u.username ? '<button class="btn small-btn ghost" data-act="ask" data-v="set-pass:' + esc(u.id) + '">New password</button>' : '') +
+          '<button class="btn small-btn ghost" data-act="ask" data-v="del-account:' + esc(u.id) + '">Delete</button>') + '</div>' +
+        (setting ? '<p class="muted small">For when they\'ve forgotten it. It logs them out everywhere; give them the new one.</p>' +
+          '<div class="field"><label for="set-pass">New password for ' + esc(u.name) + '</label>' + passwordInput('set-pass', 'new-password', true) + '<span class="muted small">At least 10 characters.</span></div>' +
+          '<div class="row"><button class="btn small-btn" data-act="set-pass" data-v="' + esc(u.id) + '">Set password</button><button class="btn small-btn ghost" data-act="cancel-confirm">Cancel</button></div>' : '') +
         (asking ? '<p class="error">This deletes ' + esc(u.name) + '\'s account and everything in it, for good. They can\'t sign up again with the same username or email.</p>' +
           '<div class="field"><label for="del-reason">Why? (kept on record)</label><input id="del-reason" data-keep type="text" maxlength="200" placeholder="Which rule they broke"></div><div class="row"><button class="btn small-btn" style="--c:var(--off);--cf:var(--ink)" data-act="del-account" data-v="' + esc(u.id) + '">Delete for good</button><button class="btn small-btn ghost" data-act="cancel-confirm">Keep</button></div>' : '') + '</div>';
     }).join('');
@@ -2049,18 +2043,16 @@
     }
     if (!session || !D || !D.me) {
       tabs.hidden = true;
-      var want = ui.newCode ? 'newcode' : ui.auth || 'join';
+      var want = ui.auth || 'join';
       if (!document.getElementById(want)) {
-        view.innerHTML = want === 'newcode' ? '<div class="stack" style="margin-block:auto">' + logo() + codeCard() + '</div>'
-          : want === 'login' ? loginScreen() : want === 'recover' ? recoverScreen() : want === 'reset' ? resetScreen() : welcome();
+        view.innerHTML = want === 'login' ? loginScreen() : want === 'reset' ? resetScreen() : welcome();
         mountCaptcha();
       }
       return;
     }
-    if (ui.newCode && ui.newCode.after === 'home') {   // straight after sign-up: confirm the email, then save the recovery code
+    if (ui.emailStep && ui.emailStep.signUp) {   // straight after sign-up: confirm the email ("Later" skips it)
       tabs.hidden = true;
-      if (ui.emailStep) { if (!document.getElementById('email-confirm')) view.innerHTML = '<div class="stack" style="margin-block:auto">' + logo() + emailCard() + '</div>'; }
-      else if (!document.getElementById('newcode')) view.innerHTML = '<div class="stack" style="margin-block:auto">' + logo() + codeCard() + '</div>';
+      if (!document.getElementById('email-confirm')) view.innerHTML = '<div class="stack" style="margin-block:auto">' + logo() + emailCard() + '</div>';
       return;
     }
     var html;
@@ -2113,7 +2105,7 @@
   // The walkthrough after sign-up (tour.js). It shows over the app until it is finished or skipped.
   function showTour(fromSignUp) {
     if (fromSignUp) store(TOUR_KEY, true);
-    if (!store(TOUR_KEY) || ui.newCode || !window.FrendzyTour || !D || !D.me || window.FrendzyTour.isOpen()) return;   // after the recovery code is saved, not over it
+    if (!store(TOUR_KEY) || (ui.emailStep && ui.emailStep.signUp) || !window.FrendzyTour || !D || !D.me || window.FrendzyTour.isOpen()) return;   // after the email step, not over it
     window.FrendzyTour.open({ name: first(D.me.name), onClose: function () { store(TOUR_KEY, null); } });
   }
 
@@ -2334,6 +2326,13 @@
     'new-account': function (v) { ui.newAccount = !!v; ui.newError = ''; ui.newVenue = null; ui.newVenueQuery = ''; go(false); },
     'new-venue': function (v) { ui.newVenue = v || null; if (!v) ui.newVenueQuery = ''; go(false); },
     'made-done': function () { ui.madeAccount = null; go(false); },
+    'set-pass': function (v) {
+      var input = document.getElementById('set-pass'), pw = input ? input.value : '';
+      if (pw.length < 10) { toast('Use a password of at least 10 characters.'); return; }
+      rpc('admin_set_password', { p_user: v, p_password: pw }).then(function (r) {
+        ui.confirm = null; go(false); toast('New password set for @' + r.username + '. Give it to them.');
+      }).catch(function (x) { toast(x.message); });
+    },
     'del-account': function (v) {
       var why = String((document.getElementById('del-reason') || {}).value || '').trim();
       if (why.length < 3) { toast('Say why this account is being removed.'); return; }
@@ -2358,26 +2357,30 @@
       btn.setAttribute('aria-pressed', String(show)); btn.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
       input.focus();
     },
-    'ts-recover': function () {
-      session = null; store(SESSION_KEY, null); D = null; ui.twoStep = undefined; ui.auth = 'recover';
-      view.innerHTML = ''; render();
-    },
+    'ts-email': function () { ui.twoStep.mode = 'email'; view.innerHTML = ''; render(); sendLoginCode(); },
+    'ts-app': function () { ui.twoStep.mode = 'app'; view.innerHTML = ''; render(); },
     'email-resend': function () {
       if (!ui.emailStep) return;
       emailCode('setup', { email: ui.emailStep.email }).then(function () { toast('Code sent again.'); }, function (x) { toast(x.message); });
     },
-    'email-skip': function () { ui.emailStep = null; go(false); },
-    'change-email': function () { ui.changeEmail = !ui.changeEmail; go(false); },
-    'code-saved': function () {
-      var after = ui.newCode && ui.newCode.after;
-      if (after === 'login') { ui.loginName = ui.newCode.username; ui.auth = 'login'; }
-      if (after === 'home') ui.tab = 'home';
-      ui.newCode = null; view.innerHTML = ''; render();
-      if (after === 'home') showTour(false);
+    'email-skip': function () {
+      var signUp = ui.emailStep && ui.emailStep.signUp;
+      ui.emailStep = null;
+      if (signUp) { ui.tab = 'home'; view.innerHTML = ''; render(); showTour(false); } else go(false);
     },
+    'app-start': function () {
+      rpc('totp_start', {}).then(function (r) { ui.totpSetup = r; go(false); }).catch(function (x) { toast(x.message); });
+    },
+    'app-cancel': function () { ui.totpSetup = null; go(false); },
+    'app-off': function () {
+      ui.confirm = null;
+      rpc('totp_off', {}).then(function () { if (ui.account && ui.account !== 'off') ui.account.app = false; go(false); toast('Authenticator app turned off.'); })
+        .catch(function (x) { toast(x.message); });
+    },
+    'change-email': function () { ui.changeEmail = !ui.changeEmail; go(false); },
     logout: function () {
       session = null; store(SESSION_KEY, null); store(TOUR_KEY, null); D = null; VENUES = null; venuesAsked = false; seen = null; lastKey = '';
-      ui.account = undefined; ui.role = undefined; ui.vdata = null; ui.adata = null; ui.removed = null; ui.madeAccount = null; ui.found = null; ui.findQuery = ''; ui.safety = undefined; ui.hides = undefined; ui.age = null; ui.auth = null; ui.editAccount = false; ui.tab = 'home'; ui.screen = null; ui.confirm = null; ui.twoStep = undefined; ui.emailStep = null; ui.changeEmail = false;
+      ui.account = undefined; ui.role = undefined; ui.vdata = null; ui.adata = null; ui.removed = null; ui.madeAccount = null; ui.found = null; ui.findQuery = ''; ui.safety = undefined; ui.hides = undefined; ui.age = null; ui.auth = null; ui.editAccount = false; ui.tab = 'home'; ui.screen = null; ui.confirm = null; ui.twoStep = undefined; ui.emailStep = null; ui.changeEmail = false; ui.totpSetup = null;
       view.innerHTML = ''; render(); toast('Logged out. Log in again with your username and password.');
     },
     'delete-account': function () {
@@ -2385,7 +2388,7 @@
       act('delete_account', {}).then(function () {
         if (goneId) forgetPhone(goneId);
         store(LAST_USER_KEY, null);
-        session = null; store(SESSION_KEY, null); store(TOUR_KEY, null); D = null; VENUES = null; venuesAsked = false; seen = null; ui.confirm = null; ui.tab = 'home'; ui.screen = null; ui.account = undefined; ui.role = undefined; ui.vdata = null; ui.adata = null; ui.removed = null; ui.madeAccount = null; ui.found = null; ui.findQuery = ''; ui.safety = undefined; ui.hides = undefined; ui.age = null; ui.twoStep = undefined; ui.emailStep = null; ui.changeEmail = false;
+        session = null; store(SESSION_KEY, null); store(TOUR_KEY, null); D = null; VENUES = null; venuesAsked = false; seen = null; ui.confirm = null; ui.tab = 'home'; ui.screen = null; ui.account = undefined; ui.role = undefined; ui.vdata = null; ui.adata = null; ui.removed = null; ui.madeAccount = null; ui.found = null; ui.findQuery = ''; ui.safety = undefined; ui.hides = undefined; ui.age = null; ui.twoStep = undefined; ui.emailStep = null; ui.changeEmail = false; ui.totpSetup = null;
         view.innerHTML = ''; render(); toast('Your account has been deleted.');
       });
     }
@@ -2511,10 +2514,9 @@
     newLogin = null;
     if (!l) return Promise.resolve();
     return rpc('save_account', { p_username: l.username, p_password: l.password }).then(function (r) {
-      ui.newCode = { code: r.recovery_code, username: r.username, after: 'home' };   // load() then reads the account
-      store(LAST_USER_KEY, r.username);
+      store(LAST_USER_KEY, r.username);   // load() then reads the account
       // Then a code to confirm the email. The account is saved either way; the email can be added later on the You page.
-      if (l.email) return emailCode('setup', { email: l.email }).then(function (sent) { ui.emailStep = { email: l.email, hint: sent.hint }; }, function (x) { toast(x.message); });
+      if (l.email) return emailCode('setup', { email: l.email }).then(function (sent) { ui.emailStep = { email: l.email, hint: sent.hint, signUp: true }; }, function (x) { toast(x.message); });
     }, function (e) { ui.tab = 'you'; toast(e.message + ' Pick another username below.'); });
   }
   function finishSignUp(name, dob) {
@@ -2630,35 +2632,14 @@
         return (lu.indexOf('@') > 0 ? emailLoginName(lu, lp) : Promise.resolve(lu)).then(function (name) { return signInWithPassword(name, lp, t); });
       }).then(function () {
         store(LAST_USER_KEY, lu.toLowerCase());
-        // Straight after a recovery code, this login doesn't need the email code.
+        // Straight after an emailed password reset, this login doesn't need another code.
         var ticket = ui.ticket; ui.ticket = null;
         return ticket ? rpc('two_step_use_ticket', { p_ticket: ticket }).then(function (ok) { if (ok) return refreshSession(); }, function () {}) : null;
       }).then(function () {
-        D = null; VENUES = null; venuesAsked = false; lastKey = ''; ui.auth = null; ui.loginName = ''; ui.loginNote = null; ui.account = undefined; ui.role = undefined; ui.vdata = null; ui.adata = null; ui.removed = null; ui.madeAccount = null; ui.found = null; ui.findQuery = ''; ui.safety = undefined; ui.hides = undefined; ui.age = null; ui.twoStep = undefined; ui.emailStep = null; ui.changeEmail = false;
+        D = null; VENUES = null; venuesAsked = false; lastKey = ''; ui.auth = null; ui.loginName = ''; ui.loginNote = null; ui.account = undefined; ui.role = undefined; ui.vdata = null; ui.adata = null; ui.removed = null; ui.madeAccount = null; ui.found = null; ui.findQuery = ''; ui.safety = undefined; ui.hides = undefined; ui.age = null; ui.twoStep = undefined; ui.emailStep = null; ui.changeEmail = false; ui.totpSetup = null;
         document.activeElement && document.activeElement.blur(); view.innerHTML = '';
         return load().then(function () { if (D && D.me) return sendPendingInvite(); });
       }).catch(function (x) { lfail(x.message); });
-      return;
-    }
-    if (e.target.id === 'recover') {
-      var ru = document.getElementById('rec-user').value.trim(), rc = document.getElementById('rec-code').value, rp = document.getElementById('rec-pass').value;
-      var rerr = document.getElementById('rec-error'), rbtn = document.getElementById('rec-btn');
-      var rfail = function (msg) { rerr.textContent = msg; rerr.hidden = false; rbtn.disabled = false; };
-      if (!ru || !rc.trim()) return rfail('Enter your username or email, and your recovery code.');
-      if (rp.length < 10) return rfail('Use a password of at least 10 characters.');
-      rbtn.disabled = true; rerr.hidden = true;
-      (session ? Promise.resolve() : captchaReady(rbtn).then(signInAnonymously))
-        .then(function () { return rpc('recover_account', { p_username: ru, p_code: rc, p_password: rp }); })
-        .then(function (r) {
-          if (!r || !r.ok) return rfail((r && r.message) || 'That didn\'t work. Try again.');
-          // This phone's temporary sign-in was only for the recovery; log in with the new password next.
-          ui.newCode = { code: r.recovery_code, username: r.username, after: 'login' };
-          return emailRecovery().then(function () {
-            session = null; store(SESSION_KEY, null); ui.twoStep = undefined; ui.ticket = r.ticket || null;
-            document.activeElement && document.activeElement.blur(); view.innerHTML = ''; render();
-          });
-        })
-        .catch(function (x) { rfail(x.message); });
       return;
     }
     if (e.target.id === 'reset-send') {
@@ -2697,10 +2678,11 @@
       var tc = document.getElementById('ts-code').value.replace(/\D/g, '');
       var terr = document.getElementById('ts-error'), tbtn = document.getElementById('ts-btn');
       var tfail = function (msg) { terr.textContent = msg; terr.hidden = false; tbtn.disabled = false; };
-      if (tc.length !== 6) return tfail('Enter the 6-digit code from the email.');
+      var byApp = twoStepMode() === 'app';
+      if (tc.length !== 6) return tfail(byApp ? 'Enter the 6-digit code from your authenticator app.' : 'Enter the 6-digit code from the email.');
       var keepPhone = document.getElementById('ts-remember').checked;
       tbtn.disabled = true; terr.hidden = true;
-      rpc('two_step_check', { p_code: tc }).then(function (r) {
+      rpc(byApp ? 'totp_check' : 'two_step_check', { p_code: tc }).then(function (r) {
         if (!r || !r.ok) return tfail((r && r.message) || 'That didn\'t work. Try again.');
         // A fresh sign-in token, now with full access.
         return refreshSession().then(function () {
@@ -2723,18 +2705,29 @@
         if (!r || !r.ok) return efail((r && r.message) || 'That didn\'t work. Try again.');
         var changed = ui.account && ui.account !== 'off' && ui.account.email;
         if (ui.account && ui.account !== 'off') ui.account.email = r.email;
-        var renew = ui.emailStep.renew && !ui.newCode;
+        var signUp = ui.emailStep.signUp;
         ui.emailStep = null; ui.changeEmail = false;
         toast(changed ? 'Email changed. Login codes now go to ' + r.email + '.' : 'Email confirmed. New logins will ask for a code from it.');
         rememberPhone();   // the phone that confirmed the email doesn't need a code at its next login
-        // From the You page, a fresh recovery code goes to the (new) email too. The old one only exists as a hash.
-        return (renew ? rpc('renew_recovery_code').then(function (c) {
-          ui.newCode = { code: c.recovery_code, username: c.username, after: 'you' };
-        }, function () {}) : Promise.resolve()).then(function () {
-          document.activeElement && document.activeElement.blur(); render();
-          emailRecovery();
-        });
+        document.activeElement && document.activeElement.blur();
+        if (signUp) { ui.tab = 'home'; view.innerHTML = ''; render(); showTour(false); } else render();
       }).catch(function (x) { efail(x.message); });
+      return;
+    }
+    if (e.target.id === 'app-confirm') {
+      var ac = document.getElementById('app-code').value.replace(/\D/g, '');
+      var aerr = document.getElementById('app-error'), abtn = document.getElementById('app-btn');
+      var afail = function (msg) { aerr.textContent = msg; aerr.hidden = false; abtn.disabled = false; };
+      if (ac.length !== 6) return afail('Enter the 6-digit code the app shows for Frendzy.');
+      abtn.disabled = true; aerr.hidden = true;
+      rpc('totp_confirm', { p_code: ac }).then(function (r) {
+        if (!r || !r.ok) return afail((r && r.message) || 'That didn\'t work. Try again.');
+        ui.totpSetup = null;
+        if (ui.account && ui.account !== 'off') ui.account.app = true;
+        rememberPhone();   // this phone doesn't need a code at its next login
+        document.activeElement && document.activeElement.blur(); render();
+        toast('Authenticator app is on. New logins will ask for its code.');
+      }).catch(function (x) { afail(x.message); });
       return;
     }
     if (e.target.id === 'save-account' || e.target.id === 'add-email') {
@@ -2749,17 +2742,16 @@
       sbtn.disabled = true; serr.hidden = true;
       (adding ? Promise.resolve(null) : rpc('save_account', { p_username: su, p_password: sp })).then(function (r) {
         if (r) {
-          ui.account = { username: r.username }; ui.editAccount = false; store(LAST_USER_KEY, r.username);
-          ui.newCode = { code: r.recovery_code, username: r.username, after: 'you' };
+          ui.account = { username: r.username, email: ui.account && ui.account !== 'off' ? ui.account.email : null, app: ui.account && ui.account !== 'off' ? ui.account.app : false };
+          ui.editAccount = false; store(LAST_USER_KEY, r.username); toast('Saved. Use your new password next time you log in.');
         }
         if (!em) return;
         // The account is saved either way; if the email can't be sent, it can be added again from here.
         return emailCode('setup', { email: em }).then(function (s) {
-          ui.emailStep = { email: em, hint: s.hint, renew: adding };
+          ui.emailStep = { email: em, hint: s.hint };
         }, function (x) { if (adding) throw x; toast(x.message); });
       }).then(function () {
         document.activeElement && document.activeElement.blur(); render();
-        if (!ui.emailStep) emailRecovery();   // a password change on an account that already has its email
       }).catch(function (x) { sfail(x.message); });
       return;
     }
