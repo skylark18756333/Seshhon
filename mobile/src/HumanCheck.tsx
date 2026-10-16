@@ -7,7 +7,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 import Constants from 'expo-constants';
 import { CAPTCHA_SITE_KEY } from './config';
-import { C, F } from './theme';
+import { C, F, themed } from './theme';
 
 const WEB_URL: string = (Constants.expoConfig?.extra?.webUrl as string) || 'https://frendzy.au/';
 export type HumanCheckHandle = { take: () => Promise<string> };
@@ -94,8 +94,8 @@ const HumanCheck = forwardRef<HumanCheckHandle, { onWait?: (waiting: boolean) =>
 });
 export default HumanCheck;
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   box: { height: 70, borderRadius: 14, overflow: 'hidden', backgroundColor: C.bg },
   web: { flex: 1, backgroundColor: C.bg },
   error: { fontFamily: F.bodyMid, fontSize: 14, color: C.off }
-});
+}));

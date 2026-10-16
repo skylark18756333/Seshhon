@@ -7,7 +7,7 @@ import Icon from './Icon';
 import { CatchUpCards } from './Crews';
 import { Button, Face, Toast, TopBar } from './Parts';
 import type { Frendzy } from './useFrendzy';
-import { C, COLOURS, F, LABELS, STATUS_COPY, STATUS_ICON, STOPS, fade, first, fmtLeft, initials } from './theme';
+import { C, COLOURS, F, LABELS, STATUS_COPY, STATUS_ICON, STOPS, fade, first, fmtLeft, initials, themed } from './theme';
 
 const INVITE_BASE = 'https://frendzy.au/';
 
@@ -172,7 +172,7 @@ function Switch({ colour, onPick }: { colour: Colour; onPick: (c: Colour) => voi
             accessibilityState={{ selected: lit }}
           >
             <View style={[styles.lamp, { backgroundColor: lit ? COLOURS[k] : fade(COLOURS[k], 0.2), shadowColor: COLOURS[k] }, lit && styles.lampLit]}>
-              <Icon name={STATUS_ICON[k]} size={28} weight={3} colour={lit ? C.ink : 'rgba(255, 255, 255, 0.55)'} />
+              <Icon name={STATUS_ICON[k]} size={28} weight={3} colour={lit ? C.ink : C.unlit} />
             </View>
           </Pressable>
         );
@@ -203,7 +203,7 @@ function FriendFace({ friend, photos }: { friend: Friend; photos: Record<string,
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   fill: { flex: 1 },
   view: { paddingHorizontal: 18, paddingTop: 20, paddingBottom: 24, gap: 20, maxWidth: 440, width: '100%', alignSelf: 'center' },
 
@@ -242,4 +242,4 @@ const styles = StyleSheet.create({
   faceGlowInner: { position: 'absolute', width: 76, height: 76, borderRadius: 38 },
   faceName: { fontFamily: F.bodyBold, fontSize: 14, color: C.fg, maxWidth: '100%' },
   faceState: { fontFamily: F.body, fontSize: 12 }
-});
+}));
