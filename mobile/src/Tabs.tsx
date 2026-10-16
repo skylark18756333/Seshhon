@@ -1,11 +1,11 @@
-// The tab bar at the bottom, the same five tabs as the web app's nav. Home is the native screen; the others
+// The tab bar at the bottom: Home, Sesh, Map and Events (venues live in the Map tab, with its List button). Home is the native screen; the others
 // open the packed web app on that tab.
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Icon from './Icon';
 import { C, F } from './theme';
 
-const TABS: [string, string][] = [['home', 'Home'], ['sesh', 'Sesh'], ['map', 'Map'], ['venues', 'Venues'], ['events', 'Events']];
+const TABS: [string, string][] = [['home', 'Home'], ['sesh', 'Sesh'], ['map', 'Map'], ['events', 'Events']];
 
 export default function Tabs({ tab, requests, onPick }: { tab: string; requests: number; onPick: (tab: string) => void }) {
   return (
