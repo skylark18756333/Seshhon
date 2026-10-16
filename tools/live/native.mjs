@@ -17,7 +17,7 @@
 // inside the radius, the radius slider, the busy glow (api_buzz), the filter chips, search, the picked venue's vote and
 // "Add to the Sesh Map" (checked in the database), friend faces, Near me (and that the position is never sent), the
 // simple-map link, and that a build without a Google Maps key keeps the web map.
-// Run: node tools/live/native.mjs [output folder]   (needs PostgreSQL 15+ and Playwright's Chromium)
+// Run: node tools/live/native.mjs [output folder]   (LOOK=day or LOOK=pop for the other looks)   (needs PostgreSQL 15+ and Playwright's Chromium)
 import { chromium } from 'playwright';
 import { spawn, execSync } from 'node:child_process';
 import http from 'node:http';
@@ -83,6 +83,8 @@ const browser = await chromium.launch({ executablePath: process.env.CHROMIUM || 
 async function phone(name, url, init) {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, timezoneId: 'Australia/Perth' });
   if (init) await ctx.addInitScript(init);
+  // LOOK=day or LOOK=pop opens the native screens in that look (You > Look) instead of Neon Night.
+  if (process.env.LOOK) await ctx.addInitScript(`try { localStorage.setItem('frendzy-look', ${JSON.stringify(process.env.LOOK)}); } catch (e) {}`);
   // A pretend Cloudflare Turnstile at the real address, as tools/live/check.mjs uses: it hands out a
   // one-time token a moment after it appears, so the stand-in database accepts the sign-up.
   await ctx.route(/challenges\.cloudflare\.com\/turnstile/, (r) => r.fulfill({ contentType: 'text/javascript', body: `(() => {
@@ -853,6 +855,14 @@ try {
   await openSet(natM, 'about');
   await has(natM, 'Privacy Policy');
   await yshot(natM, '11-about.png');
+  // The looks in You > Look: each one is kept on the phone and the screens change colour straight away.
+  await openSet(natM, 'look');
+  for (const [id, name] of [['day', 'Daylight'], ['pop', 'Midnight Pop'], ['neon', 'Neon Night']]) {
+    await natM.page.locator('[data-testid="look-' + id + '"]').click();
+    await natM.page.waitForTimeout(400);
+    expect('look kept on the phone: ' + name, await natM.page.evaluate(() => localStorage.getItem('frendzy-look')), id);
+    await yshot(natM, '11b-look-' + id + '.png');
+  }
   await natM.ctx.close();
 
   // Delete an account (Zoe's): delete_account, then the sign-in and her remembered username go from this phone.

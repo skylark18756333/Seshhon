@@ -19,7 +19,7 @@ import NativeMap from './NativeMap';
 import { MAP_CENTRE } from './config';
 import { Button, Face, TopBar } from './Parts';
 import type { ApiError } from './session';
-import { C, COLOURS, F, first, STOPS } from './theme';
+import { C, COLOURS, F, first, STOPS, themed } from './theme';
 import type { Frendzy } from './useFrendzy';
 import { fmtKm, hoursLine, km, openState, refreshVenues, useVenues, type Venues } from './venues';
 
@@ -416,7 +416,7 @@ function Slider({ value, min, max, onChange, onDone }: { value: number; min: num
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   fill: { flex: 1 },
   head: { paddingHorizontal: 16, gap: 8, paddingBottom: 8 },
   search: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 44, paddingHorizontal: 14, borderRadius: 22, backgroundColor: C.surface, borderWidth: 1, borderColor: C.line },
@@ -429,8 +429,8 @@ const styles = StyleSheet.create({
   chipTextOn: { color: C.accentInk },
   results: { flexGrow: 0, paddingHorizontal: 16, marginBottom: 8 },
   resultsBody: { gap: 8 },
-  mapBox: { flex: 1, minHeight: 180, backgroundColor: '#14161c' },
-  fab: { position: 'absolute', right: 12, top: 12, width: 48, height: 48, borderRadius: 24, backgroundColor: 'rgba(18, 18, 22, 0.86)', borderWidth: 1, borderColor: C.line, alignItems: 'center', justifyContent: 'center' },
+  mapBox: { flex: 1, minHeight: 180, backgroundColor: C.dark ? '#14161c' : '#E9E6E0' },
+  fab: { position: 'absolute', right: 12, top: 12, width: 48, height: 48, borderRadius: 24, backgroundColor: C.tabBg, borderWidth: 1, borderColor: C.line, alignItems: 'center', justifyContent: 'center' },
   fabOn: { backgroundColor: C.accent },
   friends: { position: 'absolute', left: 10, bottom: 10, right: 10, flexDirection: 'row', gap: 10 },
   mini: { alignItems: 'center', width: 52 },
@@ -462,4 +462,4 @@ const styles = StyleSheet.create({
   knob: { position: 'absolute', top: 8, marginLeft: -12, width: 24, height: 24, borderRadius: 12, backgroundColor: C.accent, borderWidth: 3, borderColor: '#1F7BFF' },
   simple: { minHeight: 44, alignItems: 'center', justifyContent: 'center' },
   simpleText: { fontFamily: F.bodyMid, fontSize: 13, color: C.muted, textDecorationLine: 'underline' }
-});
+}));

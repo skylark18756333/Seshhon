@@ -3,7 +3,7 @@
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Icon from './Icon';
-import { C, F } from './theme';
+import { C, F, themed } from './theme';
 
 const TABS: [string, string][] = [['home', 'Home'], ['sesh', 'Sesh'], ['map', 'Map'], ['events', 'Events']];
 
@@ -32,14 +32,14 @@ export default function Tabs({ tab, requests, onPick }: { tab: string; requests:
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   // A floating glass pill of icons. The open tab is a white circle.
   nav: {
     flexDirection: 'row', alignSelf: 'center', width: '88%', maxWidth: 360, marginTop: 6, marginBottom: 14, padding: 6,
-    borderRadius: 32, borderWidth: 1, borderColor: C.line, backgroundColor: 'rgba(18, 18, 22, 0.72)'
+    borderRadius: 32, borderWidth: 1, borderColor: C.line, backgroundColor: C.tabBg
   },
   button: { flex: 1, minHeight: 48, alignItems: 'center', justifyContent: 'center', borderRadius: 24 },
   here: { backgroundColor: C.accent },
   badge: { position: 'absolute', top: 4, left: '50%', marginLeft: 6, minWidth: 18, height: 18, paddingHorizontal: 5, borderRadius: 9, backgroundColor: C.off, alignItems: 'center', justifyContent: 'center' },
   badgeText: { fontFamily: F.bodyBold, fontSize: 11, color: '#fff' }
-});
+}));

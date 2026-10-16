@@ -7,7 +7,7 @@ import { Platform, StyleSheet, Text, View } from 'react-native';
 import RNMapView, { Circle, Marker, Polyline, PROVIDER_GOOGLE, type Region } from 'react-native-maps';
 import Icon from './Icon';
 import type { LatLng, MapMarker, MapView } from './mapShared';
-import { C, F, fade } from './theme';
+import { C, F, fade, themed, useLook } from './theme';
 
 const BLUE = '#1F7BFF', GOAL = '#FF4757', FAR = '#8A90A0', HEAT = '#FF7A1A';
 const GLOW_SIZE = [0, 62, 80, 104];   // busy 0..3: the glow behind a bubble grows with how many are heading there
@@ -23,6 +23,18 @@ const DARK_STYLE = [
   { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#262a33' }] },
   { featureType: 'road', elementType: 'labels.icon', stylers: [{ visibility: 'off' }] },
   { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#0b0d12' }] }
+];
+
+// The same, for the light look: pale ground, no clutter.
+const LIGHT_STYLE = [
+  { elementType: 'geometry', stylers: [{ color: '#ECE9E3' }] },
+  { elementType: 'labels.text.fill', stylers: [{ color: '#6B6B73' }] },
+  { elementType: 'labels.text.stroke', stylers: [{ color: '#F4F2EE' }] },
+  { featureType: 'poi', stylers: [{ visibility: 'off' }] },
+  { featureType: 'transit', stylers: [{ visibility: 'off' }] },
+  { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#FFFFFF' }] },
+  { featureType: 'road', elementType: 'labels.icon', stylers: [{ visibility: 'off' }] },
+  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#CFE0F0' }] }
 ];
 
 function Bubble({ m }: { m: MapMarker }) {
@@ -76,6 +88,7 @@ export default function NativeMap(p: MapView) {
   const map = useRef<RNMapView>(null);
   const names = useRef<boolean | null>(null);
   const first = useRef(true);
+  const look = useLook();   // markers are drawn once and frozen, so a new look draws them again
 
   // Move to show the circle or the search hits when the screen asks for it.
   useEffect(() => {
@@ -110,7 +123,7 @@ export default function NativeMap(p: MapView) {
       ref={map}
       style={styles.map}
       provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
-      customMapStyle={Platform.OS === 'android' ? DARK_STYLE : undefined}
+      customMapStyle={Platform.OS === 'android' ? (C.dark ? DARK_STYLE : LIGHT_STYLE) : undefined}
       initialRegion={{ latitude: p.centre[0], longitude: p.centre[1], latitudeDelta: 0.12, longitudeDelta: 0.12 }}
       onPress={(e) => { const c = e.nativeEvent.coordinate; p.onMapPress([c.latitude, c.longitude]); }}
       onRegionChangeComplete={onRegion}
@@ -129,13 +142,13 @@ export default function NativeMap(p: MapView) {
         <Polyline coordinates={p.route.map((c) => ({ latitude: c[0], longitude: c[1] }))} strokeColor={BLUE} strokeWidth={4} lineDashPattern={[1, 10]} lineCap="round" />
       ) : null}
       {p.chosen ? (
-        <Pin key={'spot-' + p.mine} coordinate={{ latitude: p.centre[0], longitude: p.centre[1] }} anchor={{ x: 0.5, y: 0.5 }} tappable={false} zIndex={1}>
+        <Pin key={'spot-' + look + p.mine} coordinate={{ latitude: p.centre[0], longitude: p.centre[1] }} anchor={{ x: 0.5, y: 0.5 }} tappable={false} zIndex={1}>
           <SpotMark mine={p.mine} name={p.meName} />
         </Pin>
       ) : null}
       {p.markers.map((m) => (
         <Pin
-          key={[m.id, m.kind, m.tag, m.busy, m.open, m.names, m.stop ? m.stop.n + (m.stop.done ? 'd' : '') : ''].join(':')}
+          key={[look, m.id, m.kind, m.tag, m.busy, m.open, m.names, m.stop ? m.stop.n + (m.stop.done ? 'd' : '') : ''].join(':')}
           coordinate={{ latitude: m.at[0], longitude: m.at[1] }}
           anchor={{ x: 0.5, y: 0.5 }}
           title={m.name}
@@ -150,7 +163,7 @@ export default function NativeMap(p: MapView) {
 }
 
 const CELL_W = 116, TOP = 24, DISC = 40, BOTTOM = 24;
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   map: { flex: 1 },
   // The bubble is centred in a fixed box so the marker's anchor (0.5, 0.5) sits on the middle of the round icon.
   cell: { width: CELL_W, height: TOP + DISC + BOTTOM, alignItems: 'center' },
@@ -169,6 +182,6 @@ const styles = StyleSheet.create({
   me: { width: DISC, height: DISC, borderRadius: DISC / 2, backgroundColor: C.on, borderWidth: 3, borderColor: '#fff', alignItems: 'center', justifyContent: 'center' },
   meText: { fontFamily: F.display, fontSize: 16, color: C.ink },
   meLabel: { fontFamily: F.bodyBold, fontSize: 11, color: C.ink, backgroundColor: C.on, paddingVertical: 1, paddingHorizontal: 8, borderRadius: 8, overflow: 'hidden' }
-});
+}));
 
 export type { LatLng };

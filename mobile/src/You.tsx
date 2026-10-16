@@ -23,7 +23,7 @@ import {
 import { enablePush, pushPermission, type PushPermission } from './push';
 import Tour from './Tour';
 import type { Frendzy } from './useFrendzy';
-import { C, COLOURS, F, LABELS, first } from './theme';
+import { C, COLOURS, F, LABELS, LOOKS, currentLook, first, setLook, themed } from './theme';
 
 const WEB_URL: string = (Constants.expoConfig?.extra?.webUrl as string) || 'https://frendzy.au/';
 const INVITE_BASE = 'https://frendzy.au/';
@@ -550,6 +550,29 @@ export default function You({ f, onOpenWeb, onSignedOut }: { f: Frendzy; onOpenW
             ) : <Button ghost label="Delete my account" onPress={() => setConfirm('delete')} />}
           </Section>
 
+          <Section k="look" title="Look" hint={(LOOKS.find((l) => l.id === currentLook()) || LOOKS[0]).name} onToggle={toggle}>
+            <Text style={[styles.muted, styles.small]}>Pick how Frendzy looks on this phone. The map, venues and events tabs keep the dark look for now.</Text>
+            {LOOKS.map((l) => {
+              const here = l.id === currentLook();
+              return (
+                <Pressable key={l.id} style={[styles.lookRow, here && styles.lookRowOn]} onPress={() => setLook(l.id)}
+                  accessibilityRole="radio" accessibilityState={{ checked: here }} accessibilityLabel={l.name} testID={'look-' + l.id}>
+                  <View style={[styles.lookSwatch, { backgroundColor: l.colours.bg, borderColor: l.colours.line }]}>
+                    <View style={[styles.lookDot, { backgroundColor: COLOURS.on }]} />
+                    <View style={[styles.lookDot, { backgroundColor: COLOURS.thinking }]} />
+                    <View style={[styles.lookDot, { backgroundColor: COLOURS.off }]} />
+                    <View style={[styles.lookBar, { backgroundColor: l.colours.accent }]} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.body, styles.lookName]}>{l.name}</Text>
+                    <Text style={[styles.muted, styles.small]}>{l.note}</Text>
+                  </View>
+                  {here ? <Icon name="tick" size={20} colour={C.fg} /> : null}
+                </Pressable>
+              );
+            })}
+          </Section>
+
           <Section k="tour" title="How Frendzy works" onToggle={toggle}>
             <Text style={[styles.muted, styles.small]}>A quick look at status, friends, seshes and the map.</Text>
             <View style={styles.start}><Button small ghost label="Show the tour" onPress={() => setTour(true)} /></View>
@@ -628,7 +651,13 @@ function Password({ value, onChange, label }: { value: string; onChange: (t: str
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
+  lookRow: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 10, borderRadius: 18, borderWidth: 1, borderColor: C.line },
+  lookRowOn: { borderColor: C.fg, backgroundColor: C.surface },
+  lookSwatch: { width: 64, height: 44, borderRadius: 12, borderWidth: 1, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'center', gap: 4, padding: 6 },
+  lookDot: { width: 9, height: 9, borderRadius: 5 },
+  lookBar: { width: 40, height: 7, borderRadius: 4 },
+  lookName: { fontFamily: F.bodyBold },
   fill: { flex: 1 },
   view: { paddingHorizontal: 18, paddingTop: 20, paddingBottom: 24, gap: 20, maxWidth: 440, width: '100%', alignSelf: 'center' },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12 },
@@ -666,4 +695,4 @@ const styles = StyleSheet.create({
   label: { fontFamily: F.bodyMid, fontSize: 16, color: C.fg },
   input: { height: 52, borderRadius: 14, borderWidth: 1, borderColor: C.line, backgroundColor: C.surface, paddingHorizontal: 16, color: C.fg, fontFamily: F.body, fontSize: 16 },
   peek: { position: 'absolute', right: 4, top: 4, width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }
-});
+}));

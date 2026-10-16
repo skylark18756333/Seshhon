@@ -28,14 +28,10 @@ import Tabs from './src/Tabs';
 import Tour from './src/Tour';
 import TwoStep from './src/TwoStep';
 import You from './src/You';
-import { C, first } from './src/theme';
+import { C, first, themed, useLook } from './src/theme';
 import { useFrendzy } from './src/useFrendzy';
 import { SESSION_KEY, clearTour, currentSession, loadStoredSession, onSessionChange, pageStoreScript, pageStored, pendingInvite, rpc, sessionForPage, setPendingInvite, setSession, tourPending, type ApiError, type Session } from './src/session';
 import APP_HTML from './web/app-html.generated';
-
-const BG = C.bg;
-const FG = '#F4F1EA';
-const GREEN = C.on;
 
 const WEB_URL: string = (Constants.expoConfig?.extra?.webUrl as string) || 'https://frendzy.au/';
 const WEB_ORIGIN = new URL(WEB_URL).origin;
@@ -422,6 +418,7 @@ function Shell() {
 }
 
 export default function App() {
+  useLook();   // draws everything again in the new colours when the look is changed in You
   // The web app's fonts, as .ttf files a phone can load (see assets/fonts).
   const [fontsReady] = useFonts({
     'TiltNeon-Regular': require('./assets/fonts/TiltNeon-Regular.ttf'),
@@ -433,20 +430,20 @@ export default function App() {
   });
   return (
     <SafeAreaProvider>
-      <StatusBar style="light" />
+      <StatusBar style={C.dark ? 'light' : 'dark'} />
       {fontsReady ? <Shell /> : <Layer><View style={styles.fill} /></Layer>}
     </SafeAreaProvider>
   );
 }
 
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: BG },
-  fill: { flex: 1, backgroundColor: BG },
+const styles = themed(() => StyleSheet.create({
+  root: { flex: 1, backgroundColor: C.bg },
+  fill: { flex: 1, backgroundColor: C.bg },
   clear: { backgroundColor: 'transparent' },
   clearFill: { flex: 1, backgroundColor: 'transparent' },
-  offline: { flex: 1, backgroundColor: BG, alignItems: 'center', justifyContent: 'center', padding: 32 },
-  title: { color: FG, fontSize: 24, fontWeight: '800', marginBottom: 12 },
-  body: { color: FG, opacity: 0.8, fontSize: 16, lineHeight: 22, textAlign: 'center', marginBottom: 24 },
-  button: { backgroundColor: GREEN, paddingVertical: 14, paddingHorizontal: 28, borderRadius: 28 },
-  buttonText: { color: BG, fontSize: 16, fontWeight: '800' }
-});
+  offline: { flex: 1, backgroundColor: C.bg, alignItems: 'center', justifyContent: 'center', padding: 32 },
+  title: { color: C.fg, fontSize: 24, fontWeight: '800', marginBottom: 12 },
+  body: { color: C.fg, opacity: 0.8, fontSize: 16, lineHeight: 22, textAlign: 'center', marginBottom: 24 },
+  button: { backgroundColor: C.on, paddingVertical: 14, paddingHorizontal: 28, borderRadius: 28 },
+  buttonText: { color: C.bg, fontSize: 16, fontWeight: '800' }
+}));

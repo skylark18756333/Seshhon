@@ -3,7 +3,7 @@
 import React from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { MapView } from './mapShared';
-import { C, F } from './theme';
+import { C, F, themed } from './theme';
 
 export default function NativeMap(p: MapView) {
   return (
@@ -31,7 +31,7 @@ export default function NativeMap(p: MapView) {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   box: { flex: 1, backgroundColor: '#1d2230', padding: 10, gap: 6, overflow: 'hidden' },
   tap: { alignSelf: 'flex-start', paddingVertical: 4, paddingHorizontal: 10, borderRadius: 12, borderWidth: 1, borderColor: C.line },
   list: { gap: 6 },
@@ -40,4 +40,4 @@ const styles = StyleSheet.create({
   stop: { backgroundColor: C.surface2 },
   name: { fontFamily: F.bodyBold, fontSize: 14, color: C.fg },
   small: { fontFamily: F.body, fontSize: 12, color: C.muted }
-});
+}));
