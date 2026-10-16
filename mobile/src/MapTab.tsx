@@ -254,14 +254,14 @@ export default function MapTab({ f, onVenue, onOpenWeb, onWebMap }: {
       </View>
 
       {hits ? (
-        <View style={styles.results} accessibilityLiveRegion="polite" testID="search-results">
+        <ScrollView style={[styles.results, { maxHeight: Math.round(screenH * 0.3) }]} contentContainerStyle={styles.resultsBody} nestedScrollEnabled keyboardShouldPersistTaps="handled" accessibilityLiveRegion="polite" testID="search-results">
           <Text style={styles.small}>
             {hits.length ? <Text style={styles.strong}>{hits.length} venue{hits.length === 1 ? '' : 's'}</Text> : 'No venues '}{hits.length ? ' match' + (hits.length === 1 ? 'es' : '') : 'match '}
             {query.trim() ? <Text style={styles.strong}> {query.trim()}</Text> : null}{filter ? <Text>{query.trim() ? ' and ' : ' '}<Text style={styles.strong}>{filterName}</Text></Text> : null}
             {hits.length > SEARCH_LIST && query ? '. Showing the closest matches, so type more to narrow it down.' : ''}
           </Text>
           {query ? hits.slice(0, SEARCH_LIST).map((h) => <VenueRow key={h.ven.id} h={h} v={v} onShow={showOnMap} onOpen={onVenue} onMap />) : null}
-        </View>
+        </ScrollView>
       ) : null}
 
       <View style={styles.mapBox}>
@@ -427,7 +427,8 @@ const styles = StyleSheet.create({
   chipOn: { backgroundColor: C.accent, borderColor: C.accent },
   chipText: { fontFamily: F.bodyBold, fontSize: 13, color: C.fg },
   chipTextOn: { color: C.accentInk },
-  results: { paddingHorizontal: 16, gap: 8, paddingBottom: 8, maxHeight: 280 },
+  results: { flexGrow: 0, paddingHorizontal: 16, marginBottom: 8 },
+  resultsBody: { gap: 8 },
   mapBox: { flex: 1, minHeight: 180, backgroundColor: '#14161c' },
   fab: { position: 'absolute', right: 12, top: 12, width: 48, height: 48, borderRadius: 24, backgroundColor: 'rgba(18, 18, 22, 0.86)', borderWidth: 1, borderColor: C.line, alignItems: 'center', justifyContent: 'center' },
   fabOn: { backgroundColor: C.accent },

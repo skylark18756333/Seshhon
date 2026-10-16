@@ -2,7 +2,7 @@
 // Views (a round icon, the venue's name, a tag like "Top pick", a glow where it is busy), with no shadows and no
 // gradients, so they draw the same on every Android phone. Markers stop tracking view changes once drawn; a bubble
 // that changes (busy, open, picked) gets a new key and is drawn again.
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Platform, StyleSheet, Text, View } from 'react-native';
 import RNMapView, { Circle, Marker, Polyline, PROVIDER_GOOGLE, type Region } from 'react-native-maps';
 import Icon from './Icon';
@@ -60,6 +60,14 @@ function SpotMark({ mine, name }: { mine: boolean; name: string }) {
       <View style={styles.bottom}><Text style={styles.meLabel}>Me</Text></View>
     </View>
   );
+}
+
+// A custom marker has to be drawn once before the map can freeze it into a picture; frozen straight away, Android
+// shows a bare default pin. So it tracks its view for a moment, then stops (which keeps 60 of them fast).
+function Pin({ children, ...rest }: React.ComponentProps<typeof Marker>) {
+  const [track, setTrack] = useState(true);
+  useEffect(() => { const t = setTimeout(() => setTrack(false), 800); return () => clearTimeout(t); }, []);
+  return <Marker {...rest} tracksViewChanges={track}>{children}</Marker>;
 }
 
 const edge = { top: 60, right: 40, bottom: 60, left: 40 };
@@ -121,22 +129,21 @@ export default function NativeMap(p: MapView) {
         <Polyline coordinates={p.route.map((c) => ({ latitude: c[0], longitude: c[1] }))} strokeColor={BLUE} strokeWidth={4} lineDashPattern={[1, 10]} lineCap="round" />
       ) : null}
       {p.chosen ? (
-        <Marker key={'spot-' + p.mine} coordinate={{ latitude: p.centre[0], longitude: p.centre[1] }} anchor={{ x: 0.5, y: 0.5 }} tracksViewChanges={false} tappable={false} zIndex={1}>
+        <Pin key={'spot-' + p.mine} coordinate={{ latitude: p.centre[0], longitude: p.centre[1] }} anchor={{ x: 0.5, y: 0.5 }} tappable={false} zIndex={1}>
           <SpotMark mine={p.mine} name={p.meName} />
-        </Marker>
+        </Pin>
       ) : null}
       {p.markers.map((m) => (
-        <Marker
+        <Pin
           key={[m.id, m.kind, m.tag, m.busy, m.open, m.names, m.stop ? m.stop.n + (m.stop.done ? 'd' : '') : ''].join(':')}
           coordinate={{ latitude: m.at[0], longitude: m.at[1] }}
           anchor={{ x: 0.5, y: 0.5 }}
-          tracksViewChanges={false}
           title={m.name}
           zIndex={m.kind === 'goal' ? 1000 : m.stop ? 500 - m.stop.n : m.busy * 100 + (m.tag ? 50 : 0)}
           onPress={(e) => { e.stopPropagation(); p.onPick(m.id); }}
         >
           <Bubble m={m} />
-        </Marker>
+        </Pin>
       ))}
     </RNMapView>
   );
