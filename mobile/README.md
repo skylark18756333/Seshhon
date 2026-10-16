@@ -27,7 +27,8 @@ it opens on its own without loading the website. Both halves use the same databa
   accounts — are handed to the packed page in full, with its own tab bar.
 
 The fonts in `assets/fonts` are the web app's fonts from `docs/fonts`, saved as `.ttf` (which phones can load)
-instead of `.woff2`. They carry the same licences, which are in that folder.
+instead of `.woff2`. They carry the same licences, which are in that folder. Poppins (Midnight Pop's headings,
+from Google Fonts) is only in the app.
 
 Because the screens travel inside the app, a change to `docs/` reaches phones only with the next app build.
 Build a new version after web changes, especially ones that go with a database change.

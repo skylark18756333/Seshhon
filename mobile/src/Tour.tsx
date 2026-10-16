@@ -21,13 +21,8 @@ function steps(name: string): Step[] {
       body: "Frendzy is for getting off your phone and out with your mates. Here's how it works in five quick steps."
     },
     {
-      art: (
-        <View style={styles.slide}>
-          <View style={[styles.knob, { backgroundColor: 'rgba(61, 220, 132, 0.22)' }]} />
-          {['G', 'A', 'R'].map((x) => <View key={x} style={styles.stop}><Text style={styles.stopText}>{x}</Text></View>)}
-        </View>
-      ),
-      title: "Slide to show you're up for it",
+      art: <View style={styles.bigLogo}><Logo status="on" /></View>,
+      title: "Tap a light to show you're up for it",
       body: (
         <Text>
           <Text style={[styles.strong, { color: C.on }]}>Green</Text> means you're keen to go out. <Text style={[styles.strong, { color: C.thinking }]}>Amber</Text> means you're thinking about it.{' '}
@@ -178,10 +173,6 @@ const styles = themed(() => StyleSheet.create({
   btnText: { fontFamily: F.bodyBold, fontSize: 16, color: C.accentInk },
 
   bigLogo: { transform: [{ scale: 1.5 }] },
-  slide: { flexDirection: 'row', width: '86%', maxWidth: 280, height: 76, padding: 5, borderRadius: 38, backgroundColor: C.track, borderWidth: 1, borderColor: C.trackLine },
-  knob: { position: 'absolute', top: 5, bottom: 5, left: 5, width: '31%', borderRadius: 33 },
-  stop: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  stopText: { fontFamily: F.bodyBold, fontSize: 18, color: C.fg },
   faces: { flexDirection: 'row', width: '86%', justifyContent: 'space-around' },
   face: { alignItems: 'center', gap: 4 },
   faceRing: { borderWidth: 2, borderRadius: 32, padding: 2, shadowOpacity: 0.8, shadowRadius: 12, shadowOffset: { width: 0, height: 0 } },
