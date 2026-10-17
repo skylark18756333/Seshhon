@@ -1,12 +1,13 @@
 // The native Home screen: the logo with the three status lights, your status, who's up for it, and tonight's seshes.
 // It shows the same things in the same words as home() in docs/app.js.
 import React, { useEffect, useRef, useState } from 'react';
-import { ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
-import type { Friend, Sesh } from './api';
+import { Animated, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
+import type { Colour, Friend, Sesh } from './api';
 import { CatchUpCards } from './Crews';
 import { Button, Face, Toast, TopBar } from './Parts';
 import type { Frendzy } from './useFrendzy';
-import { C, COLOURS, F, LABELS, STATUS_COPY, STOPS, fade, first, fmtLeft, initials, themed } from './theme';
+import Icon from './Icon';
+import { C, COLOURS, F, LABELS, STATUS_COPY, STATUS_ICON, STOPS, fade, first, fmtLeft, initials, themed } from './theme';
 import { useVenues, type Venues } from './venues';
 
 const INVITE_BASE = 'https://frendzy.au/';
@@ -24,8 +25,8 @@ export default function Home({ f, onOpenWeb }: { f: Frendzy; onOpenWeb: (tab: st
   const requests = f.state ? f.state.requests_in : [];
   const nights = (f.state ? f.state.seshes : []).filter((s) => !(s.planned && s.starts_at && new Date(s.starts_at).getTime() > Date.now()))
     .sort((x, y) => Number(y.am_member) - Number(x.am_member));
-  const on = friends.filter((x) => x.colour === 'on').length;
-  const thinking = friends.filter((x) => x.colour === 'thinking').length;
+  // Only friends on green show here. Red friends are never shown. Amber friends stay out of sight until friends can choose to allow it.
+  const greens = friends.filter((x) => x.colour === 'on');
 
   const share = () => {
     const link = INVITE_BASE + '?invite=' + me.invite_code;
@@ -44,6 +45,9 @@ export default function Home({ f, onOpenWeb }: { f: Frendzy; onOpenWeb: (tab: st
           <Text style={[styles.statusWord, { color: COLOURS[colour] }]}>{copy[0]}</Text>
           <Text style={[styles.muted, styles.small]}>{colour !== 'off' && me.expires_at ? <Until at={me.expires_at} /> : copy[1]}</Text>
         </View>
+
+        {/* The status switch: slide or tap to go green, amber or red. It sits above your friends. */}
+        <StatusSwitch colour={colour} onPick={(c) => { if (c !== colour) f.setColour(c); }} />
 
         {requests.length ? (
           <View style={styles.stack}>
@@ -106,20 +110,21 @@ export default function Home({ f, onOpenWeb }: { f: Frendzy; onOpenWeb: (tab: st
         ) : colour === 'off' ? (
           <View style={styles.card}>
             <Text style={styles.h2}>Friends are hidden while you're red</Text>
-            <Text style={[styles.muted, styles.small]}>Tap green or amber up top to see who's up for it tonight.</Text>
+            <Text style={[styles.muted, styles.small]}>Tap green up top to see who's up for it tonight.</Text>
           </View>
         ) : (
           <View style={styles.stack}>
             <View style={[styles.row, styles.between]}>
               <Text style={styles.h2}>Up for it now</Text>
-              <Text style={[styles.muted, styles.small]}>{on} green, {thinking} amber</Text>
+              <Text style={[styles.muted, styles.small]}>{greens.length} green</Text>
             </View>
             {/* A row of friends, each in a ring of their status colour, keenest first. */}
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.faces}>
-              {friends.slice().sort((x, y) => STOPS.indexOf(x.colour) - STOPS.indexOf(y.colour)).map((fr) => (
+              {greens.map((fr) => (
                 <FriendFace key={fr.id} friend={fr} photos={f.photos} />
               ))}
             </ScrollView>
+            {!greens.length ? <Text style={[styles.muted, styles.small]}>No friends are green right now.</Text> : null}
           </View>
         )}
 
@@ -201,6 +206,51 @@ function FriendFace({ friend, photos }: { friend: Friend; photos: Record<string,
   );
 }
 
+// The status switch: a glass pill with a glowing knob in your status colour that slides between the three. Each stop has its
+// icon (tick, question mark, cross) and its word.
+function StatusSwitch({ colour, onPick }: { colour: Colour; onPick: (c: Colour) => void }) {
+  const [w, setW] = useState(0);
+  const at = Math.max(0, STOPS.indexOf(colour));
+  const slide = useRef(new Animated.Value(at)).current;
+  useEffect(() => {
+    Animated.spring(slide, { toValue: at, useNativeDriver: true, friction: 7, tension: 110 }).start();
+  }, [at, slide]);
+  const stop = w / 3;
+  const mode = COLOURS[colour];
+  return (
+    <View style={styles.switchCard} accessibilityLabel="Set your status">
+      <View style={[styles.track, { borderColor: fade(mode, 0.55) }]} onLayout={(e) => setW(e.nativeEvent.layout.width)}>
+        {w ? (
+          <Animated.View
+            pointerEvents="none"
+            style={[styles.thumb, { width: stop - 8, backgroundColor: mode, shadowColor: mode, transform: [{ translateX: slide.interpolate({ inputRange: [0, 1, 2], outputRange: [4, 4 + stop, 4 + stop * 2] }) }] }]}
+          />
+        ) : null}
+        {STOPS.map((k) => {
+          const lit = k === colour;
+          return (
+            <Pressable
+              key={k}
+              style={styles.stop}
+              onPress={() => onPick(k)}
+              accessibilityRole="button"
+              accessibilityLabel={LABELS[k]}
+              accessibilityState={{ selected: lit }}
+            >
+              <Icon name={STATUS_ICON[k]} size={26} weight={3} colour={lit ? C.ink : C.unlit} />
+            </Pressable>
+          );
+        })}
+      </View>
+      <View style={styles.words}>
+        {STOPS.map((k) => (
+          <Text key={k} style={[styles.word, k === colour && { color: COLOURS[k] }]}>{LABELS[k]}</Text>
+        ))}
+      </View>
+    </View>
+  );
+}
+
 const styles = themed(() => StyleSheet.create({
   fill: { flex: 1 },
   view: { paddingHorizontal: 18, paddingTop: 20, paddingBottom: 24, gap: 20, maxWidth: 440, width: '100%', alignSelf: 'center' },
@@ -226,6 +276,12 @@ const styles = themed(() => StyleSheet.create({
 
   // Your status, one line
   statusLine: { gap: 2 },
+  switchCard: { backgroundColor: C.surface, borderRadius: 26, padding: 12, gap: 8, borderWidth: 1, borderColor: C.line },
+  track: { flexDirection: 'row', height: 64, borderRadius: 32, backgroundColor: C.track, borderWidth: 1.5 },
+  thumb: { position: 'absolute', top: 4, bottom: 4, borderRadius: 28, shadowOpacity: 0.85, shadowRadius: 14, shadowOffset: { width: 0, height: 0 }, elevation: 6 },
+  stop: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  words: { flexDirection: 'row' },
+  word: { flex: 1, textAlign: 'center', fontFamily: F.bodyBold, fontSize: 13, color: C.muted },
   night: { borderWidth: 1, borderColor: fade(C.on, 0.45), shadowColor: C.on, shadowOpacity: C.dark ? 0.25 : 0, shadowRadius: 18, shadowOffset: { width: 0, height: 0 } },
   nightPlace: { fontFamily: F.display, fontSize: 22, letterSpacing: -0.4, color: C.fg },
   strongBody: { fontFamily: F.bodyBold, fontSize: 16, color: C.fg },

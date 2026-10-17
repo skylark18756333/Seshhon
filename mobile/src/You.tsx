@@ -63,6 +63,10 @@ export default function You({ f, onOpenWeb, onSignedOut }: { f: Frendzy; onOpenW
   const [account, setAccount] = useState<Account | null | 'off' | undefined>(undefined);
   const [safety, setSafety] = useState<Safety | 'off' | undefined>(undefined);
   const [emailsOn, setEmailsOn] = useState(false);
+  const [amber, setAmber] = useState<string[] | 'off' | undefined>(undefined);   // friends who can see me on amber; 'off': no migration 0036 yet
+  useEffect(() => {
+    rpc('my_amber_allows').then((v: any) => setAmber(Array.isArray(v) ? v : []), () => setAmber('off'));
+  }, []);
   useEffect(() => {
     let gone = false;
     Promise.all([loadAccount(), loadSafety(), loadEmailsOn()]).then(([a, sf, on]) => {
@@ -176,6 +180,11 @@ export default function You({ f, onOpenWeb, onSignedOut }: { f: Frendzy; onOpenW
     const sf = safety && safety !== 'off' ? safety : { gender: null, women_only: false };
     f.act('set_safety', { p_gender: sf.gender, p_women_only: on }, on ? 'Women and non-binary only is on.' : 'Women and non-binary only is off.')
       .then((r) => { if (r) setSafety(r); });
+  };
+
+  const setAmberFor = (friend: string, on: boolean) => {
+    f.act('set_amber_allowed', { p_friend: friend, p_allow: on }, on ? 'They can see you on amber.' : 'They only see you on green.')
+      .then((r) => { if (Array.isArray(r)) setAmber(r as string[]); });
   };
 
   // Username and password, and adding or changing the login email (the save-account and add-email forms).
@@ -365,6 +374,17 @@ export default function You({ f, onOpenWeb, onSignedOut }: { f: Frendzy; onOpenW
                     <View style={styles.grow}>
                       <Text style={styles.body}>{fr.name}</Text>
                       {blocking ? <Text style={[styles.muted, styles.small]}>They won't see you or be able to add you again.</Text> : null}
+                      {Array.isArray(amber) && !asking && !blocking ? (
+                        <View style={styles.row}>
+                          <Switch
+                            value={amber.includes(fr.id)}
+                            onValueChange={(on) => setAmberFor(fr.id, on)}
+                            accessibilityLabel={'Let ' + fr.name + ' see me on amber'}
+                            trackColor={{ true: C.thinking, false: C.line }}
+                          />
+                          <Text style={[styles.muted, styles.small]}>Can see me on amber</Text>
+                        </View>
+                      ) : null}
                     </View>
                     {asking ? (
                       <>
