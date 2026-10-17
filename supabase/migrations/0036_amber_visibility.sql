@@ -1,41 +1,65 @@
--- Amber is private unless you allow it. Friends only see you while you are on green, or on amber if you have turned
--- "Show me to friends on amber" on (You > Safety). It is off for everyone until they choose, and red is never shown.
--- Your own status, your seshes and your photo are not affected: only the colour friends read from public.statuses.
--- It adds one condition to the statuses_read rule from 0011 (api_state reads friends' colours through it).
+-- Amber is private unless you allow it, friend by friend. A friend sees you on green. They see you on amber only if you
+-- have switched "can see me on amber" on for that friend (You > Your friends). Nobody is allowed until you choose, and red is
+-- never shown. Your own status, your seshes and your photo are not affected: only the colour friends read from public.statuses.
+-- It adds one condition to the statuses_read rule (0011), which api_state reads friends' colours through.
 -- Needs 0011. Safe to run more than once.
 
-create table if not exists private.amber_visible (
-  user_id uuid primary key references public.profiles (id) on delete cascade,
-  allow boolean not null default false
+create table if not exists private.amber_allows (
+  owner uuid not null references public.profiles (id) on delete cascade,
+  viewer uuid not null references public.profiles (id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (owner, viewer)
 );
-alter table private.amber_visible enable row level security;
-revoke all on private.amber_visible from public, anon, authenticated;
+alter table private.amber_allows enable row level security;
+revoke all on private.amber_allows from public, anon, authenticated;
 
--- Has "owner" allowed friends to see them on amber?
+-- Has "owner" allowed the person asking (the signed-in user) to see them on amber?
 create or replace function private.amber_allowed(owner uuid) returns boolean
 language sql stable security definer set search_path = public, private as $$
-  select coalesce((select v.allow from private.amber_visible v where v.user_id = owner), false);
+  select exists (select 1 from private.amber_allows a where a.owner = amber_allowed.owner and a.viewer = auth.uid());
 $$;
 revoke all on function private.amber_allowed(uuid) from public, anon;
 grant execute on function private.amber_allowed(uuid) to authenticated;
 
-create or replace function public.my_amber_visible() returns boolean
+-- The friends you let see you on amber. Only ever your own list.
+create or replace function public.my_amber_allows() returns jsonb
 language sql stable security definer set search_path = public, private as $$
-  select private.amber_allowed(auth.uid());
+  select coalesce((select jsonb_agg(a.viewer order by a.created_at) from private.amber_allows a where a.owner = auth.uid()), '[]'::jsonb);
 $$;
 
-create or replace function public.set_amber_visible(p_allow boolean) returns boolean
+-- Let one friend see you on amber (true) or not (false). Only accepted friends.
+create or replace function public.set_amber_allowed(p_friend uuid, p_allow boolean) returns jsonb
 language plpgsql security definer set search_path = public, private as $$
 declare me uuid := auth.uid();
 begin
   if me is null then raise exception 'Sign in first.'; end if;
-  insert into private.amber_visible (user_id, allow) values (me, coalesce(p_allow, false))
-  on conflict (user_id) do update set allow = excluded.allow;
-  return coalesce(p_allow, false);
+  if coalesce(p_allow, false) then
+    if p_friend is null or p_friend = me or not public.are_friends(p_friend, me) then
+      raise exception 'You can only allow a friend.';
+    end if;
+    insert into private.amber_allows (owner, viewer) values (me, p_friend) on conflict do nothing;
+  else
+    delete from private.amber_allows where owner = me and viewer = p_friend;
+  end if;
+  return public.my_amber_allows();
 end;
 $$;
-revoke all on function public.my_amber_visible(), public.set_amber_visible(boolean) from public, anon;
-grant execute on function public.my_amber_visible(), public.set_amber_visible(boolean) to authenticated;
+revoke all on function public.my_amber_allows(), public.set_amber_allowed(uuid, boolean) from public, anon;
+grant execute on function public.my_amber_allows(), public.set_amber_allowed(uuid, boolean) to authenticated;
+
+-- No longer friends: forget the allowance between the two.
+create or replace function private.forget_amber_allows() returns trigger
+language plpgsql security definer set search_path = public, private as $$
+begin
+  delete from private.amber_allows
+  where (owner = old.requester and viewer = old.addressee) or (owner = old.addressee and viewer = old.requester);
+  return old;
+end;
+$$;
+revoke all on function private.forget_amber_allows() from public, anon, authenticated;
+drop trigger if exists friendships_forget_amber on public.friendships;
+create trigger friendships_forget_amber after delete on public.friendships
+for each row execute function private.forget_amber_allows();
 
 drop policy if exists statuses_read on public.statuses;
 create policy statuses_read on public.statuses for select to authenticated using (
@@ -44,4 +68,3 @@ create policy statuses_read on public.statuses for select to authenticated using
       and not private.hidden_from_me(user_id)
       and (colour <> 'thinking' or private.amber_allowed(user_id)))
 );
-

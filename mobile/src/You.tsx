@@ -63,9 +63,9 @@ export default function You({ f, onOpenWeb, onSignedOut }: { f: Frendzy; onOpenW
   const [account, setAccount] = useState<Account | null | 'off' | undefined>(undefined);
   const [safety, setSafety] = useState<Safety | 'off' | undefined>(undefined);
   const [emailsOn, setEmailsOn] = useState(false);
-  const [amber, setAmber] = useState<boolean | 'off' | undefined>(undefined);   // 'off': the database has no 0036 yet
+  const [amber, setAmber] = useState<string[] | 'off' | undefined>(undefined);   // friends who can see me on amber; 'off': no migration 0036 yet
   useEffect(() => {
-    rpc('my_amber_visible').then((v: any) => setAmber(!!v), () => setAmber('off'));
+    rpc('my_amber_allows').then((v: any) => setAmber(Array.isArray(v) ? v : []), () => setAmber('off'));
   }, []);
   useEffect(() => {
     let gone = false;
@@ -182,9 +182,9 @@ export default function You({ f, onOpenWeb, onSignedOut }: { f: Frendzy; onOpenW
       .then((r) => { if (r) setSafety(r); });
   };
 
-  const setAmberVisible = (on: boolean) => {
-    f.act('set_amber_visible', { p_allow: on }, on ? 'Friends can now see you on amber.' : 'Friends only see you on green.')
-      .then((r) => { if (r !== null) setAmber(!!r); });
+  const setAmberFor = (friend: string, on: boolean) => {
+    f.act('set_amber_allowed', { p_friend: friend, p_allow: on }, on ? 'They can see you on amber.' : 'They only see you on green.')
+      .then((r) => { if (Array.isArray(r)) setAmber(r as string[]); });
   };
 
   // Username and password, and adding or changing the login email (the save-account and add-email forms).
@@ -374,6 +374,17 @@ export default function You({ f, onOpenWeb, onSignedOut }: { f: Frendzy; onOpenW
                     <View style={styles.grow}>
                       <Text style={styles.body}>{fr.name}</Text>
                       {blocking ? <Text style={[styles.muted, styles.small]}>They won't see you or be able to add you again.</Text> : null}
+                      {Array.isArray(amber) && !asking && !blocking ? (
+                        <View style={styles.row}>
+                          <Switch
+                            value={amber.includes(fr.id)}
+                            onValueChange={(on) => setAmberFor(fr.id, on)}
+                            accessibilityLabel={'Let ' + fr.name + ' see me on amber'}
+                            trackColor={{ true: C.thinking, false: C.line }}
+                          />
+                          <Text style={[styles.muted, styles.small]}>Can see me on amber</Text>
+                        </View>
+                      ) : null}
                     </View>
                     {asking ? (
                       <>
@@ -403,19 +414,6 @@ export default function You({ f, onOpenWeb, onSignedOut }: { f: Frendzy; onOpenW
                   <Button small ghost label="Cancel" onPress={() => f.act('answer_friend', { p_friendship: rq.friendship, p_accept: false })} />
                 </View>
               ))}
-            </Section>
-          ) : null}
-
-          {amber !== undefined && amber !== 'off' ? (
-            <Section k="amber" title="Who sees amber" hint={amber ? 'Shown' : 'Hidden'} onToggle={toggle}>
-              <Text style={[styles.muted, styles.small]}>
-                {amber
-                  ? 'Friends can see you when you are on green or amber. Red is always hidden.'
-                  : 'Friends only see you when you are on green. Amber and red are hidden. Turn this on to show them when you are on amber.'}
-              </Text>
-              <View style={styles.start}>
-                <Button small ghost={amber} pressed={amber} label={amber ? 'Hide me on amber' : 'Show me on amber'} onPress={() => setAmberVisible(!amber)} />
-              </View>
             </Section>
           ) : null}
 
