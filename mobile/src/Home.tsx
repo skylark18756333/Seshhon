@@ -24,8 +24,8 @@ export default function Home({ f, onOpenWeb }: { f: Frendzy; onOpenWeb: (tab: st
   const requests = f.state ? f.state.requests_in : [];
   const nights = (f.state ? f.state.seshes : []).filter((s) => !(s.planned && s.starts_at && new Date(s.starts_at).getTime() > Date.now()))
     .sort((x, y) => Number(y.am_member) - Number(x.am_member));
-  const on = friends.filter((x) => x.colour === 'on').length;
-  const thinking = friends.filter((x) => x.colour === 'thinking').length;
+  // Only friends on green show here. Red friends are never shown. Amber friends stay out of sight until friends can choose to allow it.
+  const greens = friends.filter((x) => x.colour === 'on');
 
   const share = () => {
     const link = INVITE_BASE + '?invite=' + me.invite_code;
@@ -106,20 +106,21 @@ export default function Home({ f, onOpenWeb }: { f: Frendzy; onOpenWeb: (tab: st
         ) : colour === 'off' ? (
           <View style={styles.card}>
             <Text style={styles.h2}>Friends are hidden while you're red</Text>
-            <Text style={[styles.muted, styles.small]}>Tap green or amber up top to see who's up for it tonight.</Text>
+            <Text style={[styles.muted, styles.small]}>Tap green up top to see who's up for it tonight.</Text>
           </View>
         ) : (
           <View style={styles.stack}>
             <View style={[styles.row, styles.between]}>
               <Text style={styles.h2}>Up for it now</Text>
-              <Text style={[styles.muted, styles.small]}>{on} green, {thinking} amber</Text>
+              <Text style={[styles.muted, styles.small]}>{greens.length} green</Text>
             </View>
             {/* A row of friends, each in a ring of their status colour, keenest first. */}
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.faces}>
-              {friends.slice().sort((x, y) => STOPS.indexOf(x.colour) - STOPS.indexOf(y.colour)).map((fr) => (
+              {greens.map((fr) => (
                 <FriendFace key={fr.id} friend={fr} photos={f.photos} />
               ))}
             </ScrollView>
+            {!greens.length ? <Text style={[styles.muted, styles.small]}>No friends are green right now.</Text> : null}
           </View>
         )}
 
