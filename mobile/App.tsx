@@ -254,17 +254,6 @@ function Shell() {
     setPage(WEB_URL); setOpens((n) => n + 1);
   }, []);
 
-  // The GO button in the tab bar: tonight's sesh if you're in one. Otherwise it starts one if you're green, or
-  // turns you green and opens the Sesh tab, where you can start one.
-  const goOut = useCallback(() => {
-    const st = f.state;
-    if (!st || !st.me) return;
-    const live = st.seshes.some((s) => s.am_member && !(s.planned && s.starts_at && new Date(s.starts_at).getTime() > Date.now()));
-    if (live) { pickTab('sesh'); return; }
-    if (st.me.colour !== 'on') { f.setColour('on'); pickTab('sesh'); return; }
-    f.act('start_sesh', {}, 'Sesh started. Friends who are around can join.').then(() => pickTab('sesh'));
-  }, [f, pickTab]);
-
   // A venue from the native Sesh tab: the packed page opens on that venue's page (it has the map and the
   // venue's details); its back button returns to the Sesh tab.
   const openVenue = useCallback((id: string, from?: string) => {
@@ -434,7 +423,7 @@ function Shell() {
         : tab === 'you' ? <You f={f} onOpenWeb={pickTab} onSignedOut={signedOut} />
         : tab === 'crews' ? <Crews f={f} onBack={() => setTab(before)} onPlanned={() => pickTab('sesh')} />
         : <Home f={f} onOpenWeb={pickTab} />}
-      <Tabs tab={tab === 'venue' ? 'sesh' : tab === 'crews' ? 'you' : tab} requests={f.state ? f.state.requests_in.length : 0} onPick={pickTab} onGo={goOut} />
+      <Tabs tab={tab === 'venue' ? 'sesh' : tab === 'crews' ? 'you' : tab} requests={f.state ? f.state.requests_in.length : 0} onPick={pickTab} />
       {tour && me ? <Tour name={first(me.name)} onClose={() => { clearTour(); setTour(false); askAfterTour().catch(() => {}); }} /> : null}
     </Layer>
   );
