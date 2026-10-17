@@ -39,15 +39,8 @@ export default function Home({ f, onOpenWeb }: { f: Frendzy; onOpenWeb: (tab: st
       <TopBar f={f} onOpenWeb={onOpenWeb} />
 
       <ScrollView style={styles.fill} contentContainerStyle={styles.view} keyboardShouldPersistTaps="handled">
-        {/* Your status in one line. The three lights in the bubble up top change it. */}
-        <View style={styles.statusLine}>
-          <Text style={styles.eyebrow}>Your status</Text>
-          <Text style={[styles.statusWord, { color: COLOURS[colour] }]}>{copy[0]}</Text>
-          <Text style={[styles.muted, styles.small]}>{colour !== 'off' && me.expires_at ? <Until at={me.expires_at} /> : copy[1]}</Text>
-        </View>
-
-        {/* The status switch: slide or tap to go green, amber or red. It sits above your friends. */}
-        <StatusSwitch colour={colour} onPick={(c) => { if (c !== colour) f.setColour(c); }} />
+        {/* Your status: one card with the word, how long it lasts, and the switch to change it. */}
+        <StatusCard colour={colour} word={copy[0]} note={colour !== 'off' && me.expires_at ? <Until at={me.expires_at} /> : copy[1]} onPick={(c) => { if (c !== colour) f.setColour(c); }} />
 
         {requests.length ? (
           <View style={styles.stack}>
@@ -206,25 +199,44 @@ function FriendFace({ friend, photos }: { friend: Friend; photos: Record<string,
   );
 }
 
-// The status switch: a glass pill with a glowing knob in your status colour that slides between the three. Each stop has its
-// icon (tick, question mark, cross) and its word.
-function StatusSwitch({ colour, onPick }: { colour: Colour; onPick: (c: Colour) => void }) {
+// Your status as a little control deck: the word in your colour, then a wide switch. A glowing orb with a slow pulse
+// slides to the one you pick, over a faint dial of ticks. Each stop has its icon (tick, question mark, cross) and its
+// name, and every stop is a big target.
+function StatusCard({ colour, word, note, onPick }: { colour: Colour; word: string; note: React.ReactNode; onPick: (c: Colour) => void }) {
   const [w, setW] = useState(0);
   const at = Math.max(0, STOPS.indexOf(colour));
   const slide = useRef(new Animated.Value(at)).current;
+  const pulse = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     Animated.spring(slide, { toValue: at, useNativeDriver: true, friction: 7, tension: 110 }).start();
   }, [at, slide]);
+  useEffect(() => {
+    const loop = Animated.loop(Animated.sequence([
+      Animated.timing(pulse, { toValue: 1, duration: 1600, useNativeDriver: true }),
+      Animated.timing(pulse, { toValue: 0, duration: 1600, useNativeDriver: true })
+    ]));
+    loop.start();
+    return () => loop.stop();
+  }, [pulse]);
   const stop = w / 3;
   const mode = COLOURS[colour];
+  const x = slide.interpolate({ inputRange: [0, 1, 2], outputRange: [4, 4 + stop, 4 + stop * 2] });
   return (
-    <View style={styles.switchCard} accessibilityLabel="Set your status">
-      <View style={[styles.track, { borderColor: fade(mode, 0.55) }]} onLayout={(e) => setW(e.nativeEvent.layout.width)}>
+    <View style={[styles.statusCard, { borderColor: fade(mode, 0.55), shadowColor: mode }]}>
+      <View style={styles.statusTop}>
+        <Text style={styles.eyebrow}>Your status</Text>
+        <Text style={[styles.statusWord, { color: mode, textShadowColor: mode }]}>{word}</Text>
+        <Text style={[styles.muted, styles.small]}>{note}</Text>
+      </View>
+      <View style={[styles.track, { borderColor: fade(mode, 0.35) }]} onLayout={(e) => setW(e.nativeEvent.layout.width)} accessibilityLabel="Set your status">
+        <View pointerEvents="none" style={styles.ticks}>
+          {Array.from({ length: 24 }, (_, i) => <View key={i} style={[styles.tick, i % 4 === 0 && styles.tickBig]} />)}
+        </View>
         {w ? (
-          <Animated.View
-            pointerEvents="none"
-            style={[styles.thumb, { width: stop - 8, backgroundColor: mode, shadowColor: mode, transform: [{ translateX: slide.interpolate({ inputRange: [0, 1, 2], outputRange: [4, 4 + stop, 4 + stop * 2] }) }] }]}
-          />
+          <Animated.View pointerEvents="none" style={[styles.orb, { width: stop - 8, transform: [{ translateX: x }] }]}>
+            <Animated.View style={[styles.halo, { backgroundColor: fade(mode, 0.16), transform: [{ scale: pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.12] }) }] }]} />
+            <View style={[styles.core, { backgroundColor: mode, shadowColor: mode }]} />
+          </Animated.View>
         ) : null}
         {STOPS.map((k) => {
           const lit = k === colour;
@@ -237,15 +249,11 @@ function StatusSwitch({ colour, onPick }: { colour: Colour; onPick: (c: Colour) 
               accessibilityLabel={LABELS[k]}
               accessibilityState={{ selected: lit }}
             >
-              <Icon name={STATUS_ICON[k]} size={26} weight={3} colour={lit ? C.ink : C.unlit} />
+              <Icon name={STATUS_ICON[k]} size={24} weight={3} colour={lit ? C.ink : C.unlit} />
+              <Text style={[styles.stopName, { color: lit ? C.ink : C.muted }]}>{LABELS[k].toUpperCase()}</Text>
             </Pressable>
           );
         })}
-      </View>
-      <View style={styles.words}>
-        {STOPS.map((k) => (
-          <Text key={k} style={[styles.word, k === colour && { color: COLOURS[k] }]}>{LABELS[k]}</Text>
-        ))}
       </View>
     </View>
   );
@@ -260,7 +268,7 @@ const styles = themed(() => StyleSheet.create({
   between: { justifyContent: 'space-between' },
   grow: { flex: 1 },
   eyebrow: { fontFamily: F.bodyBold, fontSize: 12, letterSpacing: 1.4, textTransform: 'uppercase', color: C.muted },
-  statusWord: { fontFamily: F.display, fontSize: 26, lineHeight: 32, letterSpacing: -0.8 },
+  statusWord: { fontFamily: F.display, fontSize: 34, lineHeight: 40, letterSpacing: -0.8, textShadowRadius: 14, textShadowOffset: { width: 0, height: 0 } },
   h2: { fontFamily: F.displayBold, fontSize: 19, letterSpacing: -0.2, color: C.fg },
   body: { fontFamily: F.body, fontSize: 16, color: C.fg },
   strong: { fontFamily: F.bodyBold },
@@ -275,13 +283,17 @@ const styles = themed(() => StyleSheet.create({
   input: { height: 52, borderRadius: 14, borderWidth: 1, borderColor: C.line, backgroundColor: C.surface, paddingHorizontal: 16, color: C.fg, fontFamily: F.body, fontSize: 16 },
 
   // Your status, one line
-  statusLine: { gap: 2 },
-  switchCard: { backgroundColor: C.surface, borderRadius: 26, padding: 12, gap: 8, borderWidth: 1, borderColor: C.line },
-  track: { flexDirection: 'row', height: 64, borderRadius: 32, backgroundColor: C.track, borderWidth: 1.5 },
-  thumb: { position: 'absolute', top: 4, bottom: 4, borderRadius: 28, shadowOpacity: 0.85, shadowRadius: 14, shadowOffset: { width: 0, height: 0 }, elevation: 6 },
-  stop: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  words: { flexDirection: 'row' },
-  word: { flex: 1, textAlign: 'center', fontFamily: F.bodyBold, fontSize: 13, color: C.muted },
+  statusCard: { backgroundColor: C.surface, borderRadius: 30, padding: 16, gap: 14, borderWidth: 1.5, shadowOpacity: C.dark ? 0.4 : 0.15, shadowRadius: 20, shadowOffset: { width: 0, height: 0 }, elevation: 3 },
+  statusTop: { gap: 2 },
+  track: { flexDirection: 'row', height: 78, borderRadius: 39, backgroundColor: C.track, borderWidth: 1 },
+  ticks: { position: 'absolute', left: 22, right: 22, top: 0, bottom: 0, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', opacity: 0.5 },
+  tick: { width: 1, height: 8, backgroundColor: C.trackLine },
+  tickBig: { height: 16 },
+  orb: { position: 'absolute', top: 4, bottom: 4, alignItems: 'center', justifyContent: 'center' },
+  halo: { position: 'absolute', top: -2, bottom: -2, left: -2, right: -2, borderRadius: 40 },
+  core: { position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, borderRadius: 35, shadowOpacity: 0.9, shadowRadius: 16, shadowOffset: { width: 0, height: 0 }, elevation: 6 },
+  stop: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 2 },
+  stopName: { fontFamily: F.bodyBold, fontSize: 11, letterSpacing: 2 },
   night: { borderWidth: 1, borderColor: fade(C.on, 0.45), shadowColor: C.on, shadowOpacity: C.dark ? 0.25 : 0, shadowRadius: 18, shadowOffset: { width: 0, height: 0 } },
   nightPlace: { fontFamily: F.display, fontSize: 22, letterSpacing: -0.4, color: C.fg },
   strongBody: { fontFamily: F.bodyBold, fontSize: 16, color: C.fg },
