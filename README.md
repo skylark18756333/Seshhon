@@ -134,6 +134,10 @@ shows an error and everything else works as before. The same migration lets the 
 address to a sesh: only people who have said they're in see it, from 4 hours before the start; it is never on the map
 and is deleted with the sesh.
 
+`supabase/migrations/0033_plan_on_any_colour.sql` lets people plan a sesh and say "I'm in" on any colour, and lets someone on
+red see their friends' planned seshes. Starting a sesh now (including "Start it now") stays green only, and the app asks the
+people in a planned sesh to go green when it goes live. Until it is run, people on red can't see friends' planned seshes.
+
 If your project was set up before the age gate and sign up says it cannot find `public.api_sign_up(p_birth_date, p_name)`,
 paste `supabase/update.sql` into the Supabase SQL editor and press Run once. It adds migrations 0003 onwards.
 
