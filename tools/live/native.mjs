@@ -12,6 +12,11 @@
 // Then the native You page, as Mia and Zoe on their own phones: a photo, Safety, adding a friend by username
 // and cancelling the request, removing a friend, a new username and password, an email for login codes,
 // log out and back in, and deleting an account, each checked in the database.
+// Then the native Map tab (Google map on the phone): react-native-maps can't draw a map in a browser, so the browser build
+// swaps in a stand-in (NativeMap.web.tsx) that lists the very same markers, circle and stops. It checks the venues
+// inside the radius, the radius slider, the busy glow (api_buzz), the filter chips, search, the picked venue's vote and
+// "Add to the Sesh Map" (checked in the database), friend faces, Near me (and that the position is never sent), the
+// simple-map link, and that a build without a Google Maps key keeps the web map.
 // Run: node tools/live/native.mjs [output folder]   (LOOK=day or LOOK=pop for the other looks)   (needs PostgreSQL 15+ and Playwright's Chromium)
 import { chromium } from 'playwright';
 import { spawn, execSync } from 'node:child_process';
@@ -28,9 +33,15 @@ fs.mkdirSync(out, { recursive: true });
 const API = 'http://127.0.0.1:54340', WEB_PORT = 54341, NATIVE_PORT = 54342;
 
 // The native screens, built for the browser. The addresses go in at build time (EXPO_PUBLIC_...).
-const dist = fs.mkdtempSync('/tmp/frendzy-native-web-');
-execSync('node scripts/bundle-web.mjs', { cwd: path.join(root, 'mobile'), stdio: 'inherit' });   // the packed page and docs/hours.js
-execSync(`CI=1 EXPO_PUBLIC_API_URL=http://127.0.0.1:54340 EXPO_PUBLIC_API_KEY=test-anon-key npx expo export --platform web --output-dir ${dist} --clear`,
+// NATIVE_DIST / NATIVE_DIST_NOKEY: folders from an earlier run, to skip the (slow) builds when only this script changed.
+const dist = process.env.NATIVE_DIST || fs.mkdtempSync('/tmp/frendzy-native-web-');
+if (!process.env.NATIVE_DIST) execSync('node scripts/bundle-web.mjs', { cwd: path.join(root, 'mobile'), stdio: 'inherit' });   // the packed page and docs/hours.js
+if (!process.env.NATIVE_DIST) execSync(`CI=1 EXPO_PUBLIC_API_URL=http://127.0.0.1:54340 EXPO_PUBLIC_API_KEY=test-anon-key EXPO_PUBLIC_NATIVE_MAP=1 npx expo export --platform web --output-dir ${dist} --clear`,
+  { cwd: path.join(root, 'mobile'), stdio: 'inherit' });
+
+// The same app built without a Google Maps key (no EXPO_PUBLIC_NATIVE_MAP): the Map tab must stay the web map.
+const distNoKey = process.env.NATIVE_DIST_NOKEY || fs.mkdtempSync('/tmp/frendzy-native-web-nokey-');
+if (!process.env.NATIVE_DIST_NOKEY) execSync(`CI=1 EXPO_PUBLIC_API_URL=http://127.0.0.1:54340 EXPO_PUBLIC_API_KEY=test-anon-key EXPO_PUBLIC_NATIVE_MAP=0 npx expo export --platform web --output-dir ${distNoKey} --clear`,
   { cwd: path.join(root, 'mobile'), stdio: 'inherit' });
 
 const copy = fs.mkdtempSync('/tmp/sb-native-');
@@ -60,6 +71,13 @@ const nativeWeb = http.createServer((req, res) => {
   if (!f.startsWith(dist) || !fs.existsSync(f) || fs.statSync(f).isDirectory()) { res.statusCode = 404; return res.end(); }
   res.setHeader('Content-Type', types[path.extname(f)] || 'application/octet-stream'); res.end(fs.readFileSync(f));
 }).listen(NATIVE_PORT);
+const NOKEY_PORT = 54343;
+const nativeNoKey = http.createServer((req, res) => {
+  const p = new URL(req.url, 'http://x').pathname;
+  const f = path.join(distNoKey, p === '/' ? 'index.html' : p);
+  if (!f.startsWith(distNoKey) || !fs.existsSync(f) || fs.statSync(f).isDirectory()) { res.statusCode = 404; return res.end(); }
+  res.setHeader('Content-Type', types[path.extname(f)] || 'application/octet-stream'); res.end(fs.readFileSync(f));
+}).listen(NOKEY_PORT);
 await new Promise((r) => setTimeout(r, 800));
 
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM || '/opt/pw-browsers/chromium' });
@@ -248,6 +266,189 @@ try {
   await has(nat, 'Reported. Thanks for telling us.');
   expect('report stored', psql(`select count(*) from public.reports where reporter = '${anaId}' and reported = '${jackId}' and message_body = 'Heading there at 9, who is in?'`), 1);
 
+
+  /* ---------- the native Map tab ---------- */
+  // Ana, on a second phone, with the sesh live (she and Jack both voted for venue A, so A is "busy": 2 people heading there).
+  const mapDir = path.join(out, 'native-map');
+  fs.mkdirSync(mapDir, { recursive: true });
+  const mshot = async (p, file) => { await p.page.waitForTimeout(700); await p.page.screenshot({ path: path.join(mapDir, file) }); console.log('  saved native-map/' + file); };
+  psql("insert into public.venues (name, kind, closes, is_example, lat, lng) values ('Zed Far Tap', 'Pub', 'open till 11pm', false, -32.0569, 115.7439), ('Zed Cafe', 'Cafe', 'open till 5pm', false, -31.9530, 115.8620) on conflict do nothing");
+  const rows = psql("select string_agg(id || '|' || name || '|' || lat || '|' || lng || '|' || coalesce(kind, '') || '|' || coalesce(opening_hours, ''), ';') from public.venues where lat is not null").split(';').map((x) => x.split('|'))
+    .map(([vid, vname, lat, lng, kind, hours]) => ({ id: vid, name: vname, at: [Number(lat), Number(lng)], kind, hours }));
+  const kmBetween = (a, b) => { const r = Math.PI / 180, dLat = (b[0] - a[0]) * r, dLng = (b[1] - a[1]) * r;
+    const h = Math.sin(dLat / 2) ** 2 + Math.cos(a[0] * r) * Math.cos(b[0] * r) * Math.sin(dLng / 2) ** 2; return 12742 * Math.asin(Math.min(1, Math.sqrt(h))); };
+  const CITY = [-31.9523, 115.8613];
+  const within = (r) => rows.filter((x) => kmBetween(CITY, x.at) <= r).map((x) => x.id).sort();
+  const farId = rows.filter((x) => x.name === 'Zed Far Tap')[0].id, cafeId = rows.filter((x) => x.name === 'Zed Cafe')[0].id;
+  const venueC = rows.filter((x) => x.name === 'The Paper Lantern')[0].id;
+  const markerIds = (p) => p.page.evaluate(() => [...document.querySelectorAll('[data-testid^="marker-"]')].map((e) => e.getAttribute('data-testid').slice(7)).sort());
+  const markerText = (p, id) => p.page.getByTestId('marker-' + id).innerText();
+  const natMap = await phone('Ana map', `http://127.0.0.1:${NATIVE_PORT}/`, `localStorage.setItem('seshhon-session-v1', ${JSON.stringify(session)});`);
+  const sentOut = [];   // everything this phone sends to the database, to prove its position never leaves it
+  natMap.page.on('request', (r) => { if (r.url().includes('54340')) sentOut.push((r.postData() || '') + ' ' + r.url()); });
+  await has(natMap, "You're green.");
+  await natMap.page.getByRole('tab', { name: 'Map' }).click();
+  await natMap.page.getByTestId('map-stub').waitFor();
+  expect('Map tab is the native map (stand-in in a browser)', await natMap.page.getByTestId('map-stub').count(), 1);
+  // Nothing is shown until a spot is chosen.
+  expect('no venues until a spot is chosen', (await markerIds(natMap)).length, 0);
+  expect('no circle yet', await natMap.page.getByTestId('map-circle').innerText(), 'no circle');
+  await has(natMap, 'Tap the map to pick a spot');
+  await mshot(natMap, '1-map-start.png');
+
+  // Tap the map (city centre): the circle appears and the venues inside 5 km.
+  await natMap.page.getByTestId('map-tap').click();
+  await until(async () => (await markerIds(natMap)).length > 0);
+  expect('venues within 5 km of the pin', JSON.stringify(await markerIds(natMap)), JSON.stringify(within(5)));
+  expect('circle is 5 km', (await natMap.page.getByTestId('map-circle').innerText()).startsWith('circle 5 km'), true);
+  expect('far venue is not shown at 5 km', (await markerIds(natMap)).includes(farId), false);
+  await has(natMap, `${within(5).length} venues within 5 km of the pin`);
+  expect('cafe gets the food icon', (await markerText(natMap, cafeId)).includes('fork'), true);
+  expect('live music venue gets the music icon', (await markerText(natMap, venueC)).includes('events'), true);
+  expect('opening hours show as open or shut', /open|shut/.test(await markerText(natMap, venueA)), true);
+
+  // The busy glow: Ana and Jack are both heading to A (api_buzz needs 2 people), nobody else is.
+  const textA = await markerText(natMap, venueA);
+  console.log('venue A marker: ' + textA.replace(/\n/g, ' | '));
+  expect('venue A is busy tonight (2 heading there)', textA.includes('busy-1') && textA.includes('Busy tonight'), true);
+  expect('a quiet venue has no glow', (await markerText(natMap, venueB)).includes('busy-'), false);
+  await mshot(natMap, '2-map-5km.png');
+
+  // The radius slider: a tap at the far right is 25 km, at the left is 1 km.
+  const slide = async (r) => { const box = await natMap.page.getByTestId('radius').boundingBox();
+    await natMap.page.mouse.click(box.x + Math.min(box.width - 2, Math.max(1, ((r - 1) / 24) * box.width)), box.y + box.height / 2); };
+  await slide(25);
+  await until(async () => (await natMap.page.getByTestId('radius-label').innerText()).startsWith('25'));
+  expect('radius label at the right end', (await natMap.page.getByTestId('radius-label').innerText()).replace(/\s+/g, ' '), '25 km');
+  expect('venues within 25 km (far pub joins)', JSON.stringify(await markerIds(natMap)), JSON.stringify(within(25)));
+  expect('far pub shown at 25 km', (await markerIds(natMap)).includes(farId), true);
+  await has(natMap, 'within 25 km of the pin');
+  await mshot(natMap, '3-map-25km.png');
+  await slide(1);
+  await until(async () => (await natMap.page.getByTestId('radius-label').innerText()).startsWith('1'));
+  expect('radius label at the left end', (await natMap.page.getByTestId('radius-label').innerText()).replace(/\s+/g, ' '), '1 km');
+  expect('venues within 1 km', JSON.stringify(await markerIds(natMap)), JSON.stringify(within(1)));
+  await slide(5);
+  await until(async () => (await natMap.page.getByTestId('radius-label').innerText()).startsWith('5'));
+
+  // Filters: Popular keeps what is busy or a top pick, Trending and Open now narrow the rest.
+  await natMap.page.getByTestId('chip-popular').click();
+  await until(async () => (await markerIds(natMap)).length === 1);
+  expect('Popular shows only the busy venue', JSON.stringify(await markerIds(natMap)), JSON.stringify([venueA]));
+  await natMap.page.getByTestId('chip-trending').click();
+  await until(async () => (await markerIds(natMap)).length === 0);
+  expect('Trending shows none (nobody has rated twice this week)', (await markerIds(natMap)).length, 0);
+  await natMap.page.getByTestId('chip-open').click();
+  await until(async () => (await markerIds(natMap)).length >= 0);
+  const openNow = await markerIds(natMap);
+  for (const mid of openNow) expect('Open now marker ' + mid + ' is open', (await markerText(natMap, mid)).includes('| open'), true);
+  await natMap.page.getByTestId('chip-open').click();   // off again
+  await until(async () => (await markerIds(natMap)).length === within(5).length);
+
+  // Search finds a venue anywhere, whatever the radius, and shows its card under the box.
+  await natMap.page.getByTestId('venue-search').fill('zed far');
+  await until(async () => (await markerIds(natMap)).includes(farId));
+  expect('search puts the far pub on the map', JSON.stringify(await markerIds(natMap)), JSON.stringify([farId]));
+  await has(natMap, '1 venue matches');
+  await mshot(natMap, '4-map-search.png');
+  await natMap.page.getByTestId('show-' + farId).click();
+  await has(natMap, 'Zed Far Tap');
+  expect('Show picks the venue (card under the map)', await natMap.page.getByTestId('map-pick').count(), 1);
+  expect('search cleared after Show', await natMap.page.getByTestId('venue-search').inputValue(), '');
+  await until(async () => (await markerIds(natMap)).length === within(5).length + 1);   // the picked far venue stays on the map
+  await natMap.page.getByRole('button', { name: 'Close', exact: true }).click();
+
+  // Tap a bubble: the card with the venue's details, voting, and the Sesh Map.
+  await natMap.page.getByTestId('marker-' + venueB).click();
+  await natMap.page.getByTestId('map-pick').waitFor();
+  expect('card names the venue', (await natMap.page.getByTestId('map-pick').innerText()).includes(nameB), true);
+  expect('card has the opening hours line', /open|closed|Closes|Opens|Hours/i.test(await natMap.page.getByTestId('map-pick').innerText()), true);
+  await natMap.page.getByTestId('pick-vote').click();
+  await until(() => psql(`select venue_id from public.venue_votes where sesh_id = '${seshId}' and user_id = '${anaId}'`) === venueB);
+  expect('Vote for it from the map moves the vote', psql(`select venue_id from public.venue_votes where sesh_id = '${seshId}' and user_id = '${anaId}'`), venueB);
+  await natMap.page.getByTestId('marker-' + venueA).click();
+  await natMap.page.getByTestId('pick-vote').click();
+  await until(() => psql(`select venue_id from public.venue_votes where sesh_id = '${seshId}' and user_id = '${anaId}'`) === venueA);
+  expect('vote back on A', psql(`select venue_id from public.venue_votes where sesh_id = '${seshId}' and user_id = '${anaId}'`), venueA);
+  // A quick star rating from the card.
+  await natMap.page.getByTestId('star-4').click();
+  await until(() => psql(`select stars from public.ratings where venue_id = '${venueA}' and user_id = '${anaId}'`) === '4');
+  expect('quick star rating saved', psql(`select stars from public.ratings where venue_id = '${venueA}' and user_id = '${anaId}'`), 4);
+
+  // The Sesh Map: add stops from the map; they get numbers and a dotted line.
+  expect('no stops yet', psql(`select count(*) from public.crawl_stops where sesh_id = '${seshId}'`), 0);
+  await natMap.page.getByTestId('pick-add').click();
+  await until(() => psql(`select count(*) from public.crawl_stops where sesh_id = '${seshId}'`) === '1');
+  expect('stop 1 added from the map', psql(`select position from public.crawl_stops where sesh_id = '${seshId}' and venue_id = '${venueA}'`), 1);
+  await until(async () => (await natMap.page.getByTestId('pick-stop').count()) === 1);
+  await has(natMap, 'Stop 1 on the Sesh Map');
+  await natMap.page.getByTestId('marker-' + venueB).click();
+  await natMap.page.getByTestId('pick-add').click();
+  await until(() => psql(`select count(*) from public.crawl_stops where sesh_id = '${seshId}'`) === '2');
+  await until(async () => (await natMap.page.getByTestId('map-route').innerText()) === 'route of 2 stops');
+  expect('the stops are joined by a line', await natMap.page.getByTestId('map-route').innerText(), 'route of 2 stops');
+  expect('stop 1 is numbered on the map', (await markerText(natMap, venueA)).startsWith('1. '), true);
+  expect('stop 2 is numbered on the map', (await markerText(natMap, venueB)).startsWith('2. '), true);
+  await mshot(natMap, '5-map-stops.png');
+  // Put the Sesh Map back as the next part of the test expects (it adds its own stops).
+  await natMap.page.evaluate(async ([a, b, sid]) => {
+    const s = JSON.parse(localStorage.getItem('seshhon-session-v1'));
+    for (const v of [a, b]) await fetch('http://127.0.0.1:54340/rest/v1/rpc/crawl_remove', { method: 'POST', headers: { apikey: 'test-anon-key', Authorization: 'Bearer ' + s.access_token, 'Content-Type': 'application/json' }, body: JSON.stringify({ p_sesh: sid, p_venue: v }) });
+  }, [venueA, venueB, seshId]);
+  expect('stops tidied away', psql(`select count(*) from public.crawl_stops where sesh_id = '${seshId}'`), 0);
+
+  // Friends who are out show as faces (never where they are): Jack, Tom (green) and Mia (amber), not Zoe (red).
+  const faces = await natMap.page.getByLabel('Friends out tonight').innerText();
+  console.log('friend faces on the map: ' + faces.replace(/\n/g, ', '));
+  expect('green and amber friends are shown', ['Jack', 'Mia', 'Tom'].every((n) => faces.includes(n)), true);
+  expect('a red friend is not shown', faces.includes('Zoe'), false);
+
+  // Near me: this phone's position stays on the phone.
+  await natMap.ctx.grantPermissions(['geolocation']);
+  await natMap.ctx.setGeolocation({ latitude: -31.9871, longitude: 115.8412 });
+  await natMap.page.getByTestId('map-near-me').click();
+  await has(natMap, 'Your location stays on this phone and is never saved or shown to friends.');
+  expect('the circle is on the person (Me)', (await natMap.page.getByTestId('map-circle').innerText()).includes('(me)'), true);
+  expect('"Me" is shown', (await natMap.page.getByTestId('map-me').count()), 1);
+  expect('circle centre is the phone position', (await natMap.page.getByTestId('map-circle').innerText()).includes('-31.9871,115.8412'), true);
+  await mshot(natMap, '6-map-near-me.png');
+  await natMap.page.waitForTimeout(1500);
+  expect('the position was never sent to the database', sentOut.some((x) => x.includes('31.9871') || x.includes('115.8412')), false);
+  const dbHasIt = psql("select count(*) from (select row_to_json(p)::text t from public.profiles p union all select row_to_json(s)::text from public.statuses s) x where t like '%31.9871%'");
+  expect('and is not in the database', dbHasIt, 0);
+
+  // List view lists the same venues, with Show and distances.
+  await natMap.page.getByTestId('map-list-toggle').click();
+  await natMap.page.getByTestId('venue-list').waitFor();
+  await has(natMap, 'away');
+  await mshot(natMap, '7-map-list.png');
+  await natMap.page.getByTestId('map-list-toggle').click();
+
+  // Open venue: the existing venue page flow takes over (in the browser the page itself can't run, so the map just leaves).
+  await natMap.page.getByTestId('marker-' + venueA).click().catch(() => {});
+  await natMap.page.getByTestId('pick-open').click();
+  await until(async () => (await natMap.page.getByTestId('map-stub').count()) === 0);
+  expect('Open venue leaves the native map for the venue page', await natMap.page.getByTestId('map-stub').count(), 0);
+  await natMap.page.getByRole('tab', { name: 'Map' }).click();
+  await natMap.page.getByTestId('map-stub').waitFor();
+  console.log('back on the native map after a venue: yes');
+
+  // "Map not loading? Use the simple map": the Map tab becomes the packed web map.
+  await natMap.page.getByTestId('map-simple').click();
+  await until(async () => (await natMap.page.getByTestId('map-stub').count()) === 0);
+  expect('the simple map link switches to the web map', await natMap.page.getByTestId('map-stub').count(), 0);
+  await mshot(natMap, '8-map-simple.png');
+  await natMap.ctx.close();
+
+  // A build without a Google Maps key keeps the web map (the app opens and the tab does not crash).
+  const noKey = await phone('no-key build', `http://127.0.0.1:${NOKEY_PORT}/`, `localStorage.setItem('seshhon-session-v1', ${JSON.stringify(session)});`);
+  await has(noKey, "You're green.");
+  await noKey.page.getByRole('tab', { name: 'Map' }).click();
+  await noKey.page.waitForTimeout(1500);
+  expect('no key: no native map', await noKey.page.getByTestId('map-stub').count(), 0);
+  expect('no key: the tab bar is still there', await noKey.page.getByRole('tab', { name: 'Home' }).count(), 1);
+  await noKey.ctx.close();
+
   // Lock in the winner: lock_sesh.
   await tap(nat, 'Lock in ' + nameA);
   await has(nat, 'Locked in');
@@ -358,6 +559,7 @@ try {
   await nat.page.getByRole('tab', { name: 'Home' }).click();
   await has(nat, 'Up for it now');
   // The GO button in the tab bar starts a sesh and opens it.
+  await nat.page.waitForTimeout(3000);   // let Home catch up with the sesh that just ended, so GO sees the true state
   const seshesBefore = Number(psql(`select count(*) from public.seshes where creator = '${anaId}' and ended_at is null`));
   await nat.page.getByTestId('go').click();
   await has(nat, 'Live now');
@@ -981,6 +1183,6 @@ try {
   console.log('crashed: ' + e.message);
   process.exitCode = 1;
 } finally {
-  await browser.close(); api.kill(); web.close(); nativeWeb.close();
+  await browser.close(); api.kill(); web.close(); nativeWeb.close(); nativeNoKey.close();
   try { execSync(`runuser -u postgres -- /usr/lib/postgresql/16/bin/pg_ctl -D $(dirname ${sock})/data -m immediate stop`, { stdio: 'ignore', shell: '/bin/bash' }); } catch {}
 }

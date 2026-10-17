@@ -15,6 +15,9 @@ import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-cont
 import { WebView, type WebViewMessageEvent, type WebViewNavigation } from 'react-native-webview';
 import type { Colour } from './src/api';
 import Home from './src/Home';
+import MapTab from './src/MapTab';
+import { NATIVE_MAP } from './src/config';
+import { MapGuard } from './src/MapGuard';
 import AgeCheck from './src/AgeCheck';
 import Auth, { type AuthDone, type AuthStart } from './src/Auth';
 import Crews from './src/Crews';
@@ -38,7 +41,7 @@ const AGE_CHECK_HOSTS = ['https://verify.didit.me/', 'https://age.yoti.com'];
 // Runs in the page before its own script: the page's "share" button uses the phone's share sheet, the page
 // starts on the tab the app asked for, and it starts signed in as whoever the app is signed in as.
 const PAGE_TABS = ['home', 'sesh', 'map', 'venues', 'events', 'you'];
-const NATIVE_TABS = ['home', 'sesh', 'you', 'crews'];   // the tabs with a native screen ('crews' is opened from You or Home, and shows You in the tab bar)
+const BASE_TABS = ['home', 'sesh', 'you', 'crews'];   // the tabs with a native screen ('crews' is opened from You or Home, and shows You in the tab bar)
 // venue: open the page on that venue's page (from the native Sesh tab); closing it goes back to the Sesh tab.
 function bridge(tab: string | null, venue: string | null): string {
   const saved = sessionForPage();
@@ -124,11 +127,17 @@ function Shell() {
   // tab. 'venue' is the packed page showing one venue, opened from the native Sesh tab.
   const [tab, setTab] = useState('home');
   const [venue, setVenue] = useState<string | null>(null);
+  const venueFrom = useRef('sesh');   // the tab a venue page was opened from, which the Android back button returns to
   // The tab to go back to from the You page or Crews (Android back button, and Crews' own back arrow).
   const [before, setBefore] = useState('home');
   // A line for the page to show once it opens, after the native You page logged out or deleted the account.
   const [pageNote, setPageNote] = useState<string | null>(null);   // read when the sign-in screen opens
 
+  // The Map tab is the native Google map when this build has a Google Maps key (NATIVE_MAP) and the map hasn't
+  // failed; otherwise it is the packed web map, as before.
+  const [mapFailed, setMapFailed] = useState(false);
+  const nativeMap = NATIVE_MAP && !mapFailed;
+  const NATIVE_TABS = nativeMap ? BASE_TABS.concat('map') : BASE_TABS;
   const signedIn = !!session;
   const onWeb = !NATIVE_TABS.includes(tab);
   const f = useFrendzy(signedIn && !authOwns, onWeb);
@@ -167,12 +176,12 @@ function Shell() {
     if (Platform.OS !== 'android') return;
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
       if (onWeb && canGoBack && web.current) { web.current.goBack(); return true; }
-      if (onWeb && native) { setTab(tab === 'venue' ? 'sesh' : 'home'); return true; }
+      if (onWeb && native) { setTab(tab === 'venue' ? venueFrom.current : 'home'); return true; }
       if (native && (tab === 'you' || tab === 'crews')) { setTab(before); return true; }
       return false;
     });
     return () => sub.remove();
-  }, [canGoBack, onWeb, native, tab, before]);
+  }, [canGoBack, onWeb, native, tab, before, nativeMap]);
 
   // The page says which tab it moved to by itself (closing a venue, "Stop 2 on the Sesh Map", voting from a
   // venue page): Home and Sesh are native, so the app shows its own screen for those.
@@ -225,7 +234,7 @@ function Shell() {
   const pickTab = useCallback((next: string) => {
     if (next === tab) return;
     // 'you' and 'crews' remember where they were opened from; from Crews to You, back goes where Crews came from.
-    if (next === 'you' || next === 'crews') setBefore(tab === 'crews' ? (before === 'you' ? 'home' : before) : tab === 'venue' ? 'sesh' : tab);
+    if (next === 'you' || next === 'crews') setBefore(tab === 'crews' ? (before === 'you' ? 'home' : before) : tab === 'venue' ? venueFrom.current : tab);
     if (!NATIVE_TABS.includes(next) && onWeb && web.current) {
       web.current.injectJavaScript('window.FrendzyNative && window.FrendzyNative.go(' + JSON.stringify(next) + '); true;');
       setTab(next);
@@ -235,7 +244,14 @@ function Shell() {
     setTab(next);
     setVenue(null);
     if (!NATIVE_TABS.includes(next)) { setPage(WEB_URL); setOpens((n) => n + 1); }
-  }, [tab, onWeb]);
+  }, [tab, onWeb, nativeMap]);
+
+  // The native map can't be shown (the "simple map" link, or the map failed): the Map tab becomes the packed web map.
+  const webMap = useCallback(() => {
+    setMapFailed(true);
+    setFailed(false);
+    setPage(WEB_URL); setOpens((n) => n + 1);
+  }, []);
 
   // The GO button in the tab bar: tonight's sesh if you're in one. Otherwise it starts one if you're green, or
   // turns you green and opens the Sesh tab, where you can start one.
@@ -250,7 +266,8 @@ function Shell() {
 
   // A venue from the native Sesh tab: the packed page opens on that venue's page (it has the map and the
   // venue's details); its back button returns to the Sesh tab.
-  const openVenue = useCallback((id: string) => {
+  const openVenue = useCallback((id: string, from?: string) => {
+    venueFrom.current = from || 'sesh';
     setFailed(false);
     setVenue(id);
     setTab('venue');
@@ -403,6 +420,7 @@ function Shell() {
     <Layer glow={me ? me.colour : undefined}>
       {onWeb ? webView
         : tab === 'sesh' ? <Sesh f={f} onOpenWeb={pickTab} onVenue={openVenue} />
+        : tab === 'map' ? <MapGuard onFail={webMap}><MapTab f={f} onOpenWeb={pickTab} onVenue={(id) => openVenue(id, 'map')} onWebMap={webMap} /></MapGuard>
         : tab === 'you' ? <You f={f} onOpenWeb={pickTab} onSignedOut={signedOut} />
         : tab === 'crews' ? <Crews f={f} onBack={() => setTab(before)} onPlanned={() => pickTab('sesh')} />
         : <Home f={f} onOpenWeb={pickTab} />}

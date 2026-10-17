@@ -70,6 +70,14 @@
         }
       ],
       [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Frendzy uses your location to show venues near you and how far away they are.",
+          "isAndroidBackgroundLocationEnabled": false,
+          "isAndroidForegroundServiceEnabled": false
+        }
+      ],
+      [
         "expo-notifications",
         {
           "icon": "./assets/android-icon-monochrome.png",

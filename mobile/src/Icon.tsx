@@ -23,6 +23,10 @@ const ICON: Record<string, Shape[]> = {
   lock: [{ d: 'M7 11h10a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-6a2 2 0 0 1 2-2z' }, { d: 'M8 11V8a4 4 0 0 1 8 0v3' }],
   up: [{ d: 'M12 19V5' }, { d: 'M5 12l7-7 7 7' }],
   down: [{ d: 'M12 5v14' }, { d: 'M5 12l7 7 7-7' }],
+  // Venue bubbles on the Map tab (kindGlyph in docs/app.js)
+  fork: [{ d: 'M7 3v8' }, { d: 'M4 3v5a3 3 0 0 0 6 0V3' }, { d: 'M7 11v10' }, { d: 'M17 21V3c-2.5 1-4 4-4 8h4' }],
+  arrow: [{ d: 'M21 3L3 10.5l7.5 3 3 7.5z' }],
+  search: [{ c: [11, 11, 7] }, { d: 'M20 20l-4-4' }],
   // The You page's
   eye: [{ d: 'M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z' }, { c: [12, 12, 3] }]
 };

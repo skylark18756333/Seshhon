@@ -1,21 +1,35 @@
 // The Frendzy name in neon, with the speech bubble of three status lights beside it (see tools/live/icon.html).
 // Signed in, the bubble is the status switch: tap a light to change your status from the top of any screen.
-import React from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useRef } from 'react';
+import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { Colour } from './api';
 import { C, COLOURS, F, LABELS, STOPS, themed } from './theme';
 
+const SLOT = 24;   // the width of one light
+
 export default function Logo({ status, onPick }: { status?: Colour; onPick?: (c: Colour) => void }) {
+  // The lit light slides to the one you pick, and the bubble's outline and glow take that colour.
+  const at = Math.max(0, STOPS.indexOf(status as Colour));
+  const slide = useRef(new Animated.Value(at)).current;
+  useEffect(() => {
+    Animated.spring(slide, { toValue: at, useNativeDriver: true, friction: 6, tension: 120 }).start();
+  }, [at, slide]);
+  const mode = status ? COLOURS[status] : '#fff';
   return (
     <View style={styles.logo}>
       <Text style={styles.wordmark}>frendzy</Text>
-      <View style={styles.bubble}>
+      <View style={[styles.bubble, { borderColor: mode, shadowColor: mode }]}>
+        {status ? (
+          <Animated.View pointerEvents="none" style={[styles.knob, { transform: [{ translateX: slide.interpolate({ inputRange: [0, 1, 2], outputRange: [0, SLOT, SLOT * 2] }) }] }]}>
+            <View style={[styles.ring, { borderColor: mode }]} />
+            <View style={[styles.dot, styles.dotLit, { backgroundColor: mode, shadowColor: mode }]} />
+          </Animated.View>
+        ) : null}
         {STOPS.map((k) => {
           const lit = k === status;
           const light = (
             <View style={styles.slot}>
-              {lit ? <View style={[styles.ring, { borderColor: COLOURS[k] }]} /> : null}
-              <View style={[styles.dot, { backgroundColor: COLOURS[k], shadowColor: COLOURS[k] }, lit && styles.dotLit]} />
+              {lit ? null : <View style={[styles.dot, { backgroundColor: COLOURS[k], shadowColor: COLOURS[k] }]} />}
             </View>
           );
           if (!onPick) return <View key={k}>{light}</View>;
@@ -47,7 +61,9 @@ const styles = themed(() => StyleSheet.create({
     borderTopLeftRadius: 16, borderTopRightRadius: 16, borderBottomRightRadius: 16, borderBottomLeftRadius: 5,
     shadowColor: C.logo, shadowOpacity: 0.55, shadowRadius: 8, shadowOffset: { width: 0, height: 0 }
   },
-  slot: { width: 24, height: 30, alignItems: 'center', justifyContent: 'center' },
+  slot: { width: SLOT, height: 30, alignItems: 'center', justifyContent: 'center' },
+  // The lit light sits in the first slot and slides along to the others.
+  knob: { position: 'absolute', left: 3, top: 0, bottom: 0, width: SLOT, alignItems: 'center', justifyContent: 'center' },
   dot: { width: 10, height: 10, borderRadius: 5, shadowOpacity: 0.9, shadowRadius: 6, shadowOffset: { width: 0, height: 0 } },
   dotLit: { width: 14, height: 14, borderRadius: 7 },
   // Your own light is the bigger one, with a ring of its colour around it.
