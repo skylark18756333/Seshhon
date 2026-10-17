@@ -58,7 +58,10 @@
       "favicon": "./assets/favicon.png"
     },
     "extra": {
-      "webUrl": "https://frendzy.au/"
+      "webUrl": "https://frendzy.au/",
+      "eas": {
+        "projectId": "5b692b25-d1bf-4ba1-b3cf-499a04eef24e"
+      }
     },
     "plugins": [
       [
@@ -84,6 +87,13 @@
           "color": "#3DDC84"
         }
       ]
-    ]
+    ],
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/5b692b25-d1bf-4ba1-b3cf-499a04eef24e",
+      "fallbackToCacheTimeout": 0
+    }
   }
 }

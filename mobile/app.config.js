@@ -21,7 +21,12 @@ module.exports = ({ config }) => {
   const file = fromEnv && fs.existsSync(fromEnv) ? fromEnv : fs.existsSync(local) ? './google-services.json' : null;
   if (file) out = { ...out, android: { ...out.android, googleServicesFile: file } };
 
+  // An over-the-air update (.github/workflows/phone-app-update.yml) is made without the Secret key, but goes to phones whose
+  // build already has it, so that workflow sets FRENDZY_NATIVE_MAP=1 to keep extra.nativeMap on.
   const mapsKey = String(process.env.GOOGLE_MAPS_ANDROID_KEY || '').trim();
+  if (!mapsKey && process.env.FRENDZY_NATIVE_MAP === '1') {
+    out = { ...out, extra: { ...out.extra, nativeMap: true } };
+  }
   if (mapsKey) {
     out = {
       ...out,

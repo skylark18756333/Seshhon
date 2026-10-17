@@ -9,6 +9,7 @@
 import Constants from 'expo-constants';
 import { useFonts } from 'expo-font';
 import { StatusBar } from 'expo-status-bar';
+import * as Updates from 'expo-updates';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { BackHandler, Linking, Platform, Pressable, Share, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -277,6 +278,15 @@ function Shell() {
   // Tapping a notification opens the screen it is about (Home, Sesh or Crews), once the native screens are up.
   const [tapTab, setTapTab] = useState<string | null>(null);
   useEffect(() => watchNotificationTaps(setTapTab), []);
+
+  // Over-the-air updates: on opening, fetch the latest screens and code if there are any and restart into them,
+  // so a merged change reaches this phone without a new build. Nothing happens in a build without updates.
+  useEffect(() => {
+    if (Platform.OS !== 'android' || !Updates.isEnabled) return;
+    Updates.checkForUpdateAsync()
+      .then((u) => (u.isAvailable ? Updates.fetchUpdateAsync().then((r) => (r.isNew ? Updates.reloadAsync() : undefined)) : undefined))
+      .catch(() => {});
+  }, []);
   useEffect(() => {
     if (!native || !tapTab) return;
     setTapTab(null);

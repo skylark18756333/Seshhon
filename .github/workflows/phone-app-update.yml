@@ -1,0 +1,45 @@
+# Sends the phone app's latest screens and code to the test app (the "preview" channel) over the air, with no new build.
+# Runs on its own when a change to mobile/ or docs/ (the packed screens) is merged into main, or from
+# GitHub > Actions > "Phone app update" > Run workflow. Phones pick the update up in the background and use it the next
+# time the app is opened.
+# It only reaches builds made after this was added, and only ones with the same app version (mobile/app.json "version").
+# Anything that changes the native side (a new package with native code, a new permission, an app.json plugin) still
+# needs a new build: bump "version" in mobile/app.json in that change so older builds never get code they can't run.
+# The store (production) channel is not touched here.
+name: Phone app update
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: [mobile/**, '!mobile/store/**', '!mobile/**/*.md', docs/**]
+
+concurrency:
+  group: phone-app-update
+  cancel-in-progress: true
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+      EAS_NO_VCS: 1
+      FRENDZY_NATIVE_MAP: '1'
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+      - name: Send the update
+        run: |
+          npm ci
+          npm run bundle-web
+          eas update --channel preview --platform android --message "$(git log -1 --pretty=%s)" --non-interactive
