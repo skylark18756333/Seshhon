@@ -25,6 +25,7 @@ import Crews from './src/Crews';
 import { Glow, Toast } from './src/Parts';
 import { askAfterTour, registerPushToken, watchNotificationTaps } from './src/push';
 import Sesh from './src/Sesh';
+import Swipe from './src/Swipe';
 import Tabs from './src/Tabs';
 import Tour from './src/Tour';
 import TwoStep from './src/TwoStep';
@@ -417,12 +418,14 @@ function Shell() {
 
   return (
     <Layer glow={me ? me.colour : undefined}>
+      <Swipe tab={tab === 'venue' ? 'sesh' : tab} onPick={pickTab}>
       {onWeb ? webView
         : tab === 'sesh' ? <Sesh f={f} onOpenWeb={pickTab} onVenue={openVenue} />
         : tab === 'map' ? <MapGuard onFail={webMap}><MapTab f={f} onOpenWeb={pickTab} onVenue={(id) => openVenue(id, 'map')} onWebMap={webMap} /></MapGuard>
         : tab === 'you' ? <You f={f} onOpenWeb={pickTab} onSignedOut={signedOut} />
         : tab === 'crews' ? <Crews f={f} onBack={() => setTab(before)} onPlanned={() => pickTab('sesh')} />
         : <Home f={f} onOpenWeb={pickTab} />}
+      </Swipe>
       <Tabs tab={tab === 'venue' ? 'sesh' : tab === 'crews' ? 'you' : tab} requests={f.state ? f.state.requests_in.length : 0} onPick={pickTab} />
       {tour && me ? <Tour name={first(me.name)} onClose={() => { clearTour(); setTour(false); askAfterTour().catch(() => {}); }} /> : null}
     </Layer>
