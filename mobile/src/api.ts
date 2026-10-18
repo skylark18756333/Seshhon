@@ -126,6 +126,19 @@ export function reportMessage(message: string): Promise<unknown> {
 export function seshCrawl(sesh: string): Promise<CrawlStop[]> {
   return rpc('sesh_crawl', { p_sesh: sesh }).then((l: any) => (Array.isArray(l) ? l : []));
 }
+// Meet in the middle (migration 0037): how many in the sesh have shared where they are, whether you have, and
+// the venues fairest for everyone once 2 or more have. Venues only, never anyone's position or distance.
+export type Meet = { shared: number; mine: boolean; venues: string[] };
+const meetOf = (x: any): Meet => ({ shared: Number(x && x.shared) || 0, mine: !!(x && x.mine), venues: x && Array.isArray(x.venues) ? x.venues : [] });
+export function meetVenues(sesh: string): Promise<Meet> {
+  return rpc('meet_venues', { p_sesh: sesh }).then(meetOf);
+}
+export function meetShare(sesh: string, at: [number, number]): Promise<Meet> {
+  return rpc('meet_share', { p_sesh: sesh, p_lat: at[0], p_lng: at[1] }).then(meetOf);
+}
+export function meetStop(sesh: string): Promise<Meet> {
+  return rpc('meet_stop', { p_sesh: sesh }).then(meetOf);
+}
 // Every venue (api_venues) and where each one is (venue_pins). Fetched on their own, like the web app does.
 export function loadVenues(): Promise<Venue[]> {
   return rpc('api_venues').then((l: any) => (Array.isArray(l) ? l : []));

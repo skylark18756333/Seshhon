@@ -16,6 +16,7 @@ import Svg, { Circle, Path, Polyline, Text as SvgText } from 'react-native-svg';
 import { getMessages, reportMessage, seshCrawl, sendMessage, type CrawlStop, type Friend, type Member, type Message, type Sesh as SeshT } from './api';
 import { CHAT_POLL_MS, RADIUS_KM } from './config';
 import Icon from './Icon';
+import MeetMiddle from './MeetMiddle';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Avatar, Button, Face, Toast, TopBar } from './Parts';
 import type { ApiError } from './session';
@@ -261,6 +262,15 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
             {mine.mine ? <Button small ghost label="Invite" onPress={() => { setPicker({ mode: 'invite', picked: {} }); top(); }} /> : null}
           </View>
         </View>
+      ) : null}
+
+      {!mine.locked_venue && !(mine.planned && mine.starts_at && new Date(mine.starts_at).getTime() > Date.now()) ? (
+        <MeetMiddle
+          s={mine}
+          v={v}
+          myVote={(mine.votes.filter((x) => x.user_id === me.id)[0] || { venue_id: null }).venue_id}
+          onVote={(venue) => f.act('cast_vote', { p_sesh: mine.id, p_venue: venue }, 'Your vote is in.')}
+        />
       ) : null}
 
       {mine.locked_venue ? (

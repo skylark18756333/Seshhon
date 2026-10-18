@@ -136,7 +136,8 @@ export default function NativeMap(p: MapView) {
       accessibilityLabel="Map of venues"
     >
       {p.chosen ? (
-        <Circle center={{ latitude: p.centre[0], longitude: p.centre[1] }} radius={p.radiusKm * 1000} strokeColor={BLUE} strokeWidth={2} fillColor={fade(BLUE, 0.1)} lineDashPattern={[12, 10]} />
+        // Keyed on the radius and spot: on Android a Circle given a new radius keeps drawing the old one.
+        <Circle key={'circle-' + p.radiusKm + '-' + p.centre.join(',')} center={{ latitude: p.centre[0], longitude: p.centre[1] }} radius={p.radiusKm * 1000} strokeColor={BLUE} strokeWidth={2} fillColor={fade(BLUE, 0.1)} lineDashPattern={[12, 10]} />
       ) : null}
       {p.route.length >= 2 ? (
         <Polyline coordinates={p.route.map((c) => ({ latitude: c[0], longitude: c[1] }))} strokeColor={BLUE} strokeWidth={4} lineDashPattern={[1, 10]} lineCap="round" />

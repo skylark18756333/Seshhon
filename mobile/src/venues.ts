@@ -1,6 +1,7 @@
 // Venues for the Sesh tab: the list (api_venues), where each one is (venue_pins), their opening hours and how
 // far away they are. Ported from loadVenues, loadPins, km, hoursLine, fmtKm, awayText, leaderOf and votePicks
 // in docs/app.js. The opening-hours reader is docs/hours.js itself, copied in by scripts/bundle-web.mjs.
+import * as Location from 'expo-location';
 import { useEffect, useState } from 'react';
 import { loadPins, loadVenues, type Sesh, type Venue } from './api';
 import { MAP_CENTRE, RADIUS_KM } from './config';
@@ -39,9 +40,56 @@ export function useVenues(): Venues {
     const fn = () => setTick((n) => n + 1);
     listeners.add(fn);
     if (!venues || !pins || Date.now() - venuesAt > 5 * 60000) fetchAll();
+    findMe(false);
     return () => { listeners.delete(fn); };
   }, []);
   return { list: venues || [], byId, pins };
+}
+
+/* ---------- where you are ---------- */
+// This phone's position, kept in memory only while the app is open: never sent anywhere or saved. Asked for
+// once when the Map tab opens (ask = true shows the permission question); other screens use it only if the
+// phone already said yes, and fall back to the city centre.
+let here: [number, number] | null = null;
+let hereAt = 0;
+let finding: Promise<[number, number] | null> | null = null;
+const HERE_MS = 2 * 60000;   // a position older than this is asked for again
+export function myPlace(): [number, number] | null { return here; }
+export function findMe(ask: boolean, fresh?: boolean): Promise<[number, number] | null> {
+  if (here && !fresh && Date.now() - hereAt < HERE_MS) return Promise.resolve(here);
+  if (!finding) {
+    finding = (async () => {
+      try {
+        const perm = ask ? await Location.requestForegroundPermissionsAsync() : await Location.getForegroundPermissionsAsync();
+        if (perm.status !== 'granted') return null;
+        const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        const at: [number, number] = [pos.coords.latitude, pos.coords.longitude];
+        const moved = !here || km(here, at) > 0.05;
+        here = at; hereAt = Date.now();
+        if (moved) listeners.forEach((fn) => fn());
+        return here;
+      } catch (e) {
+        return null;
+      } finally {
+        finding = null;
+      }
+    })();
+  }
+  return finding;
+}
+
+// Where you are, for any screen that wants a map or distances from you (the Map tab, a map on Home):
+// re-renders when the position arrives or moves. ask = true shows the permission question if it hasn't been answered.
+export function useMyPlace(ask: boolean): [number, number] | null {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const fn = () => setTick((n) => n + 1);
+    listeners.add(fn);
+    findMe(ask).then(fn);
+    return () => { listeners.delete(fn); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return here;
 }
 
 /* ---------- distances ---------- */
@@ -54,15 +102,14 @@ export function km(a: [number, number], b: [number, number]): number {
 export function fmtKm(d: number): string {
   return d < 1 ? Math.max(100, Math.round(d * 10) * 100) + ' m' : (d < 10 ? d.toFixed(1) : String(Math.round(d))) + ' km';
 }
-// The phone app doesn't use your location on this tab, so distances are from the city centre, as on the
-// web app's map until someone taps it or shares their location.
+// Distances are from you when the phone has said where you are, otherwise from the city centre.
 export function awayText(v: Venues, id: string): string {
   const at = v.pins && v.pins[id];
-  return at ? fmtKm(km(MAP_CENTRE, at)) + ' from the city centre' : '';
+  return at ? fmtKm(km(here || MAP_CENTRE, at)) + (here ? ' away' : ' from the city centre') : '';
 }
 export function distanceAway(v: Venues, id: string): string {
   const at = v.pins && v.pins[id];
-  return at ? fmtKm(km(MAP_CENTRE, at)) + ' away' : '';
+  return at ? fmtKm(km(here || MAP_CENTRE, at)) + ' away' : '';
 }
 
 /* ---------- opening hours (Perth time) ---------- */
@@ -110,15 +157,17 @@ export function leaderOf(sesh: Sesh): Tally {
   });
   return { best, by };
 }
-// The venues offered for a vote: anything already voted for, then the nearest few within the radius, so a
+// The venues offered for a vote: anything already voted for, then the nearest few within the radius of you
+// (or the city centre), so a
 // sesh never shows hundreds of venues at once. Any other venue can be voted for from the map.
 const VOTE_PICKS = 8;
 export function votePicks(v: Venues, tally: Tally): Venue[] {
   const voted = v.list.filter((x) => tally.by[x.id]);
   const pins = v.pins;
   if (!pins) return voted.length ? voted : v.list.slice(0, VOTE_PICKS);
+  const from = here || MAP_CENTRE;
   const near = v.list.filter((x) => pins[x.id] && !tally.by[x.id])
-    .map((x) => ({ v: x, d: km(MAP_CENTRE, pins[x.id]) }))
+    .map((x) => ({ v: x, d: km(from, pins[x.id]) }))
     .filter((x) => x.d <= RADIUS_KM)
     .sort((a, b) => a.d - b.d)
     .slice(0, VOTE_PICKS).map((x) => x.v);
