@@ -6,7 +6,6 @@ import type { Colour, Friend, Sesh } from './api';
 import { CatchUpCards } from './Crews';
 import { Button, Face, Toast, TopBar } from './Parts';
 import type { Frendzy } from './useFrendzy';
-import Svg, { Circle, Path } from 'react-native-svg';
 import { C, COLOURS, F, LABELS, STATUS_COPY, STOPS, fade, first, fmtLeft, initials, themed } from './theme';
 import { useVenues, type Venues } from './venues';
 
@@ -199,30 +198,13 @@ function FriendFace({ friend, photos }: { friend: Friend; photos: Record<string,
   );
 }
 
-// The three stop icons, drawn as little sci-fi glyphs: green is a signal ring with rays, amber a half-lit ring, red a
-// ring with a slash through it. Names are left off; the colour and the word above say which one is lit.
-function StopGlyph({ kind, colour }: { kind: Colour; colour: string }) {
-  const p = { stroke: colour, strokeWidth: 2.6, strokeLinecap: 'round' as const, fill: 'none' };
-  return (
-    <Svg width={34} height={34} viewBox="0 0 34 34">
-      {kind === 'on' ? (
-        <>
-          <Circle cx={17} cy={17} r={5} fill={colour} />
-          <Circle cx={17} cy={17} r={10.5} {...p} strokeDasharray="14 5" />
-        </>
-      ) : kind === 'thinking' ? (
-        <>
-          <Circle cx={17} cy={17} r={11} {...p} />
-          <Path d="M17 6 A11 11 0 0 1 17 28 Z" fill={colour} />
-        </>
-      ) : (
-        <>
-          <Circle cx={17} cy={17} r={11} {...p} />
-          <Path d="M9.5 24.5 L24.5 9.5" {...p} />
-        </>
-      )}
-    </Svg>
-  );
+// The three stops are plain circles in their own colour. The lit one sits under the glowing orb, so it shows a small
+// light centre; the other two stay softly coloured so you can see what each stop means without any names or icons.
+function StopDot({ kind, lit }: { kind: Colour; lit: boolean }) {
+  const c = COLOURS[kind];
+  return lit
+    ? <View style={[styles.dot, { borderColor: C.ink, backgroundColor: 'transparent' }]}><View style={[styles.dotCore, { backgroundColor: C.ink }]} /></View>
+    : <View style={[styles.dot, { borderColor: fade(c, 0.9), backgroundColor: fade(c, 0.55) }]} />;
 }
 
 // Your status as a little control deck: the word in your colour, then a wide switch. A glowing orb with a slow pulse
@@ -275,7 +257,7 @@ function StatusCard({ colour, word, note, onPick }: { colour: Colour; word: stri
               accessibilityLabel={LABELS[k]}
               accessibilityState={{ selected: lit }}
             >
-              <StopGlyph kind={k} colour={lit ? C.ink : C.unlit} />
+              <StopDot kind={k} lit={lit} />
             </Pressable>
           );
         })}
@@ -317,6 +299,8 @@ const styles = themed(() => StyleSheet.create({
   orb: { position: 'absolute', top: 4, bottom: 4, alignItems: 'center', justifyContent: 'center' },
   halo: { position: 'absolute', top: -2, bottom: -2, left: -2, right: -2, borderRadius: 40 },
   core: { position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, borderRadius: 35, shadowOpacity: 0.9, shadowRadius: 16, shadowOffset: { width: 0, height: 0 }, elevation: 6 },
+  dot: { width: 30, height: 30, borderRadius: 15, borderWidth: 2.5, alignItems: 'center', justifyContent: 'center' },
+  dotCore: { width: 10, height: 10, borderRadius: 5 },
   stop: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 2 },
   night: { borderWidth: 1, borderColor: fade(C.on, 0.45), shadowColor: C.on, shadowOpacity: C.dark ? 0.25 : 0, shadowRadius: 18, shadowOffset: { width: 0, height: 0 } },
   nightPlace: { fontFamily: F.display, fontSize: 22, letterSpacing: -0.4, color: C.fg },
