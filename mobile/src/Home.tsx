@@ -6,8 +6,8 @@ import type { Colour, Friend, Sesh } from './api';
 import { CatchUpCards } from './Crews';
 import { Button, Face, Toast, TopBar } from './Parts';
 import type { Frendzy } from './useFrendzy';
-import Icon from './Icon';
-import { C, COLOURS, F, LABELS, STATUS_COPY, STATUS_ICON, STOPS, fade, first, fmtLeft, initials, themed } from './theme';
+import Svg, { Circle, Path } from 'react-native-svg';
+import { C, COLOURS, F, LABELS, STATUS_COPY, STOPS, fade, first, fmtLeft, initials, themed } from './theme';
 import { useVenues, type Venues } from './venues';
 
 const INVITE_BASE = 'https://frendzy.au/';
@@ -199,6 +199,32 @@ function FriendFace({ friend, photos }: { friend: Friend; photos: Record<string,
   );
 }
 
+// The three stop icons, drawn as little sci-fi glyphs: green is a signal ring with rays, amber a half-lit ring, red a
+// ring with a slash through it. Names are left off; the colour and the word above say which one is lit.
+function StopGlyph({ kind, colour }: { kind: Colour; colour: string }) {
+  const p = { stroke: colour, strokeWidth: 2.6, strokeLinecap: 'round' as const, fill: 'none' };
+  return (
+    <Svg width={34} height={34} viewBox="0 0 34 34">
+      {kind === 'on' ? (
+        <>
+          <Circle cx={17} cy={17} r={5} fill={colour} />
+          <Circle cx={17} cy={17} r={10.5} {...p} strokeDasharray="14 5" />
+        </>
+      ) : kind === 'thinking' ? (
+        <>
+          <Circle cx={17} cy={17} r={11} {...p} />
+          <Path d="M17 6 A11 11 0 0 1 17 28 Z" fill={colour} />
+        </>
+      ) : (
+        <>
+          <Circle cx={17} cy={17} r={11} {...p} />
+          <Path d="M9.5 24.5 L24.5 9.5" {...p} />
+        </>
+      )}
+    </Svg>
+  );
+}
+
 // Your status as a little control deck: the word in your colour, then a wide switch. A glowing orb with a slow pulse
 // slides to the one you pick, over a faint dial of ticks. Each stop has its icon (tick, question mark, cross) and its
 // name, and every stop is a big target.
@@ -225,7 +251,7 @@ function StatusCard({ colour, word, note, onPick }: { colour: Colour; word: stri
     <View style={[styles.statusCard, { borderColor: fade(mode, 0.55), shadowColor: mode }]}>
       <View style={styles.statusTop}>
         <Text style={styles.eyebrow}>Your status</Text>
-        <Text style={[styles.statusWord, { color: mode, textShadowColor: mode }]}>{word}</Text>
+        <Text style={[styles.statusWord, { color: mode }]}>{word}</Text>
         <Text style={[styles.muted, styles.small]}>{note}</Text>
       </View>
       <View style={[styles.track, { borderColor: fade(mode, 0.35) }]} onLayout={(e) => setW(e.nativeEvent.layout.width)} accessibilityLabel="Set your status">
@@ -249,8 +275,7 @@ function StatusCard({ colour, word, note, onPick }: { colour: Colour; word: stri
               accessibilityLabel={LABELS[k]}
               accessibilityState={{ selected: lit }}
             >
-              <Icon name={STATUS_ICON[k]} size={24} weight={3} colour={lit ? C.ink : C.unlit} />
-              <Text style={[styles.stopName, { color: lit ? C.ink : C.muted }]}>{LABELS[k].toUpperCase()}</Text>
+              <StopGlyph kind={k} colour={lit ? C.ink : C.unlit} />
             </Pressable>
           );
         })}
@@ -268,7 +293,7 @@ const styles = themed(() => StyleSheet.create({
   between: { justifyContent: 'space-between' },
   grow: { flex: 1 },
   eyebrow: { fontFamily: F.bodyBold, fontSize: 12, letterSpacing: 1.4, textTransform: 'uppercase', color: C.muted },
-  statusWord: { fontFamily: F.display, fontSize: 34, lineHeight: 40, letterSpacing: -0.8, textShadowRadius: 14, textShadowOffset: { width: 0, height: 0 } },
+  statusWord: { fontFamily: F.display, fontSize: 34, lineHeight: 40, letterSpacing: -0.8 },
   h2: { fontFamily: F.displayBold, fontSize: 19, letterSpacing: -0.2, color: C.fg },
   body: { fontFamily: F.body, fontSize: 16, color: C.fg },
   strong: { fontFamily: F.bodyBold },
@@ -283,7 +308,7 @@ const styles = themed(() => StyleSheet.create({
   input: { height: 52, borderRadius: 14, borderWidth: 1, borderColor: C.line, backgroundColor: C.surface, paddingHorizontal: 16, color: C.fg, fontFamily: F.body, fontSize: 16 },
 
   // Your status, one line
-  statusCard: { backgroundColor: C.surface, borderRadius: 30, padding: 16, gap: 14, borderWidth: 1.5, shadowOpacity: C.dark ? 0.4 : 0.15, shadowRadius: 20, shadowOffset: { width: 0, height: 0 }, elevation: 3 },
+  statusCard: { backgroundColor: C.surface, borderRadius: 30, padding: 16, gap: 14, borderWidth: 1.5, shadowOpacity: C.dark ? 0.4 : 0.15, shadowRadius: 20, shadowOffset: { width: 0, height: 0 } },
   statusTop: { gap: 2 },
   track: { flexDirection: 'row', height: 78, borderRadius: 39, backgroundColor: C.track, borderWidth: 1 },
   ticks: { position: 'absolute', left: 22, right: 22, top: 0, bottom: 0, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', opacity: 0.5 },
@@ -293,7 +318,6 @@ const styles = themed(() => StyleSheet.create({
   halo: { position: 'absolute', top: -2, bottom: -2, left: -2, right: -2, borderRadius: 40 },
   core: { position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, borderRadius: 35, shadowOpacity: 0.9, shadowRadius: 16, shadowOffset: { width: 0, height: 0 }, elevation: 6 },
   stop: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 2 },
-  stopName: { fontFamily: F.bodyBold, fontSize: 11, letterSpacing: 2 },
   night: { borderWidth: 1, borderColor: fade(C.on, 0.45), shadowColor: C.on, shadowOpacity: C.dark ? 0.25 : 0, shadowRadius: 18, shadowOffset: { width: 0, height: 0 } },
   nightPlace: { fontFamily: F.display, fontSize: 22, letterSpacing: -0.4, color: C.fg },
   strongBody: { fontFamily: F.bodyBold, fontSize: 16, color: C.fg },
