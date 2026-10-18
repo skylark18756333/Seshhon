@@ -128,6 +128,7 @@ export function HomeBottom({ f, onOpenWeb }: { f: Frendzy; onOpenWeb: (tab: stri
     <>
       {friends.length ? <CatchUpCards f={f} onPlanned={() => onOpenWeb('home')} /> : null}
       {friends.length && colour === 'thinking' ? <Button label="See what's on tonight" colour={C.thinking} ink onPress={() => onOpenWeb('events')} /> : null}
+      {friends.length ? <Button label="Messages" ghost onPress={() => onOpenWeb('messages')} testID="home-messages" /> : null}
       {friends.length ? <Button label="Crews and besties" ghost onPress={() => onOpenWeb('crews')} testID="home-crews" /> : null}
     </>
   );
