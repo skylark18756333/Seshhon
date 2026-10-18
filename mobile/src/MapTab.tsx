@@ -19,7 +19,8 @@ import NativeMap from './NativeMap';
 import { MAP_CENTRE, RADIUS_KM } from './config';
 import { Button, Face, TopBar } from './Parts';
 import type { ApiError } from './session';
-import { C, COLOURS, F, first, STOPS, themed } from './theme';
+import { PlanView, type Plan } from './Sesh';
+import { C, COLOURS, F, first, fmtWhen, STOPS, themed } from './theme';
 import type { Frendzy } from './useFrendzy';
 import { findMe, fmtKm, hoursLine, km, myPlace, openState, refreshVenues, useVenues, type Venues } from './venues';
 
@@ -84,7 +85,12 @@ export default function MapTab({ f, onVenue, onOpenWeb, onWebMap }: {
   }, []);
 
   /* ---------- the Sesh Map's stops for the sesh you're in tonight (as Sesh.tsx reads them) ---------- */
-  const mine: SeshT | null = seshes.filter((s) => s.am_member && !(s.planned && s.starts_at && new Date(s.starts_at).getTime() > Date.now()))[0] || null;
+  // The sesh the crawl is built for: tonight's, or a planned one (crawl stops work on planned seshes too).
+  const isLater = (s: SeshT) => !!(s.planned && s.starts_at && new Date(s.starts_at).getTime() > Date.now());
+  const targets = seshes.filter((s) => s.am_member).sort((a, b) => Number(isLater(a)) - Number(isLater(b)));
+  const [targetId, setTargetId] = useState<string | null>(null);
+  const [plan, setPlan] = useState<Plan | null>(null);
+  const mine: SeshT | null = targets.filter((s) => s.id === targetId)[0] || targets[0] || null;
   const mineId = mine ? mine.id : null;
   useEffect(() => {
     if (!mineId || crawl.off) { if (crawl.stops.length) setCrawl((c) => ({ ...c, sesh: null, stops: [] })); return; }
@@ -225,6 +231,24 @@ export default function MapTab({ f, onVenue, onOpenWeb, onWebMap }: {
   };
 
   if (!me) return null;
+  if (plan) {
+    return (
+      <View style={styles.fill}>
+        <TopBar f={f} onOpenWeb={onOpenWeb} />
+        <ScrollView contentContainerStyle={{ padding: 16, gap: 16 }} keyboardShouldPersistTaps="handled">
+          <PlanView
+            plan={plan} friends={friends} photos={f.photos} onChange={setPlan} onCancel={() => setPlan(null)}
+            onGo={() => {
+              const ids = Object.keys(plan.picked);
+              if (plan.pick && !ids.length) return;
+              f.act('plan_sesh', { p_at: new Date(plan.at).toISOString(), p_friends: plan.pick ? ids : null },
+                'Planned. Now tap venues on the map to build the crawl.').then((r) => { if (r) { setPlan(null); setTargetId(r.id); } });
+            }}
+          />
+        </ScrollView>
+      </View>
+    );
+  }
   const out = me.colour === 'off' ? [] : friends.filter((x) => x.colour === 'on' || x.colour === 'thinking')
     .sort((x, y) => STOPS.indexOf(x.colour) - STOPS.indexOf(y.colour));
   const count = shown.filter((x) => x.inside).length;
@@ -306,6 +330,26 @@ export default function MapTab({ f, onVenue, onOpenWeb, onWebMap }: {
       </View>
 
       <ScrollView style={[styles.panel, { maxHeight: Math.round(screenH * 0.36) }]} contentContainerStyle={styles.panelBody} keyboardShouldPersistTaps="handled">
+        <View style={styles.radius} testID="map-night">
+          <Text style={styles.eyebrow}>Night out</Text>
+          {targets.length ? (
+            <View style={styles.chips} accessibilityRole="radiogroup" accessibilityLabel="Add stops to">
+              {targets.map((s) => (
+                <Pressable key={s.id} onPress={() => setTargetId(s.id)} accessibilityRole="button" accessibilityState={{ selected: mine?.id === s.id }}
+                  accessibilityLabel={isLater(s) && s.starts_at ? 'Planned ' + fmtWhen(new Date(s.starts_at).getTime()) : 'Tonight'}
+                  style={[styles.chip, mine?.id === s.id && styles.chipOn]}>
+                  <Text style={[styles.chipText, mine?.id === s.id && styles.chipTextOn]}>{isLater(s) && s.starts_at ? fmtWhen(new Date(s.starts_at).getTime()) : 'Tonight'}</Text>
+                </Pressable>
+              ))}
+            </View>
+          ) : null}
+          <Text style={styles.small}>{mine ? 'Tap a venue and "Add to the Sesh Map". ' + (stops.length ? stops.length + ' stop' + (stops.length > 1 ? 's' : '') + ' so far.' : 'No stops yet.') : 'Plan a night out, then tap venues to build the crawl.'}</Text>
+          <Button small ghost label="Plan a night out" testID="map-plan" onPress={() => {
+            const t = new Date(Date.now() + 3600000);
+            t.setMinutes(t.getMinutes() < 30 ? 30 : 60, 0, 0);
+            setPlan({ at: t.getTime(), pick: false, picked: {} });
+          }} />
+        </View>
         {pickVen ? (
           <PickCard
             ven={pickVen} v={v} geo={geo} mine={mine} stop={stopOf(pickVen.id)} crawlOff={crawl.off} crawlFull={stops.length >= CRAWL_MAX}
