@@ -121,7 +121,7 @@ export default function Crews({ f, onBack, onPlanned }: { f: Frendzy; onBack: ()
             : data === 'off' ? (
               <View style={styles.card}>
                 <Text style={styles.cardTitle}>Not switched on yet</Text>
-                <Text style={[styles.muted, styles.small]}>Crews and besties need a database update. Ask whoever runs Frendzy to run 0031_crews in Supabase.</Text>
+                <Text style={[styles.muted, styles.small]}>Crews and besties need a database update. Ask whoever runs Crewzy to run 0031_crews in Supabase.</Text>
               </View>
             ) : view.t === 'free' ? <FreeGrid free={free} run={run} />
             : view.t === 'crew' ? (crew ? <CrewView f={f} crew={crew} run={run} onGone={() => setView({ t: 'main' })} /> : <Text style={styles.muted}>That crew is gone.</Text>)
@@ -152,7 +152,7 @@ function Main({ f, data, free, run, open, onPlanned }: { f: Frendzy; data: Crews
   return (
     <>
       <View style={styles.card}>
-        <Text style={styles.body}>Share when you're free with your besties and your crews, so Frendzy can suggest a catch-up. It's off until you switch it on, one crew or bestie at a time. Other friends never see it, and no places or calendar details are shared.</Text>
+        <Text style={styles.body}>Share when you're free with your besties and your crews, so Crewzy can suggest a catch-up. It's off until you switch it on, one crew or bestie at a time. Other friends never see it, and no places or calendar details are shared.</Text>
       </View>
 
       <View style={styles.card}>
@@ -457,7 +457,7 @@ function Settings({ settings, onChange: save, bestie }: { settings: ShareSetting
             return <Button key={d} small ghost={!on} pressed={on} label={d} onPress={() => onChange({ ...s, quiet: toggle(s.quiet, i) as number[] })} />;
           })}
         </View>
-        <Text style={[styles.muted, styles.small]}>Frendzy never suggests a catch-up on these days.</Text>
+        <Text style={[styles.muted, styles.small]}>Crewzy never suggests a catch-up on these days.</Text>
       </View>
     </View>
   );

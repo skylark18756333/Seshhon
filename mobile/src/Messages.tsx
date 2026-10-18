@@ -1,4 +1,4 @@
-// Messages between friends that Frendzy can't read and doesn't keep (migration 0038_friend_messages).
+// Messages between friends that Crewzy can't read and doesn't keep (migration 0038_friend_messages).
 // Each phone makes its own pair of keys (tweetnacl, "box"): the lock (public key) goes to the database so friends
 // can lock a message for you, and the unlock (secret key) stays in this phone's secure storage and never leaves it.
 // A message is locked here, sits in the database as scrambled text until your friend's phone collects it, then it
@@ -155,7 +155,7 @@ export default function Messages({ f, onBack }: { f: Frendzy; onBack: () => void
         {friend ? (
           <>
             <ScrollView ref={scroll} style={styles.fill} contentContainerStyle={styles.view} keyboardShouldPersistTaps="handled">
-              <Text style={[styles.muted, styles.small]}>Locked: only you and {first(friend.name)} can read these. Frendzy never keeps them, they live on your phones.</Text>
+              <Text style={[styles.muted, styles.small]}>Locked: only you and {first(friend.name)} can read these. Crewzy never keeps them, they live on your phones.</Text>
               {(hist.chats[friend.id] || []).map((m) => (
                 <View key={m.id} style={[styles.bubble, m.me ? styles.mine : styles.theirs]}>
                   <Text style={[styles.body, m.me && styles.mineText]}>{m.text}</Text>
@@ -179,7 +179,7 @@ export default function Messages({ f, onBack }: { f: Frendzy; onBack: () => void
           </>
         ) : (
           <ScrollView style={styles.fill} contentContainerStyle={styles.view}>
-            <Text style={[styles.muted, styles.small]}>Messages are locked on your phone. Frendzy can't read them and deletes its copy as soon as your friend's phone has it.</Text>
+            <Text style={[styles.muted, styles.small]}>Messages are locked on your phone. Crewzy can't read them and deletes its copy as soon as your friend's phone has it.</Text>
             {!ordered.length ? <Text style={styles.muted}>Add friends to message them.</Text> : null}
             {ordered.map((fr) => {
               const m = last(fr.id);

@@ -91,7 +91,7 @@ export default function Auth({ start, note, onDone }: { start: AuthStart; note: 
     return (
       <View style={styles.fill}>
         <Page>
-          <Text style={styles.h1}>Frendzy is for people aged 18 and over.</Text>
+          <Text style={styles.h1}>Crewzy is for people aged 18 and over.</Text>
           <Text style={styles.muted}>We can't set up an account for you. If you entered your date of birth wrongly, contact us through the Privacy Policy page.</Text>
         </Page>
       </View>
@@ -211,7 +211,7 @@ function Join({ onLogin, onTooYoung, onReady }: { onLogin: () => void; onTooYoun
         <Field label="Your first name">
           <TextInput style={styles.input} value={name} onChangeText={setName} autoComplete="given-name" textContentType="givenName" maxLength={24} accessibilityLabel="Your first name" />
         </Field>
-        <Field label="Date of birth" note="Frendzy is for people aged 18 and over. We only use this to check your age and do not keep it.">
+        <Field label="Date of birth" note="Crewzy is for people aged 18 and over. We only use this to check your age and do not keep it.">
           <TextInput style={styles.input} value={dob} onChangeText={(t) => setDob(dobText(t))} keyboardType="number-pad" placeholder="DD/MM/YYYY" placeholderTextColor={C.muted}
             autoComplete="birthdate-full" maxLength={10} accessibilityLabel="Date of birth" />
         </Field>
@@ -305,7 +305,7 @@ function Reset({ initial, onBack, onReset }: { initial: string; onBack: () => vo
 
   const send = async () => {
     const se = email.trim().toLowerCase();
-    if (!EMAIL_RE.test(se)) return fail('Enter the email you confirmed for Frendzy.');
+    if (!EMAIL_RE.test(se)) return fail('Enter the email you confirmed for Crewzy.');
     setBusy(true); setError('');
     try {
       if (!currentSession()) await signInAnonymously(await (check.current ? check.current.take() : Promise.resolve('')));
@@ -331,7 +331,7 @@ function Reset({ initial, onBack, onReset }: { initial: string; onBack: () => vo
       <Text style={styles.h1}>Forgot your password?</Text>
       {sentTo ? (
         <>
-          <Text style={styles.muted}>If {sentTo} has a Frendzy account, we sent it a 6-digit code. Check your junk folder too.</Text>
+          <Text style={styles.muted}>If {sentTo} has a Crewzy account, we sent it a 6-digit code. Check your junk folder too.</Text>
           <View style={styles.stack16}>
             <Field label="Code from the email">
               <TextInput style={styles.input} value={code} onChangeText={setCode} keyboardType="number-pad" autoComplete="one-time-code" maxLength={7} accessibilityLabel="Code from the email" />
@@ -346,7 +346,7 @@ function Reset({ initial, onBack, onReset }: { initial: string; onBack: () => vo
         </>
       ) : (
         <>
-          <Text style={styles.muted}>Enter the email you confirmed for Frendzy. We'll send it a code to choose a new password.</Text>
+          <Text style={styles.muted}>Enter the email you confirmed for Crewzy. We'll send it a code to choose a new password.</Text>
           <View style={styles.stack16}>
             <Field label="Email">
               <TextInput style={styles.input} value={email} onChangeText={setEmail} keyboardType="email-address" autoComplete="email" autoCapitalize="none" autoCorrect={false} spellCheck={false} maxLength={254} accessibilityLabel="Email" />

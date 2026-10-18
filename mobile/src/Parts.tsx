@@ -33,7 +33,7 @@ export function TopBar({ f, onOpenWeb }: { f: Frendzy; onOpenWeb: (tab: string) 
   if (!me) return null;
   return (
     <View style={styles.top}>
-      <Logo status={me.colour} onPick={(c) => { if (c !== me.colour) f.setColour(c); }} />
+      <Logo status={me.colour} onPick={(c) => { if (c !== me.colour) f.setColour(c); }} onHome={() => onOpenWeb('home')} />
       <View style={styles.topRight}>
         {f.offline ? <Text style={styles.pill}>Offline</Text> : null}
         <Pressable onPress={() => onOpenWeb('you')} accessibilityRole="button" accessibilityLabel="You" style={[styles.profile, { borderColor: COLOURS[me.colour] }]}>

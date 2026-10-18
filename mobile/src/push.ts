@@ -49,7 +49,7 @@ async function setup(): Promise<void> {
       handleNotification: async () => ({ shouldShowBanner: true, shouldShowList: true, shouldPlaySound: false, shouldSetBadge: false })
     });
     if (Platform.OS === 'android') {
-      await Notifications.setNotificationChannelAsync('default', { name: 'Frendzy', importance: Notifications.AndroidImportance.DEFAULT });
+      await Notifications.setNotificationChannelAsync('default', { name: 'Crewzy', importance: Notifications.AndroidImportance.DEFAULT });
     }
   } catch (e) { /* no notifications on this phone */ }
 }

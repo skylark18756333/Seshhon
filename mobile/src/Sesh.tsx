@@ -29,7 +29,7 @@ const DAY = 86400000;
 
 type Picked = Record<string, true>;
 type Picker = { mode: 'start' | 'invite'; picked: Picked };
-type Plan = { at: number; pick: boolean; picked: Picked };
+export type Plan = { at: number; pick: boolean; picked: Picked };
 type Crawl = { sesh: string | null; stops: CrawlStop[]; key: string; off: boolean };
 
 // Planned seshes (migration 0025) start later. Until then they only show under "Planned", never as tonight's.
@@ -496,7 +496,7 @@ function PickerView({ picker, friends, mine, photos, onPick, onCancel, onGo }: {
 
 /* ---------- planning a sesh for later (planHtml) ---------- */
 // A phone has no date-and-time box like the web page's, so the day and the time each step back and forward.
-function PlanView({ plan, friends, photos, onChange, onCancel, onGo }: {
+export function PlanView({ plan, friends, photos, onChange, onCancel, onGo }: {
   plan: Plan; friends: Friend[]; photos: Record<string, string>;
   onChange: (p: Plan) => void; onCancel: () => void; onGo: () => void;
 }) {

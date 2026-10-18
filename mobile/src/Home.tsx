@@ -28,7 +28,7 @@ export function HomeTop({ f, onOpenWeb }: { f: Frendzy; onOpenWeb: (tab: string)
   const share = () => {
     const link = INVITE_BASE + '?invite=' + me.invite_code;
     setLinkShown(true);
-    Share.share({ title: 'Frendzy', message: "Add me on Frendzy so we can see when we're both up for a sesh. " + link }).catch(() => {});
+    Share.share({ title: 'Crewzy', message: "Add me on Crewzy so we can see when we're both up for a sesh. " + link }).catch(() => {});
   };
 
   return (
@@ -57,7 +57,7 @@ export function HomeTop({ f, onOpenWeb }: { f: Frendzy; onOpenWeb: (tab: string)
         {!friends.length ? (
           <View style={styles.card}>
             <Text style={styles.h2}>Add your friends</Text>
-            <Text style={[styles.muted, styles.small]}>Frendzy only works with friends on it. Add them by username or send them your invite link, then accept their request when it arrives.</Text>
+            <Text style={[styles.muted, styles.small]}>Crewzy only works with friends on it. Add them by username or send them your invite link, then accept their request when it arrives.</Text>
             <View style={styles.field}>
               <Text style={styles.label}>Add by username</Text>
               <View style={styles.row}>

@@ -1,5 +1,5 @@
 // The provider's age check page (Didit or Yoti) in a window over the app. It is the provider's own web page, so
-// it can't be done natively; when it sends the person back to the Frendzy address (?age_check=done) the window
+// it can't be done natively; when it sends the person back to the Crewzy address (?age_check=done) the window
 // closes and the native screen asks the database how it went.
 import Constants from 'expo-constants';
 import React from 'react';
