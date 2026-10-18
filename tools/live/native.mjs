@@ -199,7 +199,7 @@ try {
   const sshot = async (p, file) => { await p.page.waitForTimeout(700); await p.page.screenshot({ path: path.join(sesh, file), fullPage: true }); console.log('  saved native-sesh/' + file); };
   const id = (name) => psql(`select id from public.profiles where name = '${name}'`);
   const anaId = id('Ana'), jackId = id('Jack'), tomId = id('Tom');
-  await nat.page.getByRole('tab', { name: 'Sesh' }).click();
+  await nat.page.getByRole('tab', { name: 'Home' }).click();
   await has(nat, "Tonight's sesh");
   await has(nat, 'Nobody has started one yet');
   await sshot(nat, '1-no-sesh.png');
@@ -225,7 +225,7 @@ try {
   // Jack, on his own phone, sees Ana's sesh and joins it.
   const natJ = await phone('Jack native', `http://127.0.0.1:${NATIVE_PORT}/`, `localStorage.setItem('seshhon-session-v1', ${JSON.stringify(sessions.Jack)});`);
   await has(natJ, "You're green.");
-  await natJ.page.getByRole('tab', { name: 'Sesh' }).click();
+  await natJ.page.getByRole('tab', { name: 'Home' }).click();
   await has(natJ, "Ana's sesh");
   await sshot(natJ, '3-jack-sees-sesh.png');
   await tap(natJ, 'Join');
@@ -241,6 +241,27 @@ try {
   await has(natJ, '2 votes in');
   await has(nat, '2 votes in', 10000);
   console.log("Ana's screen shows the vote count Jack changed: yes");
+
+  // Meet in the middle: an on/off switch. Each switches it on to share roughly where they are; the answer is venues only, never positions.
+  for (const [p, lat, lng] of [[nat, -31.9512, 115.8411], [natJ, -31.9498, 115.8803]]) {
+    await p.ctx.grantPermissions(['geolocation']);
+    await p.ctx.setGeolocation({ latitude: lat, longitude: lng });
+  }
+  await nat.page.getByTestId('meet-middle').waitFor({ timeout: 15000 });
+  await has(nat, 'Meet in the middle');
+  expect('the switch starts off', psql(`select count(*) from private.meet_spots where sesh_id = '${seshId}'`), 0);
+  await nat.page.getByTestId('meet-switch').click();
+  await nat.page.getByTestId('meet-waiting').waitFor({ timeout: 15000 });
+  await natJ.page.getByTestId('meet-switch').click();
+  await natJ.page.locator('[data-testid^="meet-vote-"]').first().waitFor({ timeout: 15000 });
+  await nat.page.locator('[data-testid^="meet-vote-"]').first().waitFor({ timeout: 20000 });
+  expect('two positions kept for the sesh, rounded to about 500 m', psql(`select string_agg(round(lat::numeric, 3) || ',' || round(lng::numeric, 3), ';' order by lng) from private.meet_spots where sesh_id = '${seshId}'`), '-31.950,115.840;-31.950,115.880');
+  await has(natJ, '2 of 2');
+  await sshot(nat, '3b-meet-in-the-middle.png');
+  await natJ.page.getByTestId('meet-switch').click();
+  await until(() => psql(`select count(*) from private.meet_spots where sesh_id = '${seshId}' and user_id = '${jackId}'`) === '0');
+  console.log('Jack switched it off and his position was deleted: yes');
+  await nat.ctx.clearPermissions(); await natJ.ctx.clearPermissions();
 
   // Chat, both ways. Each phone only polls, so this also checks the chat poll.
   await natJ.page.getByLabel('Message your mates').fill('Heading there at 9, who is in?');
@@ -290,19 +311,25 @@ try {
   await natMap.page.getByRole('tab', { name: 'Map' }).click();
   await natMap.page.getByTestId('map-stub').waitFor();
   expect('Map tab is the native map (stand-in in a browser)', await natMap.page.getByTestId('map-stub').count(), 1);
-  // Nothing is shown until a spot is chosen.
+  // This phone hasn't shared its location, so nothing is shown until a spot is chosen.
   expect('no venues until a spot is chosen', (await markerIds(natMap)).length, 0);
   expect('no circle yet', await natMap.page.getByTestId('map-circle').innerText(), 'no circle');
   await has(natMap, 'Tap the map to pick a spot');
   await mshot(natMap, '1-map-start.png');
 
-  // Tap the map (city centre): the circle appears and the venues inside 5 km.
+  const slide = async (r) => { const box = await natMap.page.getByTestId('radius').boundingBox();
+    await natMap.page.mouse.click(box.x + Math.min(box.width - 2, Math.max(1, ((r - 1) / 24) * box.width)), box.y + box.height / 2); };
+  // Tap the map (city centre): the circle appears and the venues inside 10 km (the default).
   await natMap.page.getByTestId('map-tap').click();
   await until(async () => (await markerIds(natMap)).length > 0);
-  expect('venues within 5 km of the pin', JSON.stringify(await markerIds(natMap)), JSON.stringify(within(5)));
-  expect('circle is 5 km', (await natMap.page.getByTestId('map-circle').innerText()).startsWith('circle 5 km'), true);
-  expect('far venue is not shown at 5 km', (await markerIds(natMap)).includes(farId), false);
-  await has(natMap, `${within(5).length} venues within 5 km of the pin`);
+  expect('venues within 10 km of the pin', JSON.stringify(await markerIds(natMap)), JSON.stringify(within(10)));
+  expect('circle is 10 km', (await natMap.page.getByTestId('map-circle').innerText()).startsWith('circle 10 km'), true);
+  expect('far venue is not shown at 10 km', (await markerIds(natMap)).includes(farId), false);
+  await has(natMap, `${within(10).length} venues within 10 km of the pin`);
+  await slide(5);
+  await until(async () => (await natMap.page.getByTestId('radius-label').innerText()).startsWith('5'));
+  expect('venues within 5 km after sliding', JSON.stringify(await markerIds(natMap)), JSON.stringify(within(5)));
+  expect('circle follows the slider', (await natMap.page.getByTestId('map-circle').innerText()).startsWith('circle 5 km'), true);
   expect('cafe gets the food icon', (await markerText(natMap, cafeId)).includes('fork'), true);
   expect('live music venue gets the music icon', (await markerText(natMap, venueC)).includes('events'), true);
   expect('opening hours show as open or shut', /open|shut/.test(await markerText(natMap, venueA)), true);
@@ -315,8 +342,6 @@ try {
   await mshot(natMap, '2-map-5km.png');
 
   // The radius slider: a tap at the far right is 25 km, at the left is 1 km.
-  const slide = async (r) => { const box = await natMap.page.getByTestId('radius').boundingBox();
-    await natMap.page.mouse.click(box.x + Math.min(box.width - 2, Math.max(1, ((r - 1) / 24) * box.width)), box.y + box.height / 2); };
   await slide(25);
   await until(async () => (await natMap.page.getByTestId('radius-label').innerText()).startsWith('25'));
   expect('radius label at the right end', (await natMap.page.getByTestId('radius-label').innerText()).replace(/\s+/g, ' '), '25 km');
@@ -408,6 +433,7 @@ try {
   await natMap.ctx.setGeolocation({ latitude: -31.9871, longitude: 115.8412 });
   await natMap.page.getByTestId('map-near-me').click();
   await has(natMap, 'Your location stays on this phone and is never saved or shown to friends.');
+  await has(natMap, 'within 5 km of you');
   expect('the circle is on the person (Me)', (await natMap.page.getByTestId('map-circle').innerText()).includes('(me)'), true);
   expect('"Me" is shown', (await natMap.page.getByTestId('map-me').count()), 1);
   expect('circle centre is the phone position', (await natMap.page.getByTestId('map-circle').innerText()).includes('-31.9871,115.8412'), true);
@@ -460,7 +486,7 @@ try {
   await has(nat, 'Your sesh');
   await has(nat, nameA);
   await sshot(nat, '9b-home-night-card.png');
-  await nat.page.getByRole('tab', { name: 'Sesh' }).click();
+  await nat.page.getByRole('tab', { name: 'Home' }).click();
   await has(nat, 'Locked in');
 
   // The Sesh Map: stops are added from the map (the web half), so two are added straight through the
@@ -487,7 +513,7 @@ try {
 
   // Tom joins and says something; Ana blocks him from the chat (block_user) and his messages go.
   const natT = await phone('Tom native', `http://127.0.0.1:${NATIVE_PORT}/`, `localStorage.setItem('seshhon-session-v1', ${JSON.stringify(sessions.Tom)});`);
-  await natT.page.getByRole('tab', { name: 'Sesh' }).click();
+  await natT.page.getByRole('tab', { name: 'Home' }).click();
   await has(natT, "Ana's sesh");
   await tap(natT, 'Join');
   await has(natT, 'Live now');

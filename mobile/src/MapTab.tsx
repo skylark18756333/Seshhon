@@ -3,25 +3,25 @@
 // search, "Near me", the "How far" radius, the Sesh Map's numbered stops with add and vote from the picked venue,
 // and the faces of friends who are out along the bottom (faces only, never where anyone is).
 //
-// Location rules, same as the web map: nobody's location is shown to anyone. "Near me" asks this phone for its
-// position once, keeps it in memory only to work out distances here, and never sends or saves it. Until a spot is
-// chosen (tap the map or Near me) no venues are shown, except what a search or filter finds.
+// Location rules, same as the web map: nobody's location is shown to anyone. The map opens on where you are (it asks
+// this phone once, keeps the position in memory only to work out distances, and never sends or saves it) and shows
+// the venues within 10 km. If the phone says no, tap the map to pick a spot; until then no venues are shown, except
+// what a search or filter finds.
 //
 // If the map can't be shown (no Google Maps key in this build, or it fails), App.tsx shows the web map instead:
 // the "simple map" link below the map does that by hand.
-import * as Location from 'expo-location';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { PanResponder, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import { loadBuzz, seshCrawl, type Buzz, type CrawlStop, type Sesh as SeshT, type Venue } from './api';
 import Icon from './Icon';
 import type { LatLng, MapMarker } from './mapShared';
 import NativeMap from './NativeMap';
-import { MAP_CENTRE } from './config';
+import { MAP_CENTRE, RADIUS_KM } from './config';
 import { Button, Face, TopBar } from './Parts';
 import type { ApiError } from './session';
 import { C, COLOURS, F, first, STOPS, themed } from './theme';
 import type { Frendzy } from './useFrendzy';
-import { fmtKm, hoursLine, km, openState, refreshVenues, useVenues, type Venues } from './venues';
+import { findMe, fmtKm, hoursLine, km, myPlace, openState, refreshVenues, useVenues, type Venues } from './venues';
 
 const CRAWL_MAX = 12;
 const SEARCH_MAX = 30, SEARCH_LIST = 6;   // pins on the map for a search, cards under the search box
@@ -30,7 +30,7 @@ const BUZZ_MS = 60000;                    // api_buzz is asked again after a min
 const FILTERS: [string, string][] = [['popular', 'Popular'], ['trending', 'Trending'], ['open', 'Open now']];   // 'Deals' joins when deals are switched on (they are off in docs/config.js)
 
 // Kept while the app is open, like ui.radiusKm / geo in the web app.
-let savedRadius = 5;
+let savedRadius = RADIUS_KM;
 
 /* ---------- helpers ported from docs/app.js ---------- */
 const fold = (t: unknown) => String(t || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
@@ -58,7 +58,10 @@ export default function MapTab({ f, onVenue, onOpenWeb, onWebMap }: {
   const pins = v.pins;
   const { height: screenH } = useWindowDimensions();
 
-  const [geo, setGeo] = useState<Geo>({ centre: MAP_CENTRE, mine: false, busy: false, chosen: false });
+  const [geo, setGeo] = useState<Geo>(() => {
+    const at = myPlace();
+    return at ? { centre: at, mine: true, busy: false, chosen: true } : { centre: MAP_CENTRE, mine: false, busy: false, chosen: false };
+  });
   const [radius, setRadius] = useState(savedRadius);
   const [filter, setFilter] = useState('');
   const [query, setQuery] = useState('');
@@ -171,22 +174,26 @@ export default function MapTab({ f, onVenue, onOpenWeb, onWebMap }: {
   const refit = (coords: LatLng[]) => setFit((o) => ({ key: o.key + 1, coords }));
   const choose = useCallback((at: LatLng, isMine: boolean) => setGeo({ centre: at, mine: isMine, busy: false, chosen: true }), []);
 
-  const locate = async () => {
+  const radiusNow = useRef(radius); radiusNow.current = radius;
+  const locate = async (quiet?: boolean) => {
     if (geo.busy) return;
     setGeo((g) => ({ ...g, busy: true }));
     setNote('');
-    try {
-      const ask = await Location.requestForegroundPermissionsAsync();
-      if (ask.status !== 'granted') throw new Error('denied');
-      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-      const at: LatLng = [pos.coords.latitude, pos.coords.longitude];   // kept in memory only, never sent anywhere
+    const at = await findMe(true, !quiet);   // kept in memory only, never sent anywhere
+    if (at) {
       choose(at, true);
-      refit(circleCoords(at, radius));
-    } catch (e) {
+      refit(circleCoords(at, radiusNow.current));
+    } else {
       setGeo((g) => ({ ...g, busy: false }));
-      setNote('Could not get your location. Tap the map to pick a spot instead.');
+      if (!quiet) setNote('Could not get your location. Tap the map to pick a spot instead.');
     }
   };
+  // The map starts on where you are, showing the venues within the radius.
+  useEffect(() => {
+    if (geo.chosen) { refit(circleCoords(geo.centre, radiusNow.current)); return; }
+    locate(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // After a filter or search with no spot chosen, zoom to what it found (fitHits in drawMap).
   const lastFit = useRef('');
@@ -292,7 +299,7 @@ export default function MapTab({ f, onVenue, onOpenWeb, onWebMap }: {
             ) : null}
           </>
         )}
-        <Pressable onPress={locate} disabled={geo.busy} testID="map-near-me" accessibilityRole="button" accessibilityLabel={geo.busy ? 'Finding you' : 'Near me'}
+        <Pressable onPress={() => locate()} disabled={geo.busy} testID="map-near-me" accessibilityRole="button" accessibilityLabel={geo.busy ? 'Finding you' : 'Near me'}
           accessibilityState={{ selected: geo.mine, disabled: geo.busy }} style={[styles.fab, geo.mine && styles.fabOn]}>
           <Icon name="arrow" size={20} colour={geo.mine ? C.accentInk : C.fg} />
         </Pressable>
@@ -385,25 +392,39 @@ function PickCard({ ven, v, geo, mine, stop, crawlOff, crawlFull, onClose, onOpe
   );
 }
 
-// The "How far" slider, 1 to 25 km. Touch or drag anywhere on the bar.
+// The "How far" slider, 1 to 25 km. Touch or drag anywhere on the bar. The finger is read against the bar's place
+// on the screen (pageX), not locationX: on Android locationX jumps about mid-drag, which made the radius skip back.
+// The bar also grabs the touch before the scrolling panel around it, so a drag that wobbles up or down still slides.
 function Slider({ value, min, max, onChange, onDone }: { value: number; min: number; max: number; onChange: (n: number) => void; onDone: () => void }) {
+  const box = useRef<View>(null);
+  const left = useRef(0);
   const width = useRef(1);
+  const last = useRef(value); last.current = value;
   const set = useRef(onChange); set.current = onChange;
   const done = useRef(onDone); done.current = onDone;
-  const at = (x: number) => Math.min(max, Math.max(min, Math.round(min + (x / width.current) * (max - min))));
+  const at = (pageX: number) => Math.min(max, Math.max(min, Math.round(min + ((pageX - left.current) / width.current) * (max - min))));
+  const move = (pageX: number) => { const n = at(pageX); if (n !== last.current) { last.current = n; set.current(n); } };
+  const measure = () => box.current && box.current.measureInWindow((x, _y, w) => { left.current = x; width.current = Math.max(1, w); });
   const pan = useMemo(() => PanResponder.create({
-    onStartShouldSetPanResponder: () => true,
-    onMoveShouldSetPanResponder: () => true,
+    onStartShouldSetPanResponderCapture: () => true,
+    onMoveShouldSetPanResponderCapture: () => true,
     onPanResponderTerminationRequest: () => false,
-    onPanResponderGrant: (e) => set.current(at(e.nativeEvent.locationX)),
-    onPanResponderMove: (e) => set.current(at(e.nativeEvent.locationX)),
-    onPanResponderRelease: () => done.current()
+    onShouldBlockNativeResponder: () => true,
+    onPanResponderGrant: (e) => {
+      const x = e.nativeEvent.pageX;
+      // Measure again in case the panel scrolled, then place the knob under the finger.
+      if (box.current) box.current.measureInWindow((bx, _y, w) => { left.current = bx; width.current = Math.max(1, w); move(x); });
+      else move(x);
+    },
+    onPanResponderMove: (e) => move(e.nativeEvent.pageX),
+    onPanResponderRelease: () => done.current(),
+    onPanResponderTerminate: () => done.current()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }), []);
   const part = (value - min) / (max - min);
   return (
     <View
-      style={styles.sliderHit} onLayout={(e) => { width.current = Math.max(1, e.nativeEvent.layout.width); }} {...pan.panHandlers}
+      ref={box} style={styles.sliderHit} onLayout={measure} {...pan.panHandlers}
       testID="radius" accessible accessibilityRole="adjustable" accessibilityLabel="How far" accessibilityValue={{ min, max, now: value, text: value + ' km' }}
       accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]}
       onAccessibilityAction={(e) => { onChange(Math.min(max, Math.max(min, value + (e.nativeEvent.actionName === 'increment' ? 1 : -1)))); done.current(); }}
