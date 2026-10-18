@@ -6,10 +6,12 @@ import type { Colour, Friend, Sesh } from './api';
 import { CatchUpCards } from './Crews';
 import { Button, Face, Toast, TopBar } from './Parts';
 import type { Frendzy } from './useFrendzy';
-import { C, COLOURS, F, LABELS, STATUS_COPY, STOPS, fade, first, fmtLeft, initials, themed } from './theme';
+import { C, COLOURS, F, LABELS, STATUS_COPY, fade, first, fmtLeft, initials, themed } from './theme';
 import { useVenues, type Venues } from './venues';
 
 const INVITE_BASE = 'https://frendzy.au/';
+// The big switch runs red, amber, green from left to right.
+const SWITCH: Colour[] = ['off', 'thinking', 'on'];
 
 export default function Home({ f, onOpenWeb }: { f: Frendzy; onOpenWeb: (tab: string) => void }) {
   const me = f.state && f.state.me;
@@ -212,7 +214,7 @@ function StopDot({ kind, lit }: { kind: Colour; lit: boolean }) {
 // name, and every stop is a big target.
 function StatusCard({ colour, word, note, onPick }: { colour: Colour; word: string; note: React.ReactNode; onPick: (c: Colour) => void }) {
   const [w, setW] = useState(0);
-  const at = Math.max(0, STOPS.indexOf(colour));
+  const at = Math.max(0, SWITCH.indexOf(colour));
   const slide = useRef(new Animated.Value(at)).current;
   const pulse = useRef(new Animated.Value(0)).current;
   useEffect(() => {
@@ -245,7 +247,7 @@ function StatusCard({ colour, word, note, onPick }: { colour: Colour; word: stri
     onPanResponderRelease: (_e, g) => {
       const { stop: st, at: was, onPick: pick } = live.current;
       const to = st > 0 ? Math.max(0, Math.min(2, Math.round(from.current + g.dx / st))) : was;
-      if (to !== was) pick(STOPS[to]);
+      if (to !== was) pick(SWITCH[to]);
       else Animated.spring(slide, { toValue: was, useNativeDriver: true, friction: 7, tension: 110 }).start();
     }
   })).current;
@@ -267,7 +269,7 @@ function StatusCard({ colour, word, note, onPick }: { colour: Colour; word: stri
             <View style={[styles.core, { backgroundColor: mode, shadowColor: mode }]} />
           </Animated.View>
         ) : null}
-        {STOPS.map((k) => {
+        {SWITCH.map((k) => {
           const lit = k === colour;
           return (
             <Pressable
