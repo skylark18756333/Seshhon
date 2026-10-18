@@ -9,7 +9,7 @@ import { C, COLOURS, F, LABELS, themed } from './theme';
 const LIGHTS: Colour[] = ['off', 'thinking', 'on'];
 const SLOT = 24;   // the width of one light
 
-export default function Logo({ status, onPick }: { status?: Colour; onPick?: (c: Colour) => void }) {
+export default function Logo({ status, onPick, onHome }: { status?: Colour; onPick?: (c: Colour) => void; onHome?: () => void }) {
   // The lit light slides to the one you pick, and the bubble's outline and glow take that colour.
   const at = Math.max(0, LIGHTS.indexOf(status as Colour));
   const slide = useRef(new Animated.Value(at)).current;
@@ -19,7 +19,11 @@ export default function Logo({ status, onPick }: { status?: Colour; onPick?: (c:
   const mode = status ? COLOURS[status] : '#fff';
   return (
     <View style={styles.logo}>
-      <Text style={styles.wordmark}>crewzy</Text>
+      {onHome ? (
+        <Pressable onPress={onHome} accessibilityRole="button" accessibilityLabel="Home" testID="logo-home">
+          <Text style={styles.wordmark}>crewzy</Text>
+        </Pressable>
+      ) : <Text style={styles.wordmark}>crewzy</Text>}
       <View style={[styles.bubble, { borderColor: mode, shadowColor: mode }]}>
         {status ? (
           <Animated.View pointerEvents="none" style={[styles.knob, { transform: [{ translateX: slide.interpolate({ inputRange: [0, 1, 2], outputRange: [0, SLOT, SLOT * 2] }) }] }]}>
