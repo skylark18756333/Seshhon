@@ -11,12 +11,13 @@
 // If the map can't be shown (no Google Maps key in this build, or it fails), App.tsx shows the web map instead:
 // the "simple map" link below the map does that by hand.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { PanResponder, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
+import { Linking, PanResponder, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import { loadBuzz, seshCrawl, type Buzz, type CrawlStop, type Sesh as SeshT, type Venue } from './api';
 import Icon from './Icon';
 import type { LatLng, MapMarker } from './mapShared';
 import NativeMap from './NativeMap';
 import { MAP_CENTRE, RADIUS_KM } from './config';
+import { useGoogleRating } from './google';
 import { Button, Face, TopBar } from './Parts';
 import type { ApiError } from './session';
 import { PlanView, type Plan } from './Sesh';
@@ -404,6 +405,7 @@ function PickCard({ ven, v, geo, mine, stop, crawlOff, crawlFull, onClose, onOpe
   onClose: () => void; onOpen: () => void; onRate: (n: number) => void; onVote: () => void; onAdd: () => void; onStop: () => void;
 }) {
   const at = v.pins && v.pins[ven.id];
+  const g = useGoogleRating(ven.id);
   const away = geo.chosen && at ? fmtKm(km(geo.centre, at)) + (geo.mine ? ' away' : geo.centre[0] === MAP_CENTRE[0] && geo.centre[1] === MAP_CENTRE[1] ? ' from the city centre' : ' from the map pin') : '';
   return (
     <View style={styles.card} testID="map-pick">
@@ -416,6 +418,12 @@ function PickCard({ ven, v, geo, mine, stop, crawlOff, crawlFull, onClose, onOpe
         <Pressable onPress={onClose} accessibilityRole="button" accessibilityLabel="Close" style={styles.round}><Icon name="close" size={18} colour={C.fg} /></Pressable>
       </View>
       <Text style={styles.small}>{ven.ratings ? Number(ven.average).toFixed(1) + ' ★ on Crewzy (' + ven.ratings + ')' : 'No Crewzy ratings yet'}</Text>
+      {g ? (
+        <Text style={styles.small} testID="google-rating" onPress={g.url ? () => Linking.openURL(g.url as string).catch(() => {}) : undefined}
+          accessibilityRole={g.url ? 'link' : undefined}>
+          <Text style={styles.strong}>{g.rating.toFixed(1)}</Text> ★ on Google Maps ({g.count})
+        </Text>
+      ) : null}
       <View style={styles.stars} accessibilityLabel={'Rate ' + ven.name}>
         {[1, 2, 3, 4, 5].map((n) => (
           <Pressable key={n} onPress={() => onRate(n)} testID={'star-' + n} accessibilityRole="button" accessibilityLabel={'Rate ' + n + ' star' + (n > 1 ? 's' : '')}
