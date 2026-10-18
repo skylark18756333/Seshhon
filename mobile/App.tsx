@@ -111,6 +111,8 @@ function Shell() {
   // The address the packed page pretends to be at (frendzy.au, plus ?invite=... when opened from an invite).
   const [page, setPage] = useState<string | null>(null);
   const [opens, setOpens] = useState(0);
+  // Once a web tab has been opened its page stays loaded (hidden) so going back to it is instant instead of a reload.
+  const [webLive, setWebLive] = useState(false);
   const [canGoBack, setCanGoBack] = useState(false);
   const [failed, setFailed] = useState(false);
   // The sign-in, read off the phone at start-up: undefined while it is being read, null when nobody is signed in.
@@ -140,6 +142,8 @@ function Shell() {
   const nativeMap = NATIVE_MAP && !mapFailed;
   const NATIVE_TABS = nativeMap ? BASE_TABS.concat('map') : BASE_TABS;
   const signedIn = !!session;
+  const sessionKey = session ? session.user_id || 'in' : 'out';
+  useEffect(() => { setWebLive(false); }, [sessionKey]);   // a different sign-in needs a fresh page
   const onWeb = !NATIVE_TABS.includes(tab);
   const f = useFrendzy(signedIn && !authOwns, onWeb);
   const me = f.state && f.state.me;
@@ -238,7 +242,7 @@ function Shell() {
     if (next === tab) return;
     // 'you' and 'crews' remember where they were opened from; from Crews to You, back goes where Crews came from.
     if (next === 'you' || next === 'crews') setBefore(tab === 'crews' ? (before === 'you' ? 'home' : before) : tab === 'venue' ? venueFrom.current : tab);
-    if (!NATIVE_TABS.includes(next) && onWeb && web.current) {
+    if (!NATIVE_TABS.includes(next) && webLive && web.current) {
       web.current.injectJavaScript('window.FrendzyNative && window.FrendzyNative.go(' + JSON.stringify(next) + '); true;');
       setTab(next);
       return;
@@ -246,8 +250,8 @@ function Shell() {
     setFailed(false);
     setTab(next);
     setVenue(null);
-    if (!NATIVE_TABS.includes(next)) { setPage(WEB_URL); setOpens((n) => n + 1); }
-  }, [tab, onWeb, nativeMap]);
+    if (!NATIVE_TABS.includes(next)) { setPage(WEB_URL); setOpens((n) => n + 1); setWebLive(true); }
+  }, [tab, webLive, nativeMap]);
 
   // The native map can't be shown (the "simple map" link, or the map failed): the Map tab becomes the packed web map.
   const webMap = useCallback(() => {
@@ -420,7 +424,8 @@ function Shell() {
   return (
     <Layer glow={me ? me.colour : undefined}>
       <Swipe tab={tab === 'venue' ? 'home' : tab} onPick={pickTab}>
-      {onWeb ? webView
+      {webLive || onWeb ? <View style={onWeb ? styles.fill : styles.hidden}>{webView}</View> : null}
+      {onWeb ? null
         : tab === 'map' ? <MapGuard onFail={webMap}><MapTab f={f} onOpenWeb={pickTab} onVenue={(id) => openVenue(id, 'map')} onWebMap={webMap} /></MapGuard>
         : tab === 'you' ? <You f={f} onOpenWeb={pickTab} onSignedOut={signedOut} />
         : tab === 'crews' ? <Crews f={f} onBack={() => setTab(before)} onPlanned={() => pickTab('sesh')} />
@@ -458,6 +463,7 @@ const styles = themed(() => StyleSheet.create({
   fill: { flex: 1, backgroundColor: C.bg },
   clear: { backgroundColor: 'transparent' },
   clearFill: { flex: 1, backgroundColor: 'transparent' },
+  hidden: { display: 'none' },
   offline: { flex: 1, backgroundColor: C.bg, alignItems: 'center', justifyContent: 'center', padding: 32 },
   title: { color: C.fg, fontSize: 24, fontWeight: '800', marginBottom: 12 },
   body: { color: C.fg, opacity: 0.8, fontSize: 16, lineHeight: 22, textAlign: 'center', marginBottom: 24 },
