@@ -241,7 +241,8 @@ To switch it on, in this order:
 ## Google ratings (optional, paid)
 
 Venue cards can show a venue's Google rating ("4.4 ★ on Google Maps (812)") next to Frendzy's own
-ratings. It is **off** until switched on, and each look-up is billed by Google to your Google Cloud
+ratings, on the website and on the phone app's map card (mobile/src/google.ts). It shows nothing until the
+key is set up (the function answers "not set up" and the app stops asking), and each look-up is billed by Google to your Google Cloud
 account. Google's terms allow keeping a venue's Google place ID but not its rating, so the rating is
 fetched fresh each time someone opens a venue, and each person is limited to 100 look-ups a day.
 
@@ -257,6 +258,6 @@ To switch it on:
 3. In Supabase, go to Edge Functions, create a function called `google-rating` with
    `supabase/functions/google-rating/index.ts`, and turn **Verify JWT** off (it checks the sign-in itself).
    Or: `supabase functions deploy google-rating --no-verify-jwt`.
-4. In Edge Functions, Secrets, add `GOOGLE_PLACES_KEY` with the key.
-5. In `docs/config.js`, set `googleRatings: true`.
+4. In Edge Functions, Secrets, add `GOOGLE_PLACES_KEY` with the key. That's all: `googleRatings` in
+   `docs/config.js` is already `true`, so ratings appear as soon as the secret is saved.
 
