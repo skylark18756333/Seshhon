@@ -21,6 +21,7 @@
   var COLORS = { on: 'var(--on)', thinking: 'var(--thinking)', off: 'var(--off)' };
   var LABELS = { on: 'Green', thinking: 'Amber', off: 'Red' };
   var STOPS = ['on', 'thinking', 'off'];   // left to right on the status switch: G, A, R
+  var SWITCH = ['off', 'thinking', 'on'];   // left to right on the status switch and the top logo: R, A, G (as the phone app)
   var STATUS_ICON = { on: 'tick', thinking: 'query', off: 'cross' };
   var TAGS = ['Good vibe', 'Good value', 'Fast service'];
   var RADIUS_KEY = 'seshon-radius-km';
@@ -594,11 +595,11 @@
   // Signed in (live), the traffic light is the status switch: tap a light to change it from any screen.
   function logo(status, live) {
     if (live) return '<div class="logo"><div class="wordmark">Crewzy</div><div class="dots switch" role="group" aria-label="Your status">' +
-      STOPS.map(function (k) {
+      SWITCH.map(function (k) {
         return '<button data-act="status-here" data-v="' + k + '" aria-label="Switch to ' + LABELS[k] + '" aria-pressed="' + (k === status) + '"><i style="--c:' + COLORS[k] + '"' + (k === status ? ' class="lit"' : '') + '></i></button>';
       }).join('') + '</div></div>';
     return '<div class="logo"><div class="wordmark">Crewzy</div><div class="dots' + (status ? '' : ' all') + '" aria-hidden="true">' +
-      STOPS.map(function (k) { return '<i style="--c:' + COLORS[k] + '"' + (k === status ? ' class="lit"' : '') + '></i>'; }).join('') + '</div></div>';
+      SWITCH.map(function (k) { return '<i style="--c:' + COLORS[k] + '"' + (k === status ? ' class="lit"' : '') + '></i>'; }).join('') + '</div></div>';
   }
 
   /* ---------- screens ---------- */
@@ -730,8 +731,8 @@
     var h = '<section class="stack"><div class="eyebrow">Your status</div>' +
       '<div class="status-word" id="status-word" style="color:' + COLORS[s] + '">' + copy[0] + '</div>' +
       '<p class="muted">' + copy[1] + (s !== 'off' && me.expires_at ? ' Back to red in <span data-until="' + new Date(me.expires_at).getTime() + '" data-kind="status">' + fmtLeft(new Date(me.expires_at).getTime() - now()) + '</span>.' : '') + '</p>' +
-      '<div class="slide" id="status-slide" role="group" aria-label="Set your status" style="--c:' + COLORS[s] + ';--i:' + STOPS.indexOf(s) + '"><span class="knob"></span>' +
-      STOPS.map(function (k) {
+      '<div class="slide" id="status-slide" role="group" aria-label="Set your status" style="--c:' + COLORS[s] + ';--i:' + SWITCH.indexOf(s) + '"><span class="knob"></span>' +
+      SWITCH.map(function (k) {
         return '<button class="stop" style="--l:' + COLORS[k] + '" data-act="status" data-v="' + k + '" aria-label="' + LABELS[k] + '" aria-pressed="' + (s === k) + '">' + svg(STATUS_ICON[k], 28) + '</button>';
       }).join('') + '</div></section>';
 
@@ -2406,15 +2407,15 @@
   var drag = null, swallowClick = false;
   function moveKnob(v) {
     var el = document.getElementById('status-slide');
-    if (!el || STOPS.indexOf(v) < 0) return;
-    el.style.setProperty('--i', STOPS.indexOf(v));
+    if (!el || SWITCH.indexOf(v) < 0) return;
+    el.style.setProperty('--i', SWITCH.indexOf(v));
     el.style.setProperty('--c', COLORS[v]);
     [].forEach.call(el.querySelectorAll('.stop'), function (b) { b.setAttribute('aria-pressed', String(b.getAttribute('data-v') === v)); });
   }
   document.addEventListener('pointerdown', function (e) {
     var el = e.target.closest('#status-slide');
     if (!el || (e.pointerType === 'mouse' && e.button !== 0)) return;
-    var start = STOPS.indexOf(D && D.me ? D.me.colour : 'off');
+    var start = SWITCH.indexOf(D && D.me ? D.me.colour : 'off');
     drag = { el: el, knob: el.querySelector('.knob'), id: e.pointerId, x0: e.clientX, t0: Date.now(), start: start, at: start,
       step: (el.getBoundingClientRect().width - 10) / 3, moved: false };
   });
@@ -2430,7 +2431,7 @@
     var pos = Math.max(0, Math.min(2 * drag.step, drag.start * drag.step + dx));
     drag.knob.style.transform = 'translateX(' + pos + 'px)';
     var at = Math.round(pos / drag.step);
-    if (at !== drag.at) { drag.at = at; drag.el.style.setProperty('--c', COLORS[STOPS[at]]); if (navigator.vibrate) navigator.vibrate(8); }
+    if (at !== drag.at) { drag.at = at; drag.el.style.setProperty('--c', COLORS[SWITCH[at]]); if (navigator.vibrate) navigator.vibrate(8); }
   });
   function endDrag(e, cancelled) {
     if (!drag || e.pointerId !== drag.id) return;
@@ -2442,9 +2443,9 @@
     var at = d.at, dx = e.clientX - d.x0;
     // A quick flick moves at least one stop in the direction of the flick.
     if (!cancelled && at === d.start && Math.abs(dx) > 20 && Date.now() - d.t0 < 300) at = Math.max(0, Math.min(2, d.start + (dx > 0 ? 1 : -1)));
-    var v = STOPS[cancelled ? d.start : at];
+    var v = SWITCH[cancelled ? d.start : at];
     if (D && D.me && v !== D.me.colour) ACT.status(v);
-    else { moveKnob(STOPS[d.start]); render(); }
+    else { moveKnob(SWITCH[d.start]); render(); }
   }
   document.addEventListener('pointerup', function (e) { endDrag(e, false); });
   document.addEventListener('pointercancel', function (e) { endDrag(e, true); });
