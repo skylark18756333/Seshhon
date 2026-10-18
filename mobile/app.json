@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Frendzy",
+    "name": "Crewzy",
     "slug": "seshhon",
     "scheme": "seshhon",
     "version": "1.1.0",
@@ -20,8 +20,8 @@
         "usesNonExemptEncryption": false
       },
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "Frendzy uses your location to show venues near you and how far away they are.",
-        "NSCameraUsageDescription": "Frendzy uses your camera for the 18+ age check selfie. The photo goes to our age check provider and is not kept by Frendzy."
+        "NSLocationWhenInUseUsageDescription": "Crewzy uses your location to show venues near you and how far away they are.",
+        "NSCameraUsageDescription": "Crewzy uses your camera for the 18+ age check selfie. The photo goes to our age check provider and is not kept by Crewzy."
       }
     },
     "android": {
@@ -67,15 +67,15 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Frendzy uses your photos so you can pick a profile photo. Only your friends see it.",
-          "cameraPermission": "Frendzy uses your camera for the 18+ age check selfie. The photo goes to our age check provider and is not kept by Frendzy.",
+          "photosPermission": "Crewzy uses your photos so you can pick a profile photo. Only your friends see it.",
+          "cameraPermission": "Crewzy uses your camera for the 18+ age check selfie. The photo goes to our age check provider and is not kept by Crewzy.",
           "microphonePermission": false
         }
       ],
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "Frendzy uses your location to show venues near you and how far away they are.",
+          "locationWhenInUsePermission": "Crewzy uses your location to show venues near you and how far away they are.",
           "isAndroidBackgroundLocationEnabled": false,
           "isAndroidForegroundServiceEnabled": false
         }

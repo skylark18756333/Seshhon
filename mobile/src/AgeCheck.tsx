@@ -66,9 +66,9 @@ export default function AgeCheck({ onPassed }: { onPassed: () => void | Promise<
   return (
     <Page>
       <Text style={styles.h1}>Quick age check</Text>
-      <Text style={styles.muted}>Frendzy is for people aged 18 and over. {who} checks your age with a quick selfie. If it can't tell from your face, it asks you to show ID instead.</Text>
+      <Text style={styles.muted}>Crewzy is for people aged 18 and over. {who} checks your age with a quick selfie. If it can't tell from your face, it asks you to show ID instead.</Text>
       <Text style={[styles.muted, styles.small]}>
-        {who} only tells us whether you passed. Frendzy never sees or keeps your photo or ID. See the{' '}
+        {who} only tells us whether you passed. Crewzy never sees or keeps your photo or ID. See the{' '}
         <Text style={styles.link} onPress={() => Linking.openURL(WEB_URL + 'privacy.html').catch(() => {})}>Privacy Policy</Text>.
       </Text>
       {note ? <Text style={styles.error}>{note}</Text> : null}

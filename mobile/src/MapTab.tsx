@@ -415,7 +415,7 @@ function PickCard({ ven, v, geo, mine, stop, crawlOff, crawlFull, onClose, onOpe
         </View>
         <Pressable onPress={onClose} accessibilityRole="button" accessibilityLabel="Close" style={styles.round}><Icon name="close" size={18} colour={C.fg} /></Pressable>
       </View>
-      <Text style={styles.small}>{ven.ratings ? Number(ven.average).toFixed(1) + ' ★ on Frendzy (' + ven.ratings + ')' : 'No Frendzy ratings yet'}</Text>
+      <Text style={styles.small}>{ven.ratings ? Number(ven.average).toFixed(1) + ' ★ on Crewzy (' + ven.ratings + ')' : 'No Crewzy ratings yet'}</Text>
       <View style={styles.stars} accessibilityLabel={'Rate ' + ven.name}>
         {[1, 2, 3, 4, 5].map((n) => (
           <Pressable key={n} onPress={() => onRate(n)} testID={'star-' + n} accessibilityRole="button" accessibilityLabel={'Rate ' + n + ' star' + (n > 1 ? 's' : '')}

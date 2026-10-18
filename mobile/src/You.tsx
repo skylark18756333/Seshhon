@@ -4,7 +4,7 @@
 // Settings are drop-down sections, as on the web: tap a title to open or close it. Each remembers whether it
 // is open while you move between tabs, and one with something waiting for you (a question, a form step) is
 // always open.
-// Left out on purpose: "Put Frendzy on your home screen" (this is the app on the home screen already) and the
+// Left out on purpose: "Put Crewzy on your home screen" (this is the app on the home screen already) and the
 // staff deal-code card (deals are switched off in docs/config.js).
 import Constants from 'expo-constants';
 import * as ImagePicker from 'expo-image-picker';
@@ -88,7 +88,7 @@ export default function You({ f, onOpenWeb, onSignedOut }: { f: Frendzy; onOpenW
     const r = await enablePush();
     setPermission(await pushPermission());
     if (r === 'on') { f.say('Notifications are on.'); loadPushSettings().then(setPush); }
-    else if (r === 'denied') f.say("Notifications are blocked. Turn them on for Frendzy in your phone's settings.");
+    else if (r === 'denied') f.say("Notifications are blocked. Turn them on for Crewzy in your phone's settings.");
     else f.say("Notifications aren't available on this phone yet.");
   };
   const switchPush = (kind: string, on: boolean) => {
@@ -152,7 +152,7 @@ export default function You({ f, onOpenWeb, onSignedOut }: { f: Frendzy; onOpenW
 
   const share = () => {
     setLinkShown(true);
-    Share.share({ title: 'Frendzy', message: "Add me on Frendzy so we can see when we're both up for a sesh. " + inviteLink }).catch(() => {});
+    Share.share({ title: 'Crewzy', message: "Add me on Crewzy so we can see when we're both up for a sesh. " + inviteLink }).catch(() => {});
   };
 
   const addFriend = () => {
@@ -246,7 +246,7 @@ export default function You({ f, onOpenWeb, onSignedOut }: { f: Frendzy; onOpenW
   };
   const confirmApp = async () => {
     const code = appCode.replace(/\D/g, '');
-    if (code.length !== 6) { setAppError('Enter the 6-digit code the app shows for Frendzy.'); return; }
+    if (code.length !== 6) { setAppError('Enter the 6-digit code the app shows for Crewzy.'); return; }
     setAppBusy(true); setAppError('');
     try {
       const r = await rpc('totp_confirm', { p_code: code });
@@ -355,7 +355,7 @@ export default function You({ f, onOpenWeb, onSignedOut }: { f: Frendzy; onOpenW
                 </Text>
               </View>
             ) : null}
-            <Text style={[styles.muted, styles.small]}>Not on Frendzy yet? Send them your invite link. When they sign up you get a friend request to accept.</Text>
+            <Text style={[styles.muted, styles.small]}>Not on Crewzy yet? Send them your invite link. When they sign up you get a friend request to accept.</Text>
             <Button label="Send your invite link" ghost onPress={share} />
             {linkShown ? (
               <>
@@ -445,12 +445,12 @@ export default function You({ f, onOpenWeb, onSignedOut }: { f: Frendzy; onOpenW
           {push && push !== 'off' && push.kinds.length ? (
             <Section k="notifications" title="Notifications" hint={permission === 'granted' && push.registered ? 'On' : 'Off'} onToggle={toggle}>
               <Text style={[styles.muted, styles.small]}>
-                Choose what Frendzy can ping you about. Notifications only say who it is from. They never show where anyone is, and nothing is sent about someone who has hidden their status from you.
+                Choose what Crewzy can ping you about. Notifications only say who it is from. They never show where anyone is, and nothing is sent about someone who has hidden their status from you.
               </Text>
               {permission === 'granted' && push.registered ? null : (
                 <View style={styles.stack8}>
                   <Text style={[styles.muted, styles.small]}>
-                    {permission === 'denied' ? "Notifications are blocked for Frendzy on this phone. Turn them on in your phone's settings." : 'Notifications are off on this phone.'}
+                    {permission === 'denied' ? "Notifications are blocked for Crewzy on this phone. Turn them on in your phone's settings." : 'Notifications are off on this phone.'}
                   </Text>
                   <View style={styles.start}>
                     {permission === 'denied'
@@ -535,7 +535,7 @@ export default function You({ f, onOpenWeb, onSignedOut }: { f: Frendzy; onOpenW
               <Section k="app" title="Authenticator app" hint={a.app ? 'On' : appSetup ? undefined : 'Off'} force={!!appSetup || confirm === 'app-off'} onToggle={toggle}>
                 {a.app ? (
                   <>
-                    <Text style={[styles.muted, styles.small]}>On. New logins ask for the 6-digit code your authenticator app shows for Frendzy{a.email ? ', or you can get a code by email instead.' : '.'}</Text>
+                    <Text style={[styles.muted, styles.small]}>On. New logins ask for the 6-digit code your authenticator app shows for Crewzy{a.email ? ', or you can get a code by email instead.' : '.'}</Text>
                     {confirm === 'app-off' ? (
                       <>
                         <Text style={[styles.muted, styles.small]}>Turn it off? New logins will only need {a.email ? 'your password and an email code.' : 'your password.'}</Text>
@@ -551,7 +551,7 @@ export default function You({ f, onOpenWeb, onSignedOut }: { f: Frendzy; onOpenW
                     <Text style={[styles.muted, styles.small]}>1. Tap Open in authenticator app. Or, in your authenticator app, add an account and type in this key:</Text>
                     <View style={styles.start}><Button small ghost label="Open in authenticator app" onPress={() => Linking.openURL(appSetup.uri).catch(() => f.say('No authenticator app found. Install one, or type the key into it.'))} /></View>
                     <Text selectable style={styles.linkbox} testID="app-secret">{appSetup.secret.replace(/(.{4})/g, '$1 ').trim()}</Text>
-                    <Text style={[styles.muted, styles.small]}>2. Type the 6-digit code the app now shows for Frendzy.</Text>
+                    <Text style={[styles.muted, styles.small]}>2. Type the 6-digit code the app now shows for Crewzy.</Text>
                     <Field label="Code from the app">
                       <TextInput style={styles.input} value={appCode} onChangeText={setAppCode} onSubmitEditing={confirmApp} keyboardType="number-pad"
                         autoComplete="one-time-code" textContentType="oneTimeCode" maxLength={7} accessibilityLabel="Code from the app" />
@@ -594,7 +594,7 @@ export default function You({ f, onOpenWeb, onSignedOut }: { f: Frendzy; onOpenW
           ) : null}
 
           <Section k="account" title="Your account" force={confirm === 'delete'} onToggle={toggle}>
-            <Text style={[styles.muted, styles.small]}>{a ? 'You can log in on any phone with your username and password.' : 'Your account lives in this app on this phone.'} If Frendzy staff ask for your account ID, it's this:</Text>
+            <Text style={[styles.muted, styles.small]}>{a ? 'You can log in on any phone with your username and password.' : 'Your account lives in this app on this phone.'} If Crewzy staff ask for your account ID, it's this:</Text>
             <Text selectable style={styles.linkbox}>{me.id}</Text>
             {confirm === 'delete' ? (
               <>
@@ -608,7 +608,7 @@ export default function You({ f, onOpenWeb, onSignedOut }: { f: Frendzy; onOpenW
           </Section>
 
           <Section k="look" title="Look" hint={(LOOKS.find((l) => l.id === currentLook()) || LOOKS[0]).name} onToggle={toggle}>
-            <Text style={[styles.muted, styles.small]}>Pick how Frendzy looks on this phone. The map, venues and events tabs keep the dark look for now.</Text>
+            <Text style={[styles.muted, styles.small]}>Pick how Crewzy looks on this phone. The map, venues and events tabs keep the dark look for now.</Text>
             {LOOKS.map((l) => {
               const here = l.id === currentLook();
               return (
@@ -630,7 +630,7 @@ export default function You({ f, onOpenWeb, onSignedOut }: { f: Frendzy; onOpenW
             })}
           </Section>
 
-          <Section k="tour" title="How Frendzy works" onToggle={toggle}>
+          <Section k="tour" title="How Crewzy works" onToggle={toggle}>
             <Text style={[styles.muted, styles.small]}>A quick look at status, friends, seshes and the map.</Text>
             <View style={styles.start}><Button small ghost label="Show the tour" onPress={() => setTour(true)} /></View>
           </Section>

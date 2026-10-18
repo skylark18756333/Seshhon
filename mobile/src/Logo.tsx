@@ -1,4 +1,4 @@
-// The Frendzy name in neon, with the speech bubble of three status lights beside it (see tools/live/icon.html).
+// The Crewzy name in neon, with the speech bubble of three status lights beside it (see tools/live/icon.html).
 // Signed in, the bubble is the status switch: tap a light to change your status from the top of any screen.
 import React, { useEffect, useRef } from 'react';
 import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
@@ -19,7 +19,7 @@ export default function Logo({ status, onPick }: { status?: Colour; onPick?: (c:
   const mode = status ? COLOURS[status] : '#fff';
   return (
     <View style={styles.logo}>
-      <Text style={styles.wordmark}>frendzy</Text>
+      <Text style={styles.wordmark}>crewzy</Text>
       <View style={[styles.bubble, { borderColor: mode, shadowColor: mode }]}>
         {status ? (
           <Animated.View pointerEvents="none" style={[styles.knob, { transform: [{ translateX: slide.interpolate({ inputRange: [0, 1, 2], outputRange: [0, SLOT, SLOT * 2] }) }] }]}>

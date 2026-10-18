@@ -15,7 +15,7 @@ export const PAGE_KEYS = [DEVICE_KEY, LAST_USER_KEY, TOUR_KEY];
 const PAGE_STORE_KEY = 'seshhon-page-store';
 // Kept by the native sign-up and login screens (the web page keeps the same things in its own storage).
 const INVITE_KEY = 'seshhon-pending-invite';   // the invite code from a link, until the friend request is sent
-const UNDERAGE_KEY = 'seshhon-under-18';       // this phone was told Frendzy is for 18 and over
+const UNDERAGE_KEY = 'seshhon-under-18';       // this phone was told Crewzy is for 18 and over
 
 export type Session = {
   access_token: string;
@@ -264,7 +264,7 @@ export async function rpc<T = any>(fn: string, args?: Record<string, unknown>, r
   try { json = text ? JSON.parse(text) : null; } catch (e) {}
   if (!res.ok && json && json.code === 'PGRST202') {
     // The database is missing a function this app calls: an update in supabase/ has not been run yet.
-    const old: ApiError = new Error('Frendzy is being updated. Try again soon.');
+    const old: ApiError = new Error('Crewzy is being updated. Try again soon.');
     old.missing = true;
     throw old;
   }

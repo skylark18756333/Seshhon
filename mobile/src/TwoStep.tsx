@@ -59,7 +59,7 @@ export default function TwoStep({ onDone, onCancel }: { onDone: () => void; onCa
   return (
     <Page>
       <Text style={styles.h1}>{byApp ? 'Enter your app code' : 'Check your email'}</Text>
-      {byApp ? <Text style={styles.muted}>Open your authenticator app and type the 6-digit code it shows for Frendzy.</Text> : note ? <Text style={styles.muted}>{note}</Text> : null}
+      {byApp ? <Text style={styles.muted}>Open your authenticator app and type the 6-digit code it shows for Crewzy.</Text> : note ? <Text style={styles.muted}>{note}</Text> : null}
       <View style={styles.stack16}>
         <Field label={byApp ? 'Code from your authenticator app' : 'Code from the email'}>
           <TextInput style={styles.input} value={code} onChangeText={setCode} onSubmitEditing={submit} keyboardType="number-pad"

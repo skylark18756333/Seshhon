@@ -17,8 +17,8 @@ function steps(name: string): Step[] {
   return [
     {
       art: <View style={styles.bigLogo}><Logo /></View>,
-      title: name ? 'Welcome, ' + name + '.' : 'Welcome to Frendzy.',
-      body: "Frendzy is for getting off your phone and out with your mates. Here's how it works in five quick steps."
+      title: name ? 'Welcome, ' + name + '.' : 'Welcome to Crewzy.',
+      body: "Crewzy is for getting off your phone and out with your mates. Here's how it works in five quick steps."
     },
     {
       art: <View style={styles.bigLogo}><Logo status="on" /></View>,
@@ -45,7 +45,7 @@ function steps(name: string): Step[] {
         </View>
       ),
       title: 'Bring your friends',
-      body: 'Frendzy only works with friends on it. Send them your invite link, then accept their request. Friends show up as faces lit in their status colour, and only friends see your photo.'
+      body: 'Crewzy only works with friends on it. Send them your invite link, then accept their request. Friends show up as faces lit in their status colour, and only friends see your photo.'
     },
     {
       art: (

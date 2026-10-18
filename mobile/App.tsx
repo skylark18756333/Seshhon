@@ -1,4 +1,4 @@
-// Frendzy phone app. Signing up, logging in (with its email code and the 18+ check), Home, Sesh and You are native
+// Crewzy phone app. Signing up, logging in (with its email code and the 18+ check), Home, Sesh and You are native
 // screens; the map, venues and events tabs are the web app in docs/, packed into the app by scripts/bundle-web.mjs,
 // so they open on their own without loading the website. Only the "are you human" check and the age check
 // provider's page are web pages on the sign-up and login screens. Both halves talk to the same database over the internet.
@@ -333,7 +333,7 @@ function Shell() {
     return (
       <Layer><View style={styles.offline}>
         <Text style={styles.title}>No connection</Text>
-        <Text style={styles.body}>Frendzy needs the internet to see who's out. Check your signal and try again.</Text>
+        <Text style={styles.body}>Crewzy needs the internet to see who's out. Check your signal and try again.</Text>
         <Pressable style={styles.button} onPress={() => { setFailed(false); f.retry(); web.current?.reload(); }} accessibilityRole="button">
           <Text style={styles.buttonText}>Try again</Text>
         </Pressable>
@@ -345,7 +345,7 @@ function Shell() {
     return (
       <Layer><View style={styles.offline}>
         <Text style={styles.title}>No connection</Text>
-        <Text style={styles.body}>Frendzy needs the internet to see who's out. Check your signal and try again.</Text>
+        <Text style={styles.body}>Crewzy needs the internet to see who's out. Check your signal and try again.</Text>
         <Pressable style={styles.button} onPress={f.retry} accessibilityRole="button">
           <Text style={styles.buttonText}>Try again</Text>
         </Pressable>
