@@ -21,6 +21,7 @@ import { MapGuard } from './src/MapGuard';
 import AgeCheck from './src/AgeCheck';
 import Auth, { type AuthDone, type AuthStart } from './src/Auth';
 import Crews from './src/Crews';
+import Messages from './src/Messages';
 import { Glow, Toast } from './src/Parts';
 import { askAfterTour, registerPushToken, watchNotificationTaps } from './src/push';
 import Sesh from './src/Sesh';
@@ -42,7 +43,7 @@ const AGE_CHECK_HOSTS = ['https://verify.didit.me/', 'https://age.yoti.com'];
 // Runs in the page before its own script: the page's "share" button uses the phone's share sheet, the page
 // starts on the tab the app asked for, and it starts signed in as whoever the app is signed in as.
 const PAGE_TABS = ['home', 'sesh', 'map', 'venues', 'events', 'you'];
-const BASE_TABS = ['home', 'sesh', 'you', 'crews'];   // the tabs with a native screen ('crews' is opened from You or Home, and shows You in the tab bar)
+const BASE_TABS = ['home', 'sesh', 'you', 'crews', 'messages'];   // the tabs with a native screen ('crews' is opened from You or Home, and shows You in the tab bar)
 // venue: open the page on that venue's page (from the native Sesh tab); closing it goes back to the Sesh tab.
 function bridge(tab: string | null, venue: string | null): string {
   const saved = sessionForPage();
@@ -183,6 +184,7 @@ function Shell() {
       if (onWeb && canGoBack && web.current) { web.current.goBack(); return true; }
       if (onWeb && native) { setTab(tab === 'venue' ? venueFrom.current : 'home'); return true; }
       if (native && (tab === 'you' || tab === 'crews')) { setTab(before); return true; }
+      if (native && tab === 'messages') { setTab('home'); return true; }
       return false;
     });
     return () => sub.remove();
@@ -428,10 +430,11 @@ function Shell() {
       {onWeb ? null
         : tab === 'map' ? <MapGuard onFail={webMap}><MapTab f={f} onOpenWeb={pickTab} onVenue={(id) => openVenue(id, 'map')} onWebMap={webMap} /></MapGuard>
         : tab === 'you' ? <You f={f} onOpenWeb={pickTab} onSignedOut={signedOut} />
+        : tab === 'messages' ? <Messages f={f} onBack={() => setTab('home')} />
         : tab === 'crews' ? <Crews f={f} onBack={() => setTab(before)} onPlanned={() => pickTab('sesh')} />
         : <Sesh f={f} onOpenWeb={pickTab} onVenue={openVenue} />}
       </Swipe>
-      <Tabs tab={tab === 'venue' ? 'home' : tab === 'crews' ? 'you' : tab} requests={f.state ? f.state.requests_in.length : 0} onPick={pickTab} />
+      <Tabs tab={tab === 'venue' ? 'home' : tab === 'crews' ? 'you' : tab === 'messages' ? 'home' : tab} requests={f.state ? f.state.requests_in.length : 0} onPick={pickTab} />
       {tour && me ? <Tour name={first(me.name)} onClose={() => { clearTour(); setTour(false); askAfterTour().catch(() => {}); }} /> : null}
     </Layer>
   );
