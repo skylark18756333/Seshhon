@@ -1,10 +1,10 @@
-// Swipe left or right to move between Home, Sesh, Map and Events. On the native screens (Home, Sesh) a swipe anywhere
+// Swipe left or right to move between Home, Map and Events. On the native Home screen a swipe anywhere
 // works; on the map and the packed web screens it only starts from the very edge of the screen, so panning the map
 // and scrolling the pages keep working.
 import React, { useRef } from 'react';
 import { PanResponder, StyleSheet, View, useWindowDimensions } from 'react-native';
 
-const ORDER = ['home', 'sesh', 'map', 'events'];
+const ORDER = ['home', 'map', 'events'];
 const EDGE = 28;
 
 export default function Swipe({ tab, onPick, children }: { tab: string; onPick: (tab: string) => void; children: React.ReactNode }) {
@@ -21,7 +21,7 @@ export default function Swipe({ tab, onPick, children }: { tab: string; onPick: 
     // A sideways drag nothing else wanted (not a vertical scroll, not a text field).
     onMoveShouldSetPanResponder: (_e, g) => {
       const t = live.current.tab;
-      return (t === 'home' || t === 'sesh') && Math.abs(g.dx) > 18 && Math.abs(g.dx) > Math.abs(g.dy) * 2;
+      return t === 'home' && Math.abs(g.dx) > 18 && Math.abs(g.dx) > Math.abs(g.dy) * 2;
     },
     onPanResponderTerminationRequest: () => false,
     onPanResponderRelease: (_e, g) => {
