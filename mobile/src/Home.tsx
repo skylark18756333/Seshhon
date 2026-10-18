@@ -2,30 +2,26 @@
 // It shows the same things in the same words as home() in docs/app.js.
 import React, { useEffect, useRef, useState } from 'react';
 import { Animated, PanResponder, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
-import type { Colour, Friend, Sesh } from './api';
+import type { Colour, Friend } from './api';
 import { CatchUpCards } from './Crews';
-import { Button, Face, Toast, TopBar } from './Parts';
+import { Button, Face } from './Parts';
 import type { Frendzy } from './useFrendzy';
 import { C, COLOURS, F, LABELS, STATUS_COPY, fade, first, fmtLeft, initials, themed } from './theme';
-import { useVenues, type Venues } from './venues';
 
 const INVITE_BASE = 'https://frendzy.au/';
 // The big switch runs red, amber, green from left to right.
 const SWITCH: Colour[] = ['off', 'thinking', 'on'];
 
-export default function Home({ f, onOpenWeb }: { f: Frendzy; onOpenWeb: (tab: string) => void }) {
+export function HomeTop({ f, onOpenWeb }: { f: Frendzy; onOpenWeb: (tab: string) => void }) {
   const me = f.state && f.state.me;
   const [linkShown, setLinkShown] = useState(false);
   const [friendName, setFriendName] = useState('');
   const [adding, setAdding] = useState(false);
-  const v = useVenues();
   if (!me) return null;
   const colour = me.colour;
   const copy = STATUS_COPY[colour];
   const friends = f.state ? f.state.friends : [];
   const requests = f.state ? f.state.requests_in : [];
-  const nights = (f.state ? f.state.seshes : []).filter((s) => !(s.planned && s.starts_at && new Date(s.starts_at).getTime() > Date.now()))
-    .sort((x, y) => Number(y.am_member) - Number(x.am_member));
   // Only friends on green show here. Red friends are never shown. Amber friends stay out of sight until friends can choose to allow it.
   const greens = friends.filter((x) => x.colour === 'on');
 
@@ -36,10 +32,7 @@ export default function Home({ f, onOpenWeb }: { f: Frendzy; onOpenWeb: (tab: st
   };
 
   return (
-    <View style={styles.fill}>
-      <TopBar f={f} onOpenWeb={onOpenWeb} />
-
-      <ScrollView style={styles.fill} contentContainerStyle={styles.view} keyboardShouldPersistTaps="handled">
+    <>
         {/* Your status: one card with the word, how long it lasts, and the switch to change it. */}
         <StatusCard colour={colour} word={copy[0]} note={colour !== 'off' && me.expires_at ? <Until at={me.expires_at} /> : copy[1]} onPick={(c) => { if (c !== colour) f.setColour(c); }} />
 
@@ -121,46 +114,20 @@ export default function Home({ f, onOpenWeb }: { f: Frendzy; onOpenWeb: (tab: st
             {!greens.length ? <Text style={[styles.muted, styles.small]}>No friends are green right now.</Text> : null}
           </View>
         )}
-
-        {/* Tonight: your own sesh, then friends' live seshes you can join. */}
-        {colour !== 'off' ? nights.map((s) => <NightCard key={s.id} s={s} f={f} v={v} onOpenWeb={onOpenWeb} />) : null}
-
-        {friends.length ? <CatchUpCards f={f} onPlanned={() => onOpenWeb('sesh')} /> : null}
-
-        {friends.length && colour === 'thinking' ? <Button label="See what's on tonight" colour={C.thinking} ink onPress={() => onOpenWeb('events')} /> : null}
-        {friends.length && colour !== 'on'   // planning works on any colour (migration 0033)
-          ? <Button label="Plan a sesh for later" icon="clock" ghost onPress={() => onOpenWeb('sesh')} /> : null}
-        {friends.length ? <Button label="Crews and besties" ghost onPress={() => onOpenWeb('crews')} testID="home-crews" /> : null}
-      </ScrollView>
-
-      <Toast text={f.toast} />
-    </View>
+    </>
   );
 }
 
-// A live sesh as a card: whose night it is, where they're heading, who's in, and Join or Open.
-function NightCard({ s, f, v, onOpenWeb }: { s: Sesh; f: Frendzy; v: Venues; onOpenWeb: (tab: string) => void }) {
-  const host = s.members.filter((m) => m.name === s.creator_name)[0] || s.members[0];
-  const place = s.locked_venue && v.byId[s.locked_venue] ? v.byId[s.locked_venue].name : null;
-  const others = s.members.filter((m) => !host || m.id !== host.id);
-  const title = s.am_member ? (s.mine ? 'Your sesh' : first(s.creator_name) + "'s sesh, you're in") : first(s.creator_name) + "'s night";
+// What sits under the sesh part of the page: catch-ups, the events and crews buttons.
+export function HomeBottom({ f, onOpenWeb }: { f: Frendzy; onOpenWeb: (tab: string) => void }) {
+  const me = f.state && f.state.me;
+  const friends = f.state ? f.state.friends : [];
+  if (!me) return null;
+  const colour = me.colour;
   return (
-    <View style={[styles.card, styles.night]} testID={'night-' + s.id}>
-      <View style={styles.row}>
-        {host ? <Face id={host.id} name={host.name} photos={f.photos} size={40} font={14} /> : null}
-        <View style={styles.grow}>
-          <Text style={styles.strongBody}>{title}</Text>
-          <Text style={[styles.muted, styles.small]}>Live now, {s.members.length} in</Text>
-        </View>
-      </View>
-      <Text style={styles.nightPlace}>{place || 'Still choosing where'}</Text>
-      {others.length ? <Text style={[styles.muted, styles.small]}>{others.map((m) => first(m.name)).join(', ')} {others.length === 1 ? 'is' : 'are'} in too.</Text> : null}
-      <View style={styles.row}>
-        {s.am_member
-          ? <Button small label="Open the sesh" onPress={() => onOpenWeb('sesh')} />
-          : <Button small label="Join them" onPress={() => f.act('join_sesh', { p_sesh: s.id }, "You're in.").then((r) => { if (r !== null) onOpenWeb('sesh'); })} />}
-      </View>
-    </View>
+    <>
+
+    </>
   );
 }
 

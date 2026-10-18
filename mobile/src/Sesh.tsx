@@ -6,6 +6,7 @@
 // The two small street maps of the web Sesh tab (the route to the locked-in venue, and the crawl's map) are
 // not drawn here: "See venue" opens the web venue page, which has the map, and the crawl is drawn as a plain
 // sketch of its stops in order.
+import { HomeBottom, HomeTop } from './Home';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AppState, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
@@ -150,7 +151,7 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
   if (!mine) {
     const others = seshes.filter((s) => !s.am_member && !isPlanned(s));
     return (
-      <Frame f={f} onOpenWeb={onOpenWeb} scroll={scroll}>
+      <Frame f={f} onOpenWeb={onOpenWeb} scroll={scroll} home>
         <SeshHeader s={null} later={false} startMs={0} creator="" onBack={() => {}} onStarted={f.refresh} />
         {me.colour !== 'off' && friends.length ? <People friends={friends} seshes={seshes} v={v} photos={f.photos} /> : null}
         {others.length ? (
@@ -200,7 +201,7 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
   const asked = (mine.invited || []).length;
 
   return (
-    <Frame f={f} onOpenWeb={onOpenWeb} scroll={scroll}>
+    <Frame f={f} onOpenWeb={onOpenWeb} scroll={scroll} home>
       <SeshHeader
         s={mine}
         later={later}
@@ -380,13 +381,15 @@ function MemberFace({ m, photos }: { m: Member; photos: Record<string, string> }
 }
 
 /* ---------- the page around every Sesh view: header, glow, scrolling body, toast ---------- */
-function Frame({ f, onOpenWeb, scroll, children }: { f: Frendzy; onOpenWeb: (tab: string) => void; scroll: React.RefObject<ScrollView | null>; children: React.ReactNode }) {
+function Frame({ f, onOpenWeb, scroll, home, children }: { f: Frendzy; onOpenWeb: (tab: string) => void; scroll: React.RefObject<ScrollView | null>; home?: boolean; children: React.ReactNode }) {
   const me = f.state && f.state.me;
   return (
     <KeyboardAvoidingView style={styles.fill} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <TopBar f={f} onOpenWeb={onOpenWeb} />
       <ScrollView ref={scroll} style={styles.fill} contentContainerStyle={styles.view} keyboardShouldPersistTaps="handled">
+        {home ? <HomeTop f={f} onOpenWeb={onOpenWeb} /> : null}
         {children}
+        {home ? <HomeBottom f={f} onOpenWeb={onOpenWeb} /> : null}
       </ScrollView>
       <Toast text={f.toast} />
     </KeyboardAvoidingView>

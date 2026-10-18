@@ -15,7 +15,6 @@ import { BackHandler, Linking, Platform, Pressable, Share, StyleSheet, Text, Vie
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView, type WebViewMessageEvent, type WebViewNavigation } from 'react-native-webview';
 import type { Colour } from './src/api';
-import Home from './src/Home';
 import MapTab from './src/MapTab';
 import { NATIVE_MAP } from './src/config';
 import { MapGuard } from './src/MapGuard';
@@ -129,7 +128,7 @@ function Shell() {
   // tab. 'venue' is the packed page showing one venue, opened from the native Sesh tab.
   const [tab, setTab] = useState('home');
   const [venue, setVenue] = useState<string | null>(null);
-  const venueFrom = useRef('sesh');   // the tab a venue page was opened from, which the Android back button returns to
+  const venueFrom = useRef('home');   // the tab a venue page was opened from, which the Android back button returns to
   // The tab to go back to from the You page or Crews (Android back button, and Crews' own back arrow).
   const [before, setBefore] = useState('home');
   // A line for the page to show once it opens, after the native You page logged out or deleted the account.
@@ -203,7 +202,8 @@ function Shell() {
       return;
     }
     if (msg?.type === 'tab') {
-      const next = typeof msg.tab === 'string' ? msg.tab : '';
+      const got = typeof msg.tab === 'string' ? msg.tab : '';
+      const next = got === 'sesh' ? 'home' : got;
       if (nativeNow.current && PAGE_TABS.indexOf(next) >= 0) setTab((now) => (now === next ? now : next));
       return;
     }
@@ -233,7 +233,8 @@ function Shell() {
 
   // Tapping a tab: Home and Sesh are native screens, the rest open the page. If the page is already open it
   // is just told to switch tabs, which keeps the map where it was.
-  const pickTab = useCallback((next: string) => {
+  const pickTab = useCallback((want: string) => {
+    const next = want === 'sesh' ? 'home' : want;   // Home and Sesh are one page now
     if (next === tab) return;
     // 'you' and 'crews' remember where they were opened from; from Crews to You, back goes where Crews came from.
     if (next === 'you' || next === 'crews') setBefore(tab === 'crews' ? (before === 'you' ? 'home' : before) : tab === 'venue' ? venueFrom.current : tab);
@@ -258,7 +259,7 @@ function Shell() {
   // A venue from the native Sesh tab: the packed page opens on that venue's page (it has the map and the
   // venue's details); its back button returns to the Sesh tab.
   const openVenue = useCallback((id: string, from?: string) => {
-    venueFrom.current = from || 'sesh';
+    venueFrom.current = from || 'home';
     setFailed(false);
     setVenue(id);
     setTab('venue');
@@ -418,15 +419,14 @@ function Shell() {
 
   return (
     <Layer glow={me ? me.colour : undefined}>
-      <Swipe tab={tab === 'venue' ? 'sesh' : tab} onPick={pickTab}>
+      <Swipe tab={tab === 'venue' ? 'home' : tab} onPick={pickTab}>
       {onWeb ? webView
-        : tab === 'sesh' ? <Sesh f={f} onOpenWeb={pickTab} onVenue={openVenue} />
         : tab === 'map' ? <MapGuard onFail={webMap}><MapTab f={f} onOpenWeb={pickTab} onVenue={(id) => openVenue(id, 'map')} onWebMap={webMap} /></MapGuard>
         : tab === 'you' ? <You f={f} onOpenWeb={pickTab} onSignedOut={signedOut} />
         : tab === 'crews' ? <Crews f={f} onBack={() => setTab(before)} onPlanned={() => pickTab('sesh')} />
-        : <Home f={f} onOpenWeb={pickTab} />}
+        : <Sesh f={f} onOpenWeb={pickTab} onVenue={openVenue} />}
       </Swipe>
-      <Tabs tab={tab === 'venue' ? 'sesh' : tab === 'crews' ? 'you' : tab} requests={f.state ? f.state.requests_in.length : 0} onPick={pickTab} />
+      <Tabs tab={tab === 'venue' ? 'home' : tab === 'crews' ? 'you' : tab} requests={f.state ? f.state.requests_in.length : 0} onPick={pickTab} />
       {tour && me ? <Tour name={first(me.name)} onClose={() => { clearTour(); setTour(false); askAfterTour().catch(() => {}); }} /> : null}
     </Layer>
   );
