@@ -1,7 +1,7 @@
 // The native Home screen: the logo with the three status lights, your status, who's up for it, and tonight's seshes.
 // It shows the same things in the same words as home() in docs/app.js.
 import React, { useEffect, useRef, useState } from 'react';
-import { Animated, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Animated, PanResponder, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { Colour, Friend, Sesh } from './api';
 import { CatchUpCards } from './Crews';
 import { Button, Face, Toast, TopBar } from './Parts';
@@ -228,6 +228,27 @@ function StatusCard({ colour, word, note, onPick }: { colour: Colour; word: stri
   }, [pulse]);
   const stop = w / 3;
   const mode = COLOURS[colour];
+  // Drag the orb along the track and let go: it settles on the nearest colour. A tap on a stop still works.
+  const live = useRef({ stop, at, onPick });
+  live.current = { stop, at, onPick };
+  const from = useRef(0);
+  const drag = useRef(PanResponder.create({
+    onMoveShouldSetPanResponderCapture: (_e, g) => Math.abs(g.dx) > 6 && Math.abs(g.dx) > Math.abs(g.dy),
+    onPanResponderTerminationRequest: () => false,
+    onPanResponderGrant: () => {
+      slide.stopAnimation((v) => { from.current = v; });
+    },
+    onPanResponderMove: (_e, g) => {
+      const { stop: st } = live.current;
+      if (st > 0) slide.setValue(Math.max(0, Math.min(2, from.current + g.dx / st)));
+    },
+    onPanResponderRelease: (_e, g) => {
+      const { stop: st, at: was, onPick: pick } = live.current;
+      const to = st > 0 ? Math.max(0, Math.min(2, Math.round(from.current + g.dx / st))) : was;
+      if (to !== was) pick(STOPS[to]);
+      else Animated.spring(slide, { toValue: was, useNativeDriver: true, friction: 7, tension: 110 }).start();
+    }
+  })).current;
   const x = slide.interpolate({ inputRange: [0, 1, 2], outputRange: [4, 4 + stop, 4 + stop * 2] });
   return (
     <View style={[styles.statusCard, { borderColor: fade(mode, 0.55), shadowColor: mode }]}>
@@ -236,7 +257,7 @@ function StatusCard({ colour, word, note, onPick }: { colour: Colour; word: stri
         <Text style={[styles.statusWord, { color: mode }]}>{word}</Text>
         <Text style={[styles.muted, styles.small]}>{note}</Text>
       </View>
-      <View style={[styles.track, { borderColor: fade(mode, 0.35) }]} onLayout={(e) => setW(e.nativeEvent.layout.width)} accessibilityLabel="Set your status">
+      <View style={[styles.track, { borderColor: fade(mode, 0.35) }]} onLayout={(e) => setW(e.nativeEvent.layout.width)} accessibilityLabel="Set your status" {...drag.panHandlers}>
         <View pointerEvents="none" style={styles.ticks}>
           {Array.from({ length: 24 }, (_, i) => <View key={i} style={[styles.tick, i % 4 === 0 && styles.tickBig]} />)}
         </View>
