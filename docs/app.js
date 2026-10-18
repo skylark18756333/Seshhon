@@ -1,4 +1,4 @@
-// Frendzy web app. Loaded by index.html; kept in its own file so the page can forbid inline scripts.
+// Crewzy web app. Loaded by index.html; kept in its own file so the page can forbid inline scripts.
 (function () {
   'use strict';
   var CFG = window.SESHHON_CONFIG || window.SESSHON_CONFIG || {};
@@ -21,6 +21,7 @@
   var COLORS = { on: 'var(--on)', thinking: 'var(--thinking)', off: 'var(--off)' };
   var LABELS = { on: 'Green', thinking: 'Amber', off: 'Red' };
   var STOPS = ['on', 'thinking', 'off'];   // left to right on the status switch: G, A, R
+  var SWITCH = ['off', 'thinking', 'on'];   // left to right on the status switch and the top logo: R, A, G (as the phone app)
   var STATUS_ICON = { on: 'tick', thinking: 'query', off: 'cross' };
   var TAGS = ['Good vibe', 'Good value', 'Fast service'];
   var RADIUS_KEY = 'seshon-radius-km';
@@ -237,8 +238,8 @@
         try { json = text ? JSON.parse(text) : null; } catch (e) {}
         if (!res.ok && json && json.code === 'PGRST202') {
           // The database is missing a function this page calls: an update in supabase/ has not been run yet.
-          console.error('Frendzy database is out of date. Run supabase/update.sql in the Supabase SQL editor.', json.message);
-          var old = new Error('Frendzy is being updated. Try again soon.'); old.missing = true; throw old;
+          console.error('Crewzy database is out of date. Run supabase/update.sql in the Supabase SQL editor.', json.message);
+          var old = new Error('Crewzy is being updated. Try again soon.'); old.missing = true; throw old;
         }
         if (!res.ok) throw new Error((json && json.message) || 'Something went wrong. Try again.');
         return json;
@@ -593,31 +594,31 @@
   // The brush-script name with the traffic light beside it. With a status, only that light is lit.
   // Signed in (live), the traffic light is the status switch: tap a light to change it from any screen.
   function logo(status, live) {
-    if (live) return '<div class="logo"><div class="wordmark">Frendzy</div><div class="dots switch" role="group" aria-label="Your status">' +
-      STOPS.map(function (k) {
+    if (live) return '<div class="logo"><div class="wordmark">Crewzy</div><div class="dots switch" role="group" aria-label="Your status">' +
+      SWITCH.map(function (k) {
         return '<button data-act="status-here" data-v="' + k + '" aria-label="Switch to ' + LABELS[k] + '" aria-pressed="' + (k === status) + '"><i style="--c:' + COLORS[k] + '"' + (k === status ? ' class="lit"' : '') + '></i></button>';
       }).join('') + '</div></div>';
-    return '<div class="logo"><div class="wordmark">Frendzy</div><div class="dots' + (status ? '' : ' all') + '" aria-hidden="true">' +
-      STOPS.map(function (k) { return '<i style="--c:' + COLORS[k] + '"' + (k === status ? ' class="lit"' : '') + '></i>'; }).join('') + '</div></div>';
+    return '<div class="logo"><div class="wordmark">Crewzy</div><div class="dots' + (status ? '' : ' all') + '" aria-hidden="true">' +
+      SWITCH.map(function (k) { return '<i style="--c:' + COLORS[k] + '"' + (k === status ? ' class="lit"' : '') + '></i>'; }).join('') + '</div></div>';
   }
 
   /* ---------- screens ---------- */
   function notConnected() {
     return '<div class="stack" style="gap:20px;margin-block:auto">' + logo() + '<h1>Not connected yet</h1>' +
-      '<p class="muted">This copy of Frendzy has not been pointed at its database. Add the project address and public key to config.js.</p></div>';
+      '<p class="muted">This copy of Crewzy has not been pointed at its database. Add the project address and public key to config.js.</p></div>';
   }
   function starting() {
     return '<div class="stack" style="gap:20px;margin-block:auto">' + logo() + '<p class="muted">Loading…</p></div>';
   }
   function tooYoung() {
-    return '<div class="stack" style="gap:20px;margin-block:auto">' + logo() + '<h1>Frendzy is for people aged 18 and over.</h1>' +
+    return '<div class="stack" style="gap:20px;margin-block:auto">' + logo() + '<h1>Crewzy is for people aged 18 and over.</h1>' +
       '<p class="muted">We can\'t set up an account for you. If you entered your date of birth wrongly, contact us through the Privacy Policy page.</p></div>';
   }
   function ageCheck() {
     var who = PROVIDER_NAMES[ui.age && ui.age.provider] || 'Our age check partner';
     var h = '<div class="stack" style="gap:20px;margin-block:auto">' + logo() + '<h1>Quick age check</h1>' +
-      '<p class="muted">Frendzy is for people aged 18 and over. ' + esc(who) + ' checks your age with a quick selfie. If it can\'t tell from your face, it asks you to show ID instead.</p>' +
-      '<p class="muted small">' + esc(who) + ' only tells us whether you passed. Frendzy never sees or keeps your photo or ID. See the <a href="privacy.html">Privacy Policy</a>.</p>';
+      '<p class="muted">Crewzy is for people aged 18 and over. ' + esc(who) + ' checks your age with a quick selfie. If it can\'t tell from your face, it asks you to show ID instead.</p>' +
+      '<p class="muted small">' + esc(who) + ' only tells us whether you passed. Crewzy never sees or keeps your photo or ID. See the <a href="privacy.html">Privacy Policy</a>.</p>';
     if (ui.ageNote) h += '<p class="error" id="age-note">' + esc(ui.ageNote) + '</p>';
     if (ui.age && ui.age.pending) h += '<button class="btn" data-act="age-finish"' + (ui.ageBusy ? ' disabled' : '') + '>I\'ve finished, check again</button><button class="btn ghost" data-act="age-start"' + (ui.ageBusy ? ' disabled' : '') + '>Start again</button>';
     else h += '<button class="btn" data-act="age-start"' + (ui.ageBusy ? ' disabled' : '') + '>Start age check</button>';
@@ -632,7 +633,7 @@
       '<p class="muted">' + (invited ? 'A friend invited you. Sign up and they will get your friend request.' : 'Go green when you\'re keen, see which friends are too, and pick a place together.') + '</p>' +
       '<form id="join" class="stack" style="gap:16px" novalidate>' +
       '<div class="field"><label for="name">Your first name</label><input id="name" type="text" autocomplete="given-name" maxlength="24"></div>' +
-      '<div class="field"><label for="dob">Date of birth</label><input id="dob" type="date" autocomplete="bday" min="1900-01-01"><span class="muted small">Frendzy is for people aged 18 and over. We only use this to check your age and do not keep it.</span></div>' +
+      '<div class="field"><label for="dob">Date of birth</label><input id="dob" type="date" autocomplete="bday" min="1900-01-01"><span class="muted small">Crewzy is for people aged 18 and over. We only use this to check your age and do not keep it.</span></div>' +
       '<div class="field"><label for="join-user">Pick a username</label><input id="join-user" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="20"><span class="muted small">3 to 20 letters, numbers or _. Friends add you with it.</span></div>' +
       '<div class="field"><label for="join-pass">Make a password</label>' + passwordInput('join-pass', 'new-password') + '<span class="muted small">At least 10 characters. You use it to log in on another phone.</span></div>' +
       '<div class="field"><label for="join-email">Your email</label><input id="join-email" type="email" autocomplete="email" autocapitalize="none" spellcheck="false" maxlength="254"><span class="muted small">We email you a code to confirm it, and again whenever you log in on a new phone. Nobody else ever sees it.</span></div>' +
@@ -665,7 +666,7 @@
   function twoStepScreen() {
     var t = ui.twoStep || {}, app = twoStepMode() === 'app';
     return '<div class="stack" style="gap:24px;margin-block:auto" id="two-step-screen">' + logo() + '<h1>' + (app ? 'Enter your app code' : 'Check your email') + '</h1>' +
-      '<p class="muted" id="ts-note">' + (app ? 'Open your authenticator app and type the 6-digit code it shows for Frendzy.'
+      '<p class="muted" id="ts-note">' + (app ? 'Open your authenticator app and type the 6-digit code it shows for Crewzy.'
         : t.hint ? 'We sent a 6-digit code to ' + esc(t.hint) + '.' : '') + '</p>' +
       '<form id="two-step" class="stack" style="gap:16px" novalidate>' +
       '<div class="field"><label for="ts-code">' + (app ? 'Code from your authenticator app' : 'Code from the email') + '</label><input id="ts-code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="7" spellcheck="false"></div>' +
@@ -696,14 +697,14 @@
     var top = '<div class="stack" style="gap:24px;margin-block:auto" id="reset">' + logo() + '<h1>Forgot your password?</h1>';
     var bottom = '<button class="btn ghost" data-act="auth" data-v="login">Back</button></div>';
     if (!ui.resetEmail) {
-      return top + '<p class="muted">Enter the email you confirmed for Frendzy. We\'ll send it a code to choose a new password.</p>' +
+      return top + '<p class="muted">Enter the email you confirmed for Crewzy. We\'ll send it a code to choose a new password.</p>' +
         '<form id="reset-send" class="stack" style="gap:16px" novalidate>' +
         '<div class="field"><label for="rs-email">Email</label><input id="rs-email" type="email" autocomplete="email" autocapitalize="none" spellcheck="false" maxlength="254" value="' + esc(ui.loginName && ui.loginName.indexOf('@') > 0 ? ui.loginName : '') + '"></div>' +
         (CAPTCHA_KEY && !session ? '<div id="captcha"></div>' : '') +
         '<p id="rs-error" class="error" hidden></p>' +
         '<button class="btn" type="submit" id="rs-btn">Email me a code</button></form>' + bottom;
     }
-    return top + '<p class="muted">If <strong>' + esc(ui.resetEmail) + '</strong> has a Frendzy account, we sent it a 6-digit code. Check your junk folder too.</p>' +
+    return top + '<p class="muted">If <strong>' + esc(ui.resetEmail) + '</strong> has a Crewzy account, we sent it a 6-digit code. Check your junk folder too.</p>' +
       '<form id="reset-new" class="stack" style="gap:16px" novalidate>' +
       '<div class="field"><label for="rn-code">Code from the email</label><input id="rn-code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="7" spellcheck="false"></div>' +
       '<div class="field"><label for="rn-pass">New password</label>' + passwordInput('rn-pass', 'new-password') + '<span class="muted small">At least 10 characters.</span></div>' +
@@ -730,8 +731,8 @@
     var h = '<section class="stack"><div class="eyebrow">Your status</div>' +
       '<div class="status-word" id="status-word" style="color:' + COLORS[s] + '">' + copy[0] + '</div>' +
       '<p class="muted">' + copy[1] + (s !== 'off' && me.expires_at ? ' Back to red in <span data-until="' + new Date(me.expires_at).getTime() + '" data-kind="status">' + fmtLeft(new Date(me.expires_at).getTime() - now()) + '</span>.' : '') + '</p>' +
-      '<div class="slide" id="status-slide" role="group" aria-label="Set your status" style="--c:' + COLORS[s] + ';--i:' + STOPS.indexOf(s) + '"><span class="knob"></span>' +
-      STOPS.map(function (k) {
+      '<div class="slide" id="status-slide" role="group" aria-label="Set your status" style="--c:' + COLORS[s] + ';--i:' + SWITCH.indexOf(s) + '"><span class="knob"></span>' +
+      SWITCH.map(function (k) {
         return '<button class="stop" style="--l:' + COLORS[k] + '" data-act="status" data-v="' + k + '" aria-label="' + LABELS[k] + '" aria-pressed="' + (s === k) + '">' + svg(STATUS_ICON[k], 28) + '</button>';
       }).join('') + '</div></section>';
 
@@ -748,7 +749,7 @@
 
     var friends = D.friends;
     if (!friends.length) {
-      h += '<div class="card"><h2>Add your friends</h2><p class="muted small">Frendzy only works with friends on it. Add them by username or send them your invite link, then accept their request when it arrives.</p>' +
+      h += '<div class="card"><h2>Add your friends</h2><p class="muted small">Crewzy only works with friends on it. Add them by username or send them your invite link, then accept their request when it arrives.</p>' +
         addFriendForm() + '<button class="btn ghost" data-act="share">Send your invite link</button>' + linkBox() + '</div>';
     } else if (s === 'off') {
       h += '<div class="card"><h2>Friends are hidden while you\'re red</h2><p class="muted small">Slide to green or amber to see who\'s up for it tonight.</p></div>';
@@ -1042,7 +1043,7 @@
   function ratingRow(ven) {
     googleRating(ven.id);
     var g = googleLine(ven.id);
-    return '<div class="stack" style="gap:4px"><div class="small">' + (ven.ratings ? '<strong>' + Number(ven.average).toFixed(1) + '</strong> ★ on Frendzy (' + ven.ratings + ')' : 'No Frendzy ratings yet') + (g ? ' · ' + g : '') + '</div>' +
+    return '<div class="stack" style="gap:4px"><div class="small">' + (ven.ratings ? '<strong>' + Number(ven.average).toFixed(1) + '</strong> ★ on Crewzy (' + ven.ratings + ')' : 'No Crewzy ratings yet') + (g ? ' · ' + g : '') + '</div>' +
       '<div class="stars small-stars" role="group" aria-label="Rate ' + esc(ven.name) + '">' + [1, 2, 3, 4, 5].map(function (n) {
         return '<button class="star" data-act="quick-star" data-v="' + esc(ven.id) + ':' + n + '" aria-label="Rate ' + n + ' star' + (n > 1 ? 's' : '') + '" aria-pressed="' + (ven.my_stars >= n) + '"><svg width="24" height="24" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true">' + ICON.star + '</svg></button>';
       }).join('') + '</div></div>';
@@ -1637,7 +1638,7 @@
       (photos[me.id] && !ui.photoBusy ? '<button class="btn small-btn ghost" data-act="remove-photo">Remove</button>' : '') + '</div></div>', ui.photoBusy, photos[me.id] ? 'Added' : 'None yet');
 
     h += sec('add', '<div class="card"><h2>Add a friend</h2>' + addFriendForm() +
-      '<p class="muted small">Not on Frendzy yet? Send them your invite link. When they sign up you get a friend request to accept.</p>' +
+      '<p class="muted small">Not on Crewzy yet? Send them your invite link. When they sign up you get a friend request to accept.</p>' +
       '<button class="btn ghost" data-act="share">Send your invite link</button>' + linkBox() + '</div>', !D.friends.length);
 
     if (DEALS_ON && D.staff_venues.length) {
@@ -1669,7 +1670,7 @@
     }
 
     h += sec('safety', safetyCard(), false, ui.safety && ui.safety.women_only ? 'Women only on' : '');
-    h += sec('venue', claimCard(), !!(ui.claimOpen || ui.claimError), ui.role && ui.role.claim && ui.role.claim.status === 'pending' ? 'Waiting for Frendzy' : '');
+    h += sec('venue', claimCard(), !!(ui.claimOpen || ui.claimError), ui.role && ui.role.claim && ui.role.claim.status === 'pending' ? 'Waiting for Crewzy' : '');
 
     if (D.blocked && D.blocked.length) {
       h += sec('blocked', '<div class="card"><h2>Blocked people</h2>' + D.blocked.map(function (b) {
@@ -1707,14 +1708,14 @@
       }
     }
 
-    h += sec('account', '<div class="card"><h2>Your account</h2><p class="muted small">' + (ui.account && ui.account !== 'off' ? 'You can log in on any phone with your username and password.' : 'Your account lives in this browser on this phone.') + ' If Frendzy staff ask for your account ID, it\'s this:</p>' +
+    h += sec('account', '<div class="card"><h2>Your account</h2><p class="muted small">' + (ui.account && ui.account !== 'off' ? 'You can log in on any phone with your username and password.' : 'Your account lives in this browser on this phone.') + ' If Crewzy staff ask for your account ID, it\'s this:</p>' +
       '<div class="linkbox" id="my-id">' + esc(me.id) + '</div>' +
       (ui.confirm === 'delete'
         ? '<p class="error">This removes your name, friends, votes and ratings for good.</p><div class="row"><button class="btn small-btn" style="--c:var(--off);--cf:var(--ink)" data-act="delete-account">Delete for good</button><button class="btn small-btn ghost" data-act="cancel-confirm">Keep my account</button></div>'
         : '<button class="btn ghost" data-act="ask" data-v="delete">Delete my account</button>') + '</div>', ui.confirm === 'delete');
 
-    if (role() !== 'venue') h += sec('tour', '<div class="card"><h2>How Frendzy works</h2><p class="muted small">A quick look at status, friends, seshes and the map.</p><button class="btn small-btn ghost" data-act="tour">Show the tour</button></div>');
-    h += sec('install', '<div class="card"><h2>Put Frendzy on your home screen</h2><p class="muted small">On iPhone, tap the Share button in Safari, then Add to Home Screen. On Android, open the browser menu and tap Add to Home screen.</p></div>');
+    if (role() !== 'venue') h += sec('tour', '<div class="card"><h2>How Crewzy works</h2><p class="muted small">A quick look at status, friends, seshes and the map.</p><button class="btn small-btn ghost" data-act="tour">Show the tour</button></div>');
+    h += sec('install', '<div class="card"><h2>Put Crewzy on your home screen</h2><p class="muted small">On iPhone, tap the Share button in Safari, then Add to Home Screen. On Android, open the browser menu and tap Add to Home screen.</p></div>');
     h += sec('about', '<div class="card"><h2>About</h2><p class="small"><a href="privacy.html">Privacy Policy</a></p><p class="small"><a href="terms.html">Terms of use</a></p>' +
       (document.lastModified ? '<p class="muted small">App version from ' + esc(new Date(document.lastModified).toLocaleString([], { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' })) + '</p>' : '') + '</div>');
     return h;
@@ -1729,7 +1730,7 @@
   // Login codes from an authenticator app (0034), an optional extra to the emailed codes.
   function appCard(a) {
     var t = ui.totpSetup;
-    if (a.app) return sec('app', '<div class="card"><h2>Authenticator app</h2><p class="muted small">On. New logins ask for the 6-digit code your authenticator app shows for Frendzy' +
+    if (a.app) return sec('app', '<div class="card"><h2>Authenticator app</h2><p class="muted small">On. New logins ask for the 6-digit code your authenticator app shows for Crewzy' +
       (a.email ? ', or you can get a code by email instead.' : '.') + '</p>' +
       (ui.confirm === 'app-off'
         ? '<p class="muted small">Turn it off? New logins will only need ' + (a.email ? 'your password and an email code.' : 'your password.') + '</p><div class="row"><button class="btn small-btn" data-act="app-off">Turn it off</button><button class="btn small-btn ghost" data-act="cancel-confirm">Keep it on</button></div>'
@@ -1742,7 +1743,7 @@
       '<p class="muted small">1. In your authenticator app, add an account and scan this code. On this phone, tap Open in authenticator app.</p>' + qr +
       '<a class="btn small-btn ghost" style="text-decoration:none;align-self:flex-start;display:inline-flex;align-items:center;justify-content:center" href="' + esc(t.uri) + '">Open in authenticator app</a>' +
       '<p class="muted small">Or type this key into the app:</p><div class="linkbox" id="app-secret">' + esc(t.secret.replace(/(.{4})/g, '$1 ').trim()) + '</div>' +
-      '<p class="muted small">2. Type the 6-digit code the app now shows for Frendzy.</p>' +
+      '<p class="muted small">2. Type the 6-digit code the app now shows for Crewzy.</p>' +
       '<div class="field"><label for="app-code">Code from the app</label><input id="app-code" data-keep type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="7" spellcheck="false"></div>' +
       '<p id="app-error" class="error" hidden></p><div class="row"><button class="btn small-btn" type="submit" id="app-btn">Turn on</button><button class="btn small-btn ghost" type="button" data-act="app-cancel">Cancel</button></div></form></div>', true);
   }
@@ -1800,7 +1801,7 @@
   function venueHome() {
     if (!ui.vdata) return '<p class="muted">Loading your venue...</p>';
     var v = myVenue();
-    if (!v) return '<div class="card"><h2>No venue yet</h2><p class="muted small">Frendzy hasn\'t linked a venue to this account. Contact the Frendzy team.</p></div>';
+    if (!v) return '<div class="card"><h2>No venue yet</h2><p class="muted small">Crewzy hasn\'t linked a venue to this account. Contact the Crewzy team.</p></div>';
     var events = v.deals.filter(function (d) { return d.type === 'Events'; }), deals = v.deals.filter(function (d) { return d.type !== 'Events'; });
     var live = function (l) { return l.filter(function (d) { return d.active; }).length; };
     return '<div class="stack" style="gap:6px"><div class="eyebrow">Venue account</div><h1>' + esc(v.name) + '</h1><p class="muted small">' + esc(v.kind || '') + '</p></div>' + venuePicker() +
@@ -1856,19 +1857,19 @@
     if (!isEvents) {
       h += '<label class="row"><input id="deal-alcohol" type="checkbox"' + ((ui.dealAlc != null ? ui.dealAlc : d && d.is_alcohol) ? ' checked' : '') + '> <span>This deal includes alcohol</span></label>' +
         '<div class="field"><label for="deal-discount">Discount % (optional)</label><input id="deal-discount" data-keep type="number" inputmode="numeric" min="0" max="100" value="' + esc(d && d.discount_pct != null ? d.discount_pct : '') + '"></div>' +
-        '<p class="muted small">WA liquor rules: alcohol deals can be at most 50% off, last at most an hour and must finish by 7pm. Frendzy never lists 2-for-1, free or bottomless drinks, or shots.</p>';
+        '<p class="muted small">WA liquor rules: alcohol deals can be at most 50% off, last at most an hour and must finish by 7pm. Crewzy never lists 2-for-1, free or bottomless drinks, or shots.</p>';
     }
     return h + (ui.dealError ? '<p class="error">' + esc(ui.dealError) + '</p>' : '') +
       '<div class="row"><button class="btn small-btn" type="submit">Save</button><button class="btn small-btn ghost" type="button" data-act="deal-edit" data-v="">Cancel</button></div></form>';
   }
 
-  // On a normal account's You page: ask Frendzy to make this account a venue's account.
+  // On a normal account's You page: ask Crewzy to make this account a venue's account.
   function claimCard() {
     if (role() !== 'user' || !ui.role || ui.role === 'off') return '';
     var c = ui.role.claim;
     var h = '<div class="card"><h2>Run a venue?</h2>';
     if (c && c.status === 'pending' && !ui.claimOpen) {
-      return h + '<p class="muted small">You asked to run <strong>' + esc(c.venue_name) + '</strong>. The Frendzy team will call to check, then switch this account over.</p>' +
+      return h + '<p class="muted small">You asked to run <strong>' + esc(c.venue_name) + '</strong>. The Crewzy team will call to check, then switch this account over.</p>' +
         '<button class="btn small-btn ghost" data-act="claim-cancel">Cancel the request</button></div>';
     }
     if (c && c.status === 'rejected' && !ui.claimOpen) {
@@ -1885,7 +1886,7 @@
         : '<div class="field"><label for="claim-search">Which venue?</label><input id="claim-search" data-keep type="text" autocomplete="off" maxlength="60" placeholder="Start typing its name" value="' + esc(ui.claimQuery || '') + '"></div>' +
           '<div id="claim-hits" class="stack" style="gap:6px">' + claimHits() + '</div>') +
       '<div class="field"><label for="claim-contact">Your name</label><input id="claim-contact" data-keep type="text" autocomplete="name" maxlength="60"></div>' +
-      '<div class="field"><label for="claim-phone">Phone number</label><input id="claim-phone" data-keep type="tel" autocomplete="tel" maxlength="20"><span class="muted small">Frendzy calls to check you run the venue. Deleted once we decide.</span></div>' +
+      '<div class="field"><label for="claim-phone">Phone number</label><input id="claim-phone" data-keep type="tel" autocomplete="tel" maxlength="20"><span class="muted small">Crewzy calls to check you run the venue. Deleted once we decide.</span></div>' +
       '<div class="field"><label for="claim-abn">ABN (optional)</label><input id="claim-abn" data-keep type="text" inputmode="numeric" maxlength="14"></div>' +
       '<div class="field"><label for="claim-message">Anything else (optional)</label><input id="claim-message" data-keep type="text" maxlength="300"></div>' +
       (ui.claimError ? '<p class="error">' + esc(ui.claimError) + '</p>' : '') +
@@ -1897,11 +1898,11 @@
     var q = String(ui.claimQuery || '').trim().toLowerCase();
     if (q.length < 2) return '';
     var hits = (D.venues || []).filter(function (v) { return String(v.name).toLowerCase().indexOf(q) >= 0; }).slice(0, 6);
-    if (!hits.length) return '<p class="muted small">No venue by that name. Contact the Frendzy team to have it added.</p>';
+    if (!hits.length) return '<p class="muted small">No venue by that name. Contact the Crewzy team to have it added.</p>';
     return hits.map(function (v) { return '<button class="btn small-btn ghost" type="button" data-act="claim-pick" data-v="' + esc(v.id) + '">' + esc(v.name) + (v.kind ? ' <span class="muted small">' + esc(v.kind) + '</span>' : '') + '</button>'; }).join('');
   }
 
-  // Frendzy staff only. The database refuses all of this for anyone else.
+  // Crewzy staff only. The database refuses all of this for anyone else.
   // Admin: create an account with no email (username and password only), or find one to set a new password or delete it.
   function adminAccounts() {
     var h = '<div class="card"><h2>Accounts</h2>';
@@ -1940,7 +1941,7 @@
     var list = ui.found;
     if (!list) return '';
     if (!list.length) return '<p class="muted small">No accounts match.</p>';
-    var kinds = { user: '', venue: 'Venue account', admin: 'Frendzy staff' };
+    var kinds = { user: '', venue: 'Venue account', admin: 'Crewzy staff' };
     return list.map(function (u) {
       var asking = ui.confirm === 'del-account:' + u.id, setting = ui.confirm === 'set-pass:' + u.id;
       return '<div class="stack" style="gap:6px;padding-top:8px;border-top:1px solid var(--line)"><div class="row between"><div class="grow">' + esc(u.name) +
@@ -1976,7 +1977,7 @@
 
   function adminPage() {
     var a = ui.adata;
-    var h = '<div class="stack" style="gap:6px"><div class="eyebrow">Frendzy staff</div><h1>Admin</h1></div>';
+    var h = '<div class="stack" style="gap:6px"><div class="eyebrow">Crewzy staff</div><h1>Admin</h1></div>';
     if (!a) return h + '<p class="muted">Loading...</p>';
     var c = a.counts || {};
     h += '<div class="tiles"><div class="card" style="gap:2px"><div class="muted small">People</div><div class="tile-num">' + Number(c.people || 0) + '</div></div>' +
@@ -2016,7 +2017,7 @@
         '<div class="row"><button class="btn small-btn ghost" data-act="report-dismiss" data-v="' + esc(r.id) + '">Dismiss</button></div></div>';
     }).join('') : '<p class="muted small">No reports.</p>') + '</div>';
 
-    return h + '<p class="muted small">Admin access is given only by Frendzy, in the Supabase SQL Editor. It can\'t be switched on from the app.</p>';
+    return h + '<p class="muted small">Admin access is given only by Crewzy, in the Supabase SQL Editor. It can\'t be switched on from the app.</p>';
   }
 
   /* ---------- render ---------- */
@@ -2097,7 +2098,7 @@
     var link = inviteLink();
     ui.linkShown = true;
     if (navigator.share) {
-      navigator.share({ title: 'Frendzy', text: 'Add me on Frendzy so we can see when we\'re both up for a sesh.', url: link }).catch(function () {});
+      navigator.share({ title: 'Crewzy', text: 'Add me on Crewzy so we can see when we\'re both up for a sesh.', url: link }).catch(function () {});
       render();
       return;
     }
@@ -2406,15 +2407,15 @@
   var drag = null, swallowClick = false;
   function moveKnob(v) {
     var el = document.getElementById('status-slide');
-    if (!el || STOPS.indexOf(v) < 0) return;
-    el.style.setProperty('--i', STOPS.indexOf(v));
+    if (!el || SWITCH.indexOf(v) < 0) return;
+    el.style.setProperty('--i', SWITCH.indexOf(v));
     el.style.setProperty('--c', COLORS[v]);
     [].forEach.call(el.querySelectorAll('.stop'), function (b) { b.setAttribute('aria-pressed', String(b.getAttribute('data-v') === v)); });
   }
   document.addEventListener('pointerdown', function (e) {
     var el = e.target.closest('#status-slide');
     if (!el || (e.pointerType === 'mouse' && e.button !== 0)) return;
-    var start = STOPS.indexOf(D && D.me ? D.me.colour : 'off');
+    var start = SWITCH.indexOf(D && D.me ? D.me.colour : 'off');
     drag = { el: el, knob: el.querySelector('.knob'), id: e.pointerId, x0: e.clientX, t0: Date.now(), start: start, at: start,
       step: (el.getBoundingClientRect().width - 10) / 3, moved: false };
   });
@@ -2430,7 +2431,7 @@
     var pos = Math.max(0, Math.min(2 * drag.step, drag.start * drag.step + dx));
     drag.knob.style.transform = 'translateX(' + pos + 'px)';
     var at = Math.round(pos / drag.step);
-    if (at !== drag.at) { drag.at = at; drag.el.style.setProperty('--c', COLORS[STOPS[at]]); if (navigator.vibrate) navigator.vibrate(8); }
+    if (at !== drag.at) { drag.at = at; drag.el.style.setProperty('--c', COLORS[SWITCH[at]]); if (navigator.vibrate) navigator.vibrate(8); }
   });
   function endDrag(e, cancelled) {
     if (!drag || e.pointerId !== drag.id) return;
@@ -2442,9 +2443,9 @@
     var at = d.at, dx = e.clientX - d.x0;
     // A quick flick moves at least one stop in the direction of the flick.
     if (!cancelled && at === d.start && Math.abs(dx) > 20 && Date.now() - d.t0 < 300) at = Math.max(0, Math.min(2, d.start + (dx > 0 ? 1 : -1)));
-    var v = STOPS[cancelled ? d.start : at];
+    var v = SWITCH[cancelled ? d.start : at];
     if (D && D.me && v !== D.me.colour) ACT.status(v);
-    else { moveKnob(STOPS[d.start]); render(); }
+    else { moveKnob(SWITCH[d.start]); render(); }
   }
   document.addEventListener('pointerup', function (e) { endDrag(e, false); });
   document.addEventListener('pointercancel', function (e) { endDrag(e, true); });
@@ -2584,7 +2585,7 @@
       var nuser = nv('an-user').trim().toLowerCase(), npass = nv('an-pass'), ndob = nv('an-dob');
       if (!nv('an-name').trim()) { ui.newError = 'Enter their first name.'; render(); return; }
       if (!/^\d{4}-\d{2}-\d{2}$/.test(ndob)) { ui.newError = 'Enter their date of birth.'; render(); return; }
-      if (ndob > eighteenYearsAgo()) { ui.newError = 'Frendzy is for people aged 18 and over.'; render(); return; }
+      if (ndob > eighteenYearsAgo()) { ui.newError = 'Crewzy is for people aged 18 and over.'; render(); return; }
       if (!/^[a-z0-9_]{3,20}$/.test(nuser)) { ui.newError = 'Pick a username of 3 to 20 letters, numbers or _.'; render(); return; }
       if (npass.length < 10) { ui.newError = 'Use a password of at least 10 characters.'; render(); return; }
       ui.newBusy = true; ui.newError = ''; render();
@@ -2599,7 +2600,7 @@
       if (!ui.claimVenue) { ui.claimError = 'Pick your venue from the list.'; render(); return; }
       var cv = function (id) { return document.getElementById(id).value; };
       rpc('claim_venue', { p_venue: ui.claimVenue, p_contact: cv('claim-contact'), p_phone: cv('claim-phone'), p_abn: cv('claim-abn'), p_message: cv('claim-message') }).then(function (r) {
-        ui.role = r; ui.claimOpen = false; ui.claimError = ''; toast('Request sent. The Frendzy team will be in touch.'); render();
+        ui.role = r; ui.claimOpen = false; ui.claimError = ''; toast('Request sent. The Crewzy team will be in touch.'); render();
       }).catch(function (x) { ui.claimError = x.message; render(); });
       return;
     }
@@ -2654,7 +2655,7 @@
       var se = document.getElementById('rs-email').value.trim().toLowerCase();
       var serr = document.getElementById('rs-error'), sbtn = document.getElementById('rs-btn');
       var sfail = function (msg) { serr.textContent = msg; serr.hidden = false; sbtn.disabled = false; };
-      if (!/^[^@\s]+@[^@\s]+\.[a-z]{2,}$/.test(se)) return sfail('Enter the email you confirmed for Frendzy.');
+      if (!/^[^@\s]+@[^@\s]+\.[a-z]{2,}$/.test(se)) return sfail('Enter the email you confirmed for Crewzy.');
       sbtn.disabled = true; serr.hidden = true;
       (session ? Promise.resolve() : captchaReady(sbtn).then(signInAnonymously))
         .then(function () { return emailCode('reset', { email: se }); })
@@ -2726,7 +2727,7 @@
       var ac = document.getElementById('app-code').value.replace(/\D/g, '');
       var aerr = document.getElementById('app-error'), abtn = document.getElementById('app-btn');
       var afail = function (msg) { aerr.textContent = msg; aerr.hidden = false; abtn.disabled = false; };
-      if (ac.length !== 6) return afail('Enter the 6-digit code the app shows for Frendzy.');
+      if (ac.length !== 6) return afail('Enter the 6-digit code the app shows for Crewzy.');
       abtn.disabled = true; aerr.hidden = true;
       rpc('totp_confirm', { p_code: ac }).then(function (r) {
         if (!r || !r.ok) return afail((r && r.message) || 'That didn\'t work. Try again.');

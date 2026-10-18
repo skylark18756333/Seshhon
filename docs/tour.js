@@ -16,9 +16,9 @@
   function steps(name) {
     return [
       {
-        art: '<div class="logo tour-logo"><div class="wordmark">Frendzy</div><div class="dots all"><i style="--c:var(--on)"></i><i style="--c:var(--thinking)"></i><i style="--c:var(--off)"></i></div></div>',
-        title: name ? 'Welcome, ' + esc(name) + '.' : 'Welcome to Frendzy.',
-        body: 'Frendzy is for getting off your phone and out with your mates. Here\'s how it works in five quick steps.'
+        art: '<div class="logo tour-logo"><div class="wordmark">Crewzy</div><div class="dots all"><i style="--c:var(--on)"></i><i style="--c:var(--thinking)"></i><i style="--c:var(--off)"></i></div></div>',
+        title: name ? 'Welcome, ' + esc(name) + '.' : 'Welcome to Crewzy.',
+        body: 'Crewzy is for getting off your phone and out with your mates. Here\'s how it works in five quick steps.'
       },
       {
         art: '<div class="slide tour-slide" aria-hidden="true"><span class="knob"></span><span class="stop">G</span><span class="stop">A</span><span class="stop">R</span></div>',
@@ -29,7 +29,7 @@
       {
         art: '<div class="faces tour-faces" aria-hidden="true">' + face('Mia', 'on', 320) + face('Jay', 'thinking', 200) + face('Sam', 'off', 30) + '</div>',
         title: 'Bring your friends',
-        body: 'Frendzy only works with friends on it. Send them your invite link, then accept their request. Friends show up as faces lit in their status colour, and only friends see your photo.'
+        body: 'Crewzy only works with friends on it. Send them your invite link, then accept their request. Friends show up as faces lit in their status colour, and only friends see your photo.'
       },
       {
         art: '<div class="tour-chat" aria-hidden="true"><div class="msg">Who\'s keen tonight?</div><div class="msg me">Me! Vote for a spot</div>' +
