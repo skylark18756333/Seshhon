@@ -165,7 +165,7 @@ export const STATUS_ICON: Record<Colour, string> = { on: 'tick', thinking: 'quer
 export const STATUS_COPY: Record<Colour, [string, string]> = {
   on: ["You're green.", "Ready to go out. Friends on green or amber can see you're up for a sesh."],
   thinking: ["You're amber.", 'Thinking about it. Friends see you might be keen.'],
-  off: ["You're red.", "You're off and hidden, and you can't see who else is out until you tap green or amber up top."]
+  off: ["You're red.", "You're off and hidden, and you can't see who else is out until you slide the switch up top."]
 };
 
 /* ---------- small helpers, ported from docs/app.js ---------- */

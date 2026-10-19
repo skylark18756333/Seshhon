@@ -97,7 +97,7 @@ export function HomeTop({ f, onOpenWeb }: { f: Frendzy; onOpenWeb: (tab: string)
         ) : colour === 'off' ? (
           <View style={styles.card}>
             <Text style={styles.h2}>Friends are hidden while you're red</Text>
-            <Text style={[styles.muted, styles.small]}>Tap green up top to see who's up for it tonight.</Text>
+            <Text style={[styles.muted, styles.small]}>Slide the switch up top to green to see who's up for it tonight.</Text>
           </View>
         ) : (
           <View style={styles.stack}>
