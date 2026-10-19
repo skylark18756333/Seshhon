@@ -846,6 +846,14 @@
      saved or shown to anyone else, and it is gone when the page closes. */
   var pins = null;          // venue id -> [lat, lng], or null until loaded
   var pinsAsked = false;
+  // Festivals, concerts and other events not tied to a venue (migration 0039). null until loaded.
+  var STANDALONE = null, standaloneAsked = false;
+  function loadStandalone() {
+    return rpc('api_events').then(function (list) { STANDALONE = list || []; }, function () { STANDALONE = STANDALONE || []; });
+  }
+  function whenLine(iso) {
+    try { return new Date(iso).toLocaleString('en-AU', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', timeZone: 'Australia/Perth' }); } catch (e) { return ''; }
+  }
   // chosen: false until the person taps the map or shares their location. Until then no venues are shown
   // (a search still finds them), so the map isn't covered in 1,500 pins nobody asked for.
   var geo = { centre: MAP_CENTRE.slice(), mine: false, busy: false, chosen: false };
@@ -1537,15 +1545,21 @@
       var at = pins && pins[d.venue_id];
       return { d: d, ven: venueById(d.venue_id), km: at ? km(geo.centre, at) : null };
     }).sort(function (x, y) { return (y.d.running - x.d.running) || ((x.km == null ? 1e9 : x.km) - (y.km == null ? 1e9 : y.km)); });
-    var h = '<div class="stack" style="gap:6px"><h1>Events</h1><p class="muted small">What\'s on at venues tonight.</p></div>';
-    if (!list.length) return h + '<div class="card"><h2>Nothing listed yet</h2><p class="muted small">Gigs, quiz nights and live music show up here when venues add them.</p></div>';
+    if (!standaloneAsked) { standaloneAsked = true; loadStandalone().then(function () { render(); }); }
+    var h = '<div class="stack" style="gap:6px"><h1>Events</h1><p class="muted small">What\'s on at venues, festivals and concerts.</p></div>';
+    var extra = (STANDALONE || []).map(function (s) {
+      return '<div class="deal-banner"><div class="row between"><span class="sub">' + esc(s.kind) + '</span><span class="small muted">' + esc(s.place) + '</span></div>' +
+        '<div class="big">' + esc(s.title) + '</div><div class="small muted">' + esc(whenLine(s.starts_at)) + '</div>' +
+        (s.source_url ? '<div class="row"><a class="btn small-btn ghost" href="' + esc(s.source_url) + '" target="_blank" rel="noopener">More info</a></div>' : '') + '</div>';
+    }).join('');
+    if (!list.length && !extra) return h + (STANDALONE == null ? '<p class="muted small">Loading events...</p>' : '<div class="card"><h2>Nothing listed yet</h2><p class="muted small">Gigs, festivals and live music show up here when they are added.</p></div>');
     return h + '<div class="stack" style="gap:14px">' + list.map(function (e) {
       var d = e.d, ven = e.ven;
       return '<div class="deal-banner' + (d.running ? '' : ' off') + '"><div class="row between"><span class="sub">' + esc(ven ? ven.name : 'A venue') + '</span><span class="small muted">' + dealLabel(d) + '</span></div>' +
         '<div class="big">' + esc(d.title) + '</div>' +
         (e.km != null ? '<div class="small muted">' + esc(fmtKm(e.km) + (geo.mine ? ' away' : ' from ' + fromName())) + '</div>' : '') +
         '<div class="row">' + (ven ? '<button class="btn small-btn ghost" data-act="venue" data-v="' + esc(ven.id) + '">See venue</button>' : '') + (DEALS_ON ? redeemBtn(d) : '') + '</div></div>';
-    }).join('') + '</div>';
+    }).join('') + extra + '</div>';
   }
 
   function venue(id) {
