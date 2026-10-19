@@ -146,7 +146,7 @@ function Shell() {
   const sessionKey = session ? session.user_id || 'in' : 'out';
   useEffect(() => { setWebLive(false); }, [sessionKey]);   // a different sign-in needs a fresh page
   const onWeb = !NATIVE_TABS.includes(tab);
-  const f = useFrendzy(signedIn && !authOwns, onWeb);
+  const f = useFrendzy(signedIn && !authOwns, onWeb, sessionKey);
   const me = f.state && f.state.me;
   const native = signedIn && !authOwns && f.phase === 'ready' && !!me;
   // Signed out, in the middle of signing up, or signed in as someone who never finished making an account.
@@ -332,8 +332,8 @@ function Shell() {
   if (failed) {
     return (
       <Layer><View style={styles.offline}>
-        <Text style={styles.title}>No connection</Text>
-        <Text style={styles.body}>Crewzy needs the internet to see who's out. Check your signal and try again.</Text>
+        <Text style={styles.title}>{f.offline ? "No connection" : "Could not load Crewzy"}</Text>
+        <Text style={styles.body}>{f.error || "Please try again."}</Text>
         <Pressable style={styles.button} onPress={() => { setFailed(false); f.retry(); web.current?.reload(); }} accessibilityRole="button">
           <Text style={styles.buttonText}>Try again</Text>
         </Pressable>
@@ -344,8 +344,8 @@ function Shell() {
   if (signedIn && f.phase === 'failed') {
     return (
       <Layer><View style={styles.offline}>
-        <Text style={styles.title}>No connection</Text>
-        <Text style={styles.body}>Crewzy needs the internet to see who's out. Check your signal and try again.</Text>
+        <Text style={styles.title}>{f.offline ? "No connection" : "Could not load Crewzy"}</Text>
+        <Text style={styles.body}>{f.error || "Please try again."}</Text>
         <Pressable style={styles.button} onPress={f.retry} accessibilityRole="button">
           <Text style={styles.buttonText}>Try again</Text>
         </Pressable>

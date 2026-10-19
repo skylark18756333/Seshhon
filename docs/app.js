@@ -29,6 +29,7 @@
 
   /* ---------- small helpers ---------- */
   function store(key, value) {
+    if (key === SESSION_KEY && value !== undefined) { sessionVersion += 1; refreshing = null; }
     try {
       if (value === undefined) return JSON.parse(localStorage.getItem(key) || 'null');
       if (value === null) localStorage.removeItem(key); else localStorage.setItem(key, JSON.stringify(value));
@@ -87,7 +88,26 @@
 
   /* ---------- talking to the database ---------- */
   var session = store(SESSION_KEY);
-  var refreshing = null;
+  var refreshing = null, sessionVersion = 0, readVersion = 0;
+  function request(url, options) {
+    var controller = new AbortController(), timer;
+    return Promise.race([
+      fetch(url, Object.assign({}, options, { signal: controller.signal })).then(function (res) {
+        return res.text().then(function (text) { return new Response([204, 205, 304].indexOf(res.status) >= 0 ? null : text, { status: res.status, statusText: res.statusText, headers: res.headers }); });
+      }),
+      new Promise(function (_, reject) {
+        timer = setTimeout(function () {
+          var error = new Error('The connection took too long. Try again.'); error.network = true; error.code = 'timeout';
+          reject(error); controller.abort();
+        }, 15000);
+      })
+    ]).catch(function (error) {
+      if (error instanceof TypeError) { var offline = new Error('Could not connect. Check your signal and try again.'); offline.network = true; throw offline; }
+      throw error;
+    }).finally(function () { clearTimeout(timer); });
+  }
+  function changedSession() { var error = new Error('Your sign-in changed. Please try again.'); error.signedOut = true; return error; }
+
 
   function saveSession(body) {
     if (!body || !body.access_token) throw new Error('Sign-in did not work. Try again.');
@@ -100,7 +120,7 @@
     store(SESSION_KEY, session);
   }
   function authCall(path, body) {
-    return fetch(API_URL + '/auth/v1/' + path, {
+    return request(API_URL + '/auth/v1/' + path, {
       method: 'POST',
       headers: { apikey: API_KEY, 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
@@ -142,7 +162,7 @@
   // Logging in with the confirmed email instead (migration 0028): the database gives back the username behind
   // the email, but only to someone with the right password, so it never shows whether an email has an account.
   function emailLoginName(email, password) {
-    return fetch(API_URL + '/rest/v1/rpc/email_login_name', {
+    return request(API_URL + '/rest/v1/rpc/email_login_name', {
       method: 'POST',
       headers: { apikey: API_KEY, 'Content-Type': 'application/json' },
       body: JSON.stringify({ p_email: email, p_password: password })
@@ -210,28 +230,33 @@
     return t;
   }
   function refreshSession() {
-    if (!refreshing) {
-      refreshing = authCall('token?grant_type=refresh_token', { refresh_token: session.refresh_token })
-        .then(saveSession)
-        .catch(function (e) {
-          // A refresh token that is refused means this phone's sign-in is gone for good.
-          if (e.status === 400 || e.status === 401 || e.status === 403) { session = null; store(SESSION_KEY, null); }
-          throw e;
-        })
-        .then(function () { refreshing = null; }, function (e) { refreshing = null; throw e; });
-    }
-    return refreshing;
+    if (refreshing) return refreshing;
+    if (!session) return Promise.reject(changedSession());
+    var version = sessionVersion, token = session.refresh_token;
+    var task = authCall('token?grant_type=refresh_token', { refresh_token: token })
+      .then(function (body) { if (version !== sessionVersion) throw changedSession(); saveSession(body); })
+      .catch(function (e) {
+        if (version !== sessionVersion) throw changedSession();
+        if (e.status === 400 || e.status === 401 || e.status === 403) { session = null; store(SESSION_KEY, null); }
+        throw e;
+      });
+    var pending = task.finally(function () { if (refreshing === pending) refreshing = null; });
+    refreshing = pending; return pending;
   }
   function rpc(fn, args, retried) {
+    var owner = session && session.user_id;
     var ready = session && session.expires_at - Date.now() / 1000 < 60 ? refreshSession() : Promise.resolve();
     return ready.then(function () {
       if (!session) { var gone = new Error('You have been signed out.'); gone.signedOut = true; throw gone; }
-      return fetch(API_URL + '/rest/v1/rpc/' + fn, {
+      owner = session.user_id;
+      return request(API_URL + '/rest/v1/rpc/' + fn, {
         method: 'POST',
         headers: { apikey: API_KEY, Authorization: 'Bearer ' + session.access_token, 'Content-Type': 'application/json' },
         body: JSON.stringify(args || {})
       });
     }).then(function (res) {
+      // Only a different account (or a sign-out) counts; a routine token renewal keeps the same account.
+      if (!session || session.user_id !== owner) throw changedSession();
       if (res.status === 401 && !retried) return refreshSession().then(function () { return rpc(fn, args, true); });
       return res.text().then(function (text) {
         var json = null;
@@ -241,7 +266,7 @@
           console.error('Crewzy database is out of date. Run supabase/update.sql in the Supabase SQL editor.', json.message);
           var old = new Error('Crewzy is being updated. Try again soon.'); old.missing = true; throw old;
         }
-        if (!res.ok) throw new Error((json && json.message) || 'Something went wrong. Try again.');
+        if (!res.ok) { var failed = new Error((json && json.message) || 'Something went wrong. Try again.'); failed.status = res.status; failed.code = json && json.code; throw failed; }
         return json;
       });
     });
@@ -254,7 +279,7 @@
       if (!session) { var gone = new Error('You have been signed out.'); gone.signedOut = true; throw gone; }
       var body = { action: action };
       for (var k in extra || {}) body[k] = extra[k];
-      return fetch(API_URL + '/functions/v1/age-check', {
+      return request(API_URL + '/functions/v1/age-check', {
         method: 'POST',
         headers: { apikey: API_KEY, Authorization: 'Bearer ' + session.access_token, 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
@@ -275,7 +300,7 @@
     var ready = session && session.expires_at - Date.now() / 1000 < 60 ? refreshSession() : Promise.resolve();
     return ready.then(function () {
       if (!session) throw new Error('You have been signed out.');
-      return fetch(API_URL + '/functions/v1/email-code', {
+      return request(API_URL + '/functions/v1/email-code', {
         method: 'POST',
         headers: { apikey: API_KEY, Authorization: 'Bearer ' + session.access_token, 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
@@ -293,7 +318,7 @@
   function googleRating(id) {
     if (!GOOGLE_ON || !session || id in gRatings) return;
     gRatings[id] = 'loading';
-    fetch(API_URL + '/functions/v1/google-rating', {
+    request(API_URL + '/functions/v1/google-rating', {
       method: 'POST',
       headers: { apikey: API_KEY, Authorization: 'Bearer ' + session.access_token, 'Content-Type': 'application/json' },
       body: JSON.stringify({ venue: id })
@@ -378,7 +403,7 @@
 
   // Whether this person still needs the third-party age check. An older database without it means "no".
   function loadAge() {
-    return rpc('age_check_state').then(function (a) { ui.age = a || { required: false }; }, function () { ui.age = ui.age || { required: false }; });
+    return rpc('age_check_state').then(function (a) { if (!a || typeof a.required !== 'boolean') throw new Error('Could not check your age verification. Try again.'); ui.age = a; });
   }
   function needsAgeCheck() { return !!(session && ui.age && ui.age.required && !ui.age.passed); }
   // The username, if this account has one. An older database without it means the feature is hidden.
@@ -388,10 +413,11 @@
   // Account type: user, venue or admin. An older database without roles means everyone is a user.
   function loadRole() {
     return rpc('my_role').then(function (r) {
-      ui.role = r || { role: 'user' };
+      if (!r || typeof r.role !== 'string') throw new Error('Could not check your account. Try again.');
+      ui.role = r;
       if (role() === 'venue' && VENUE_TABS.concat([['you']]).map(function (t) { return t[0]; }).indexOf(ui.tab) < 0) { ui.tab = 'vhome'; ui.screen = null; }
       if (role() === 'venue') return loadVenueData();
-    }, function () { ui.role = 'off'; });
+    });
   }
   var photos = {}, photosKey = '', photosAt = 0;
   function loadPhotos() {
@@ -431,7 +457,7 @@
   }
   // Whether this login still needs its email code (migration 0018). An older database without it means "no".
   function loadTwoStep() {
-    return rpc('two_step_state').then(function (t) { ui.twoStep = t || { needed: false }; }, function () { ui.twoStep = { needed: false, off: true }; });
+    return rpc('two_step_state').then(function (t) { if (!t || typeof t.needed !== 'boolean') throw new Error('Could not check your sign-in. Try again.'); ui.twoStep = t; });
   }
   function sendLoginCode() {
     var note = document.getElementById('ts-note'), err = document.getElementById('ts-error');
@@ -467,22 +493,30 @@
       return refreshSession().then(function () { return true; });   // a fresh sign-in token, now with full access
     }, function () { return false; });
   }
+  var loading = false;
   function load(quiet) {
+    if (quiet && loading) return Promise.resolve();
+    var ticket = ++readVersion, owner = session && session.user_id;
+    loading = true;
+    return loadOnce(quiet, ticket, owner).finally(function () { if (ticket === readVersion) loading = false; });
+  }
+  function loadOnce(quiet, ticket, owner) {
     if (session && ui.twoStep === undefined) {
       return loadTwoStep().then(function () {
-        if (!ui.twoStep.needed) return load(quiet);
+        if (!ui.twoStep.needed) return loadOnce(quiet, ticket, owner);
         return useRememberedPhone().then(function (skipped) {
-          if (skipped) { ui.twoStep = { needed: false }; return load(quiet); }
+          if (skipped) { ui.twoStep = { needed: false }; return loadOnce(quiet, ticket, owner); }
           ui.booted = true; render(); return ui.twoStep.app ? null : sendLoginCode();
         });
-      });
+      }).catch(function (e) { if (ticket !== readVersion || owner !== (session && session.user_id)) return; ui.booted = true; ui.offline = e.network === true; ui.loadError = e.message; toast(e.message); render(); });
     }
     if (session && ui.twoStep.needed) { render(); return Promise.resolve(); }
     return (session && !ui.age ? loadAge() : Promise.resolve()).then(function () { return rpc('api_state'); }).then(function (data) {
       if (data && data.me && ui.account === undefined) return Promise.all([loadAccount(), loadSafety(), loadRole()]).then(function () { return data; });
       return data;
     }).then(function (data) {
-      ui.offline = false;
+      if (ticket !== readVersion || owner !== (session && session.user_id)) return;
+      ui.offline = false; ui.loadError = null;
       clockOffset = new Date(data.now).getTime() - Date.now();
       tidyState(data);
       noticeFriends(data);
@@ -502,9 +536,10 @@
         loadPhotos().then(function () { if (JSON.stringify(photos) !== before) render(); });
       }
     }).catch(function (e) {
+      if (ticket !== readVersion || owner !== (session && session.user_id)) return;
       if (e.signedOut || !session) { D = null; ui.booted = true; render(); return; }
-      ui.offline = true; ui.booted = true;
-      if (!quiet) toast(e.message);
+      ui.offline = e.network === true; ui.loadError = e.message; ui.booted = true;
+      if (!quiet || !e.network) toast(e.message);
       render();
     });
   }
@@ -2037,6 +2072,9 @@
 
     if (!API_URL || !API_KEY) { tabs.hidden = true; view.innerHTML = notConnected(); return; }
     if (!ui.booted) { tabs.hidden = true; view.innerHTML = starting(); return; }
+    if (session && ui.loadError && !D) {
+      tabs.hidden = true; view.innerHTML = '<div class="stack"><h1>Could not load Crewzy</h1><p class="error">' + esc(ui.loadError) + '</p><button class="btn" data-act="retry-load">Try again</button></div>'; return;
+    }
     if (session && ui.twoStep && ui.twoStep.needed) {
       tabs.hidden = true;
       if (!document.getElementById('two-step-screen')) view.innerHTML = twoStepScreen();
@@ -2116,6 +2154,7 @@
   }
 
   var ACT = {
+    'retry-load': function () { ui.loadError = null; load(false); },
     tab: function (v) {
       if (v === 'sesh' && ui.tab === 'sesh' && !ui.screen) ui.seshId = null;   // tapping Sesh again goes back from a planned sesh
       ui.tab = v; ui.screen = null; ui.confirm = null; ui.staffError = ''; ui.picker = null; ui.plan = null; go(true);

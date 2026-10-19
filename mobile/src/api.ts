@@ -98,17 +98,21 @@ export function myAccount(): Promise<{ username?: string } | null> {
 // The three things that have to be settled before the native screens can be shown: the email login code, the
 // 18+ age check and what kind of account this is (venue and admin accounts are for frendzy.au on a computer).
 export type Gates = { twoStep: boolean; ageCheck: boolean; role: string };
-export function loadGates(): Promise<Gates> {
-  return Promise.all([
-    rpc('two_step_state').then((t: any) => !!(t && t.needed), () => false),
-    rpc('age_check_state').then((a: any) => !!(a && a.required && !a.passed), () => false),
-    rpc('my_role').then((r: any) => (r && r.role) || 'user', () => 'user')
-  ]).then(([twoStep, ageCheck, role]) => ({ twoStep, ageCheck, role }));
+export async function loadGates(): Promise<Gates> {
+  const step = await rpc('two_step_state');
+  if (!step || typeof step.needed !== 'boolean') throw new Error('Could not check your sign-in. Try again.');
+  // Full-access reads wait until the login code has been verified.
+  if (step.needed) return { twoStep: true, ageCheck: false, role: 'user' };
+  const role = await rpc('my_role');
+  if (!role || typeof role.role !== 'string') throw new Error('Could not check your account. Try again.');
+  if (role.role !== 'user') return { twoStep: false, ageCheck: false, role: role.role };
+  const age = await loadAge();
+  return { twoStep: false, ageCheck: !!(age.required && !age.passed), role: role.role };
 }
-// Whether this person still needs the age check, and who runs it (loadAge in docs/app.js). An older database without it means "no".
+// Whether this person still needs the age check. Missing or failed checks must not grant access.
 export type Age = { required: boolean; passed?: boolean; pending?: boolean; provider?: string };
 export function loadAge(): Promise<Age> {
-  return rpc('age_check_state').then((a: any) => a || { required: false }, () => ({ required: false }));
+  return rpc('age_check_state').then((a: any) => { if (!a || typeof a.required !== 'boolean') throw new Error('Could not check your age verification. Try again.'); return a; });
 }
 
 /* ---------- the Sesh tab ---------- */
