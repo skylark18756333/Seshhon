@@ -5,6 +5,7 @@
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 import { API_KEY, API_URL } from './config';
+import { request } from './reliability';
 
 export const SESSION_KEY = 'seshhon-session-v1';
 // Other things the web page keeps in its own storage that the native screens also change (see pageStore below).
@@ -25,7 +26,7 @@ export type Session = {
 };
 
 // An error from the database or from signing in, with the extra marks the screens look at.
-export type ApiError = Error & { status?: number; code?: string; signedOut?: boolean; missing?: boolean };
+export type ApiError = Error & { status?: number; code?: string; signedOut?: boolean; missing?: boolean; network?: boolean };
 
 /* ---------- where the sign-in is kept ---------- */
 // The phone keeps it in secure storage. In a browser (Expo's web target, used for trying the screens out)
@@ -155,6 +156,7 @@ function tidy(value: unknown): Session | null {
 
 let session: Session | null = null;
 let refreshing: Promise<void> | null = null;
+let sessionVersion = 0;
 const watchers = new Set<(s: Session | null) => void>();
 
 // Something to do while the old sign-in is still known as it is cleared (push.ts takes this phone's token off the account).
@@ -174,6 +176,7 @@ export async function loadStoredSession(): Promise<Session | null> {
   const text = await readStored();
   let parsed: unknown = null;
   try { parsed = text ? JSON.parse(text) : null; } catch (e) {}
+  sessionVersion += 1;
   session = tidy(parsed);
   tell();
   return session;
@@ -181,6 +184,8 @@ export async function loadStoredSession(): Promise<Session | null> {
 // A sign-in the web page sent over, or a log out (null).
 export function setSession(next: Session | null) {
   const before = session;
+  sessionVersion += 1;
+  refreshing = null;
   session = tidy(next);
   if (before && !session && signOutHook) { try { signOutHook(before); } catch (e) {} }
   writeStored(session ? JSON.stringify(session) : null);
@@ -204,7 +209,7 @@ function saveSession(body: any): Session {
 
 /* ---------- talking to the database ---------- */
 export async function authCall(path: string, body: unknown): Promise<any> {
-  const res = await fetch(API_URL + '/auth/v1/' + path, {
+  const res = await request(API_URL + '/auth/v1/' + path, {
     method: 'POST',
     headers: { apikey: API_KEY, 'Content-Type': 'application/json' },
     body: JSON.stringify(body)
@@ -227,19 +232,26 @@ export async function authCall(path: string, body: unknown): Promise<any> {
   return json;
 }
 
+function changedSession(): ApiError {
+  return Object.assign(new Error('Your sign-in changed. Please try again.'), { signedOut: true });
+}
 export function refreshSession(): Promise<void> {
-  if (!refreshing) {
-    const token = session ? session.refresh_token : '';
-    refreshing = authCall('token?grant_type=refresh_token', { refresh_token: token })
-      .then((body) => { saveSession(body); })
-      .catch((e: ApiError) => {
-        // A refresh token that is refused means this phone's sign-in is gone for good.
-        if (e.status === 400 || e.status === 401 || e.status === 403) setSession(null);
-        throw e;
-      })
-      .then(() => { refreshing = null; }, (e) => { refreshing = null; throw e; });
-  }
-  return refreshing;
+  if (refreshing) return refreshing;
+  if (!session) return Promise.reject(changedSession());
+  const version = sessionVersion;
+  const token = session.refresh_token;
+  const task = authCall('token?grant_type=refresh_token', { refresh_token: token })
+    .then((body) => {
+      if (version !== sessionVersion) throw changedSession();
+      saveSession(body);
+    }).catch((e: ApiError) => {
+      if (version !== sessionVersion) throw changedSession();
+      if (e.status === 400 || e.status === 401 || e.status === 403) setSession(null);
+      throw e;
+    });
+  const pending = task.finally(() => { if (refreshing === pending) refreshing = null; });
+  refreshing = pending;
+  return pending;
 }
 
 // Calls a database function, exactly as the web app does: apikey plus the sign-in token, retried once after a refresh.
@@ -250,11 +262,14 @@ export async function rpc<T = any>(fn: string, args?: Record<string, unknown>, r
     gone.signedOut = true;
     throw gone;
   }
-  const res = await fetch(API_URL + '/rest/v1/rpc/' + fn, {
+  const owner = session.user_id;
+  const res = await request(API_URL + '/rest/v1/rpc/' + fn, {
     method: 'POST',
     headers: { apikey: API_KEY, Authorization: 'Bearer ' + session.access_token, 'Content-Type': 'application/json' },
     body: JSON.stringify(args || {})
   });
+  // Only a different account (or a sign-out) counts; a routine token renewal keeps the same account.
+  if (!session || session.user_id !== owner) throw changedSession();
   if (res.status === 401 && !retried) {
     await refreshSession();
     return rpc<T>(fn, args, true);
@@ -268,7 +283,7 @@ export async function rpc<T = any>(fn: string, args?: Record<string, unknown>, r
     old.missing = true;
     throw old;
   }
-  if (!res.ok) throw new Error((json && json.message) || 'Something went wrong. Try again.');
+  if (!res.ok) throw Object.assign(new Error((json && json.message) || 'Something went wrong. Try again.'), { status: res.status, code: json?.code });
   return json as T;
 }
 
@@ -276,7 +291,7 @@ export async function rpc<T = any>(fn: string, args?: Record<string, unknown>, r
 export async function emailCode(action: string, extra?: Record<string, unknown>): Promise<{ sent?: boolean; hint?: string }> {
   if (session && session.expires_at - Date.now() / 1000 < 60) await refreshSession();
   if (!session) throw new Error('You have been signed out.');
-  const res = await fetch(API_URL + '/functions/v1/email-code', {
+  const res = await request(API_URL + '/functions/v1/email-code', {
     method: 'POST',
     headers: { apikey: API_KEY, Authorization: 'Bearer ' + session.access_token, 'Content-Type': 'application/json' },
     body: JSON.stringify({ action, ...(extra || {}) })
@@ -308,7 +323,7 @@ export function signInWithPassword(username: string, password: string, captchaTo
 // Logging in with the confirmed email instead (migration 0028): the database gives back the username behind the
 // email, but only to someone with the right password, so it never shows whether an email has an account.
 export async function emailLoginName(email: string, password: string): Promise<string> {
-  const res = await fetch(API_URL + '/rest/v1/rpc/email_login_name', {
+  const res = await request(API_URL + '/rest/v1/rpc/email_login_name', {
     method: 'POST',
     headers: { apikey: API_KEY, 'Content-Type': 'application/json' },
     body: JSON.stringify({ p_email: email, p_password: password })
@@ -328,7 +343,7 @@ export async function ageCheckCall(action: string, extra?: Record<string, unknow
     gone.signedOut = true;
     throw gone;
   }
-  const res = await fetch(API_URL + '/functions/v1/age-check', {
+  const res = await request(API_URL + '/functions/v1/age-check', {
     method: 'POST',
     headers: { apikey: API_KEY, Authorization: 'Bearer ' + session.access_token, 'Content-Type': 'application/json' },
     body: JSON.stringify({ action, ...(extra || {}) })
