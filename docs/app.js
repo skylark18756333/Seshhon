@@ -1362,9 +1362,9 @@
           '<button class="btn' + (others.length ? ' ghost' : '') + '" data-act="start-sesh">Start a sesh</button>' +
           '<button class="btn ghost" data-act="private-sesh">' + svg('lock', 16) + ' Start a private sesh</button>';
       } else if (me.colour === 'thinking') {
-        h += '<p class="muted">' + (others.length ? 'Go green to start your own now, or plan one for later on any colour.' : 'No sesh yet. Go green to start one now, or plan one for later on any colour.') + '</p><button class="btn" style="--c:var(--on);--cf:var(--ink)" data-act="status" data-v="on">Go green</button>';
+        h += '<p class="muted">' + (others.length ? 'Slide the switch up top to green to start your own now, or plan one for later on any colour.' : 'No sesh yet. Slide the switch up top to green to start one now, or plan one for later on any colour.') + '</p>';
       } else {
-        h += '<p class="muted">You\'re red, so tonight\'s seshes are hidden. You can still plan one for later and see your friends\' plans below.</p><button class="btn" style="--c:var(--on);--cf:var(--ink)" data-act="status" data-v="on">Go green</button>';
+        h += '<p class="muted">You\'re red, so tonight\'s seshes are hidden. Slide the switch up top to green, or plan one for later and see your friends\' plans below.</p>';
       }
       return h + plannedHtml();
     }

@@ -146,7 +146,6 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
       onPlan={startPlan}
     />
   );
-  const goGreen = () => { f.setColour('on'); onOpenWeb('home'); };
 
   /* ---------- not in a sesh: join one or start one ---------- */
   if (!mine) {
@@ -181,13 +180,11 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
           </>
         ) : me.colour === 'thinking' ? (
           <>
-            <Text style={styles.muted}>{others.length ? 'Go green to start your own now, or plan one for later on any colour.' : 'No sesh yet. Go green to start one now, or plan one for later on any colour.'}</Text>
-            <Button label="Go green" colour={C.on} ink onPress={goGreen} />
+            <Text style={styles.muted}>{others.length ? 'Slide the switch up top to green to start your own now, or plan one for later on any colour.' : 'No sesh yet. Slide the switch up top to green to start one now, or plan one for later on any colour.'}</Text>
           </>
         ) : (
           <>
-            <Text style={styles.muted}>You're red, so tonight's seshes are hidden. You can still plan one for later and see your friends' plans below.</Text>
-            <Button label="Go green" colour={C.on} ink onPress={goGreen} />
+            <Text style={styles.muted}>You're red, so tonight's seshes are hidden. Slide the switch up top to green, or plan one for later and see your friends' plans below.</Text>
           </>
         )}
         {planned}
