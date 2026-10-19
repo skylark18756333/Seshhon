@@ -25,16 +25,12 @@ create policy events_read_live on public.events for select
 
 create or replace function public.api_events() returns jsonb
 language sql stable security invoker set search_path = public as $$
-  select coalesce(jsonb_agg(
-    jsonb_build_object(
-      'id', e.id, 'title', e.title, 'kind', e.kind, 'place', e.place,
-      'lat', e.lat, 'lng', e.lng, 'starts_at', e.starts_at, 'ends_at', e.ends_at,
-      'source_url', e.source_url
-    )
-    order by e.starts_at
-  ), '[]'::jsonb)
-  from public.events e
-  where e.active and e.ends_at > now();
+  select coalesce(jsonb_agg(row_to_json(x)::jsonb order by x.starts_at), '[]'::jsonb)
+  from (
+    select id, title, kind, place, lat, lng, starts_at, ends_at, source_url
+    from public.events
+    where active and ends_at > now()
+  ) x;
 $$;
 
 grant execute on function public.api_events() to anon, authenticated;
