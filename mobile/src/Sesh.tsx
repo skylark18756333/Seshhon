@@ -703,25 +703,28 @@ function LockedCard({ id, v, onVenue }: { id: string; v: Venues; onVenue: (id: s
   );
 }
 
+// What each shown friend's status reads as when they are not in a sesh. Red friends are never listed.
+const STATUS_LINE: Record<string, string> = { on: 'Green, up for it', thinking: 'Amber, thinking about it' };
+
 // Your friends, keenest first, each with where they are tonight: in a sesh (and where), or their status.
 function People({ friends, seshes, v, photos }: { friends: Friend[]; seshes: SeshT[]; v: Venues; photos: Record<string, string> }) {
-  const sorted = friends.slice().sort((x, y) => STOPS.indexOf(x.colour) - STOPS.indexOf(y.colour));
+  // Red friends are never shown, not even greyed out.
+  const sorted = friends.filter((fr) => fr.colour !== 'off').sort((x, y) => STOPS.indexOf(x.colour) - STOPS.indexOf(y.colour));
   return (
     <View style={styles.stack}>
       <Text style={styles.h2}>Your people</Text>
       {sorted.map((fr) => {
-        const away = fr.colour === 'off';
         const out = seshes.filter((s) => !isPlanned(s) && s.members.some((m) => m.id === fr.id))[0];
         const where = out && out.locked_venue && v.byId[out.locked_venue] ? v.byId[out.locked_venue].name : null;
-        const line = out ? 'In a sesh' + (where ? ', ' + where : '') : { on: 'Green, up for it', thinking: 'Amber, thinking about it', off: 'Red' }[fr.colour];
+        const line = out ? 'In a sesh' + (where ? ', ' + where : '') : STATUS_LINE[fr.colour];
         return (
-          <View key={fr.id} style={[styles.card, styles.person, away && { opacity: 0.5 }, !away && { borderColor: COLOURS[fr.colour] + '66' }]}>
-            <View style={[styles.personRing, { borderColor: away ? C.line : COLOURS[fr.colour] }]}>
-              <Face id={fr.id} name={fr.name} photos={photos} size={44} font={16} away={away} />
+          <View key={fr.id} style={[styles.card, styles.person, { borderColor: COLOURS[fr.colour] + '66' }]}>
+            <View style={[styles.personRing, { borderColor: COLOURS[fr.colour] }]}>
+              <Face id={fr.id} name={fr.name} photos={photos} size={44} font={16} />
             </View>
             <View style={styles.grow}>
               <Text style={styles.title}>{first(fr.name)}</Text>
-              <Text style={[styles.small, { color: away ? C.muted : COLOURS[fr.colour] }]}>{line}</Text>
+              <Text style={[styles.small, { color: COLOURS[fr.colour] }]}>{line}</Text>
             </View>
           </View>
         );
