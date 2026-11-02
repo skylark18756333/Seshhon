@@ -460,9 +460,7 @@ function Shell() {
         </View>
       ) : null}
       {homeSeen || onHome ? (
-        {/* See-through, so the status glow runs from behind the phone's clock down behind the header and fades out,
-            instead of stopping in a hard line under the clock. */}
-        <View style={onHome ? styles.clearFill : styles.hidden}>
+        <View style={onHome ? styles.clearFill : styles.hidden /* see-through: the status glow fades down behind the header */}>
           <Shown.Provider value={onHome}>
             <Sesh f={f} onOpenWeb={pickTab} onVenue={openVenue} />
           </Shown.Provider>
