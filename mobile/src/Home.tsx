@@ -13,7 +13,8 @@ const INVITE_BASE = 'https://frendzy.au/';
 // The big switch runs red, amber, green from left to right.
 const SWITCH: Colour[] = ['off', 'thinking', 'on'];
 
-export function HomeTop({ f, onOpenWeb }: { f: Frendzy; onOpenWeb: (tab: string) => void }) {
+// compact: you're in a live sesh, so the switch shrinks to one slim bar and the sesh card leads the page.
+export function HomeTop({ f, onOpenWeb, compact }: { f: Frendzy; onOpenWeb: (tab: string) => void; compact?: boolean }) {
   const me = f.state && f.state.me;
   const [linkShown, setLinkShown] = useState(false);
   const [friendName, setFriendName] = useState('');
@@ -23,8 +24,6 @@ export function HomeTop({ f, onOpenWeb }: { f: Frendzy; onOpenWeb: (tab: string)
   const copy = STATUS_COPY[colour];
   const friends = f.state ? f.state.friends : [];
   const requests = f.state ? f.state.requests_in : [];
-  // Only friends on green show here. Red friends are never shown. Amber friends stay out of sight until friends can choose to allow it.
-  const greens = friends.filter((x) => x.colour === 'on');
 
   const share = () => {
     const link = INVITE_BASE + '?invite=' + me.invite_code;
@@ -35,7 +34,7 @@ export function HomeTop({ f, onOpenWeb }: { f: Frendzy; onOpenWeb: (tab: string)
   return (
     <>
         {/* Your status: one card with the word, how long it lasts, and the switch to change it. */}
-        <StatusCard colour={colour} word={copy[0]} note={colour !== 'off' && me.expires_at ? <Until at={me.expires_at} /> : copy[1]} onPick={(c) => { if (c !== colour) f.setColour(c); }} />
+        <StatusCard compact={compact} colour={colour} word={copy[0]} note={colour !== 'off' && me.expires_at ? <Until at={me.expires_at} /> : copy[1]} onPick={(c) => { if (c !== colour) f.setColour(c); }} />
 
         {requests.length ? (
           <View style={styles.stack}>
@@ -95,7 +94,22 @@ export function HomeTop({ f, onOpenWeb }: { f: Frendzy; onOpenWeb: (tab: string)
               </>
             ) : null}
           </View>
-        ) : colour === 'off' ? (
+        ) : null}
+    </>
+  );
+}
+
+// Who's up for it now: a row of your green friends, right under the sesh card. Red friends are never shown, and
+// amber friends stay out of sight here.
+export function GreenRow({ f }: { f: Frendzy }) {
+  const me = f.state && f.state.me;
+  const friends = f.state ? f.state.friends : [];
+  if (!me || !friends.length) return null;
+  const colour = me.colour;
+  const greens = friends.filter((x) => x.colour === 'on');
+  return (
+    <>
+        {colour === 'off' ? (
           <View style={styles.card}>
             <Text style={styles.h2}>Friends are hidden while you're red</Text>
             <Text style={[styles.muted, styles.small]}>Slide the switch up top to green to see who's up for it tonight.</Text>
@@ -119,7 +133,8 @@ export function HomeTop({ f, onOpenWeb }: { f: Frendzy; onOpenWeb: (tab: string)
   );
 }
 
-// What sits under the sesh part of the page: catch-ups, the events and crews buttons.
+// What sits under the sesh part of the page: crew catch-up ideas, and what's on tonight when you're amber.
+// Messages and Crews are in the header now (Messages, and Friends > Crews and besties).
 export function HomeBottom({ f, onOpenWeb }: { f: Frendzy; onOpenWeb: (tab: string) => void }) {
   const me = f.state && f.state.me;
   const friends = f.state ? f.state.friends : [];
@@ -129,8 +144,6 @@ export function HomeBottom({ f, onOpenWeb }: { f: Frendzy; onOpenWeb: (tab: stri
     <>
       {friends.length ? <CatchUpCards f={f} onPlanned={() => onOpenWeb('home')} /> : null}
       {friends.length && colour === 'thinking' ? <Button label="See what's on tonight" colour={C.thinking} ink onPress={() => onOpenWeb('events')} /> : null}
-      {friends.length ? <Button label="Messages" ghost onPress={() => onOpenWeb('messages')} testID="home-messages" /> : null}
-      {friends.length ? <Button label="Crews and besties" ghost onPress={() => onOpenWeb('crews')} testID="home-crews" /> : null}
     </>
   );
 }
@@ -183,7 +196,7 @@ function StopDot({ kind, lit }: { kind: Colour; lit: boolean }) {
 // Your status as a little control deck: the word in your colour, then a wide switch. A glowing orb with a slow pulse
 // slides to the one you pick, over a faint dial of ticks. Each stop has its icon (tick, question mark, cross) and its
 // name, and every stop is a big target.
-function StatusCard({ colour, word, note, onPick }: { colour: Colour; word: string; note: React.ReactNode; onPick: (c: Colour) => void }) {
+function StatusCard({ colour, word, note, onPick, compact }: { colour: Colour; word: string; note: React.ReactNode; onPick: (c: Colour) => void; compact?: boolean }) {
   const [w, setW] = useState(0);
   const at = Math.max(0, SWITCH.indexOf(colour));
   const slide = useRef(new Animated.Value(at)).current;
@@ -224,14 +237,14 @@ function StatusCard({ colour, word, note, onPick }: { colour: Colour; word: stri
   })).current;
   const x = slide.interpolate({ inputRange: [0, 1, 2], outputRange: [4, 4 + stop, 4 + stop * 2] });
   return (
-    <View style={[styles.statusCard, { borderColor: fade(mode, 0.55), shadowColor: mode }]}>
-      <View style={styles.statusTop}>
-        <Text style={styles.eyebrow}>Your status</Text>
-        <Text style={[styles.statusWord, { color: mode }]}>{word}</Text>
-        <Text style={[styles.muted, styles.small]}>{note}</Text>
+    <View style={[styles.statusCard, compact && styles.statusSlim, { borderColor: fade(mode, 0.55), shadowColor: mode }]}>
+      <View style={[styles.statusTop, compact && styles.grow]}>
+        {compact ? null : <Text style={styles.eyebrow}>Your status</Text>}
+        <Text style={[styles.statusWord, compact && styles.statusWordSlim, { color: mode }]} numberOfLines={1}>{word}</Text>
+        <Text style={[styles.muted, styles.small, compact && styles.tiny]} numberOfLines={compact ? 1 : undefined}>{note}</Text>
       </View>
-      <View style={[styles.track, { borderColor: fade(mode, 0.35) }]} onLayout={(e) => setW(e.nativeEvent.layout.width)} accessibilityLabel="Set your status" {...drag.panHandlers}>
-        <View pointerEvents="none" style={styles.ticks}>
+      <View style={[styles.track, compact && styles.trackSlim, { borderColor: fade(mode, 0.35) }]} onLayout={(e) => setW(e.nativeEvent.layout.width)} accessibilityLabel="Set your status" {...drag.panHandlers}>
+        <View pointerEvents="none" style={[styles.ticks, compact && { display: 'none' }]}>
           {Array.from({ length: 24 }, (_, i) => <View key={i} style={[styles.tick, i % 4 === 0 && styles.tickBig]} />)}
         </View>
         {w ? (
@@ -242,6 +255,13 @@ function StatusCard({ colour, word, note, onPick }: { colour: Colour; word: stri
         ) : null}
         {SWITCH.map((k) => {
           const lit = k === colour;
+          if (compact) {
+            return (
+              <Pressable key={k} style={styles.stop} onPress={() => onPick(k)} accessibilityRole="button" accessibilityLabel={LABELS[k]} accessibilityState={{ selected: lit }}>
+                <View style={[styles.dotSlim, lit ? { backgroundColor: C.ink } : { backgroundColor: fade(COLOURS[k], 0.6) }]} />
+              </Pressable>
+            );
+          }
           return (
             <Pressable
               key={k}
@@ -267,7 +287,7 @@ const styles = themed(() => StyleSheet.create({
   stack: { gap: 10 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   between: { justifyContent: 'space-between' },
-  grow: { flex: 1 },
+  grow: { flex: 1, minWidth: 0 },
   eyebrow: { fontFamily: F.bodyBold, fontSize: 12, letterSpacing: 1.4, textTransform: 'uppercase', color: C.muted },
   statusWord: { fontFamily: F.display, fontSize: 34, lineHeight: 40, letterSpacing: -0.8 },
   h2: { fontFamily: F.displayBold, fontSize: 19, letterSpacing: -0.2, color: C.fg },
@@ -286,6 +306,11 @@ const styles = themed(() => StyleSheet.create({
   // Your status, one line
   statusCard: { backgroundColor: C.surface, borderRadius: 30, padding: 16, gap: 14, borderWidth: 1.5, shadowOpacity: C.dark ? 0.4 : 0.15, shadowRadius: 20, shadowOffset: { width: 0, height: 0 } },
   statusTop: { gap: 2 },
+  statusSlim: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, paddingHorizontal: 14, borderRadius: 26 },
+  statusWordSlim: { fontSize: 20, lineHeight: 24, letterSpacing: -0.4 },
+  tiny: { fontSize: 12, lineHeight: 16 },
+  trackSlim: { width: 132, height: 46, borderRadius: 23, flex: 0 },
+  dotSlim: { width: 12, height: 12, borderRadius: 6 },
   track: { flexDirection: 'row', height: 78, borderRadius: 39, backgroundColor: C.track, borderWidth: 1 },
   ticks: { position: 'absolute', left: 22, right: 22, top: 0, bottom: 0, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', opacity: 0.5 },
   tick: { width: 1, height: 8, backgroundColor: C.trackLine },

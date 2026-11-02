@@ -28,6 +28,10 @@ const ICON: Record<string, Shape[]> = {
   arrow: [{ d: 'M21 3L3 10.5l7.5 3 3 7.5z' }],
   search: [{ c: [11, 11, 7] }, { d: 'M20 20l-4-4' }],
   // The You page's
+  // The header's Messages and Friends buttons, and the lobby's tiles
+  chat: [{ d: 'M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z' }],
+  plus: [{ d: 'M12 5v14' }, { d: 'M5 12h14' }],
+  bolt: [{ d: 'M13 2L4 14h7l-1 8 9-12h-7z' }],
   eye: [{ d: 'M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z' }, { c: [12, 12, 3] }]
 };
 

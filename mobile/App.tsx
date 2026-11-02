@@ -22,7 +22,8 @@ import AgeCheck from './src/AgeCheck';
 import Auth, { type AuthDone, type AuthStart } from './src/Auth';
 import Crews from './src/Crews';
 import { FriendProfileHost } from './src/FriendProfile';
-import Messages from './src/Messages';
+import Friends from './src/Friends';
+import Messages, { chatWith } from './src/Messages';
 import { Glow, Toast } from './src/Parts';
 import { askAfterTour, registerPushToken, watchNotificationTaps } from './src/push';
 import Sesh from './src/Sesh';
@@ -46,7 +47,7 @@ const AGE_CHECK_HOSTS = ['https://verify.didit.me/', 'https://age.yoti.com'];
 // Runs in the page before its own script: the page's "share" button uses the phone's share sheet, the page
 // starts on the tab the app asked for, and it starts signed in as whoever the app is signed in as.
 const PAGE_TABS = ['home', 'sesh', 'map', 'venues', 'events', 'you'];
-const BASE_TABS = ['home', 'sesh', 'you', 'crews', 'messages', 'events'];   // 'events' is the native Events screen (EventsTab), themed by You > Look   // the tabs with a native screen ('crews' is opened from You or Home, and shows You in the tab bar)
+const BASE_TABS = ['home', 'sesh', 'you', 'crews', 'messages', 'friends', 'events'];   // 'events' is the native Events screen (EventsTab), themed by You > Look   // the tabs with a native screen ('crews' is opened from You or Home, and shows You in the tab bar)
 // venue: open the page on that venue's page (from the native Sesh tab); closing it goes back to the Sesh tab.
 function bridge(tab: string | null, venue: string | null): string {
   const saved = sessionForPage();
@@ -152,7 +153,7 @@ function Shell() {
   // Home and the native Map stay loaded once opened (hidden while another tab is on show), so switching back is
   // instant: Home keeps its place and the map isn't built from scratch, re-zoomed and re-fetched every time.
   const onMap = tab === 'map' && nativeMap;
-  const onHome = !onWeb && !onMap && tab !== 'you' && tab !== 'messages' && tab !== 'crews';
+  const onHome = !onWeb && !onMap && tab !== 'you' && tab !== 'messages' && tab !== 'friends' && tab !== 'crews';
   const [mapSeen, setMapSeen] = useState(false);
   const [homeSeen, setHomeSeen] = useState(false);
   if (onMap && !mapSeen) setMapSeen(true);
@@ -196,7 +197,7 @@ function Shell() {
       if (onWeb && canGoBack && web.current) { web.current.goBack(); return true; }
       if (onWeb && native) { setTab(tab === 'venue' ? venueFrom.current : 'home'); return true; }
       if (native && (tab === 'you' || tab === 'crews')) { setTab(before); return true; }
-      if (native && tab === 'messages') { setTab('home'); return true; }
+      if (native && (tab === 'messages' || tab === 'friends')) { setTab('home'); return true; }
       return false;
     });
     return () => sub.remove();
@@ -288,6 +289,10 @@ function Shell() {
   const goHome = useCallback(() => setTab('home'), []);
   const goBefore = useCallback(() => setTab(before), [before]);
   const openPlanned = useCallback(() => pickTab('sesh'), [pickTab]);
+  // "Message" on a friend's profile opens Messages on that friend's chat (a fresh Messages screen, so it opens there
+  // even when Messages was already showing).
+  const [chatOpens, setChatOpens] = useState(0);
+  const openChatWith = useCallback((id: string) => { chatWith(id); setChatOpens((n) => n + 1); setTab('messages'); }, []);
 
   // Tapping a notification opens the screen it is about (Home, Sesh or Crews), once the native screens are up.
   const [tapTab, setTapTab] = useState<string | null>(null);
@@ -460,12 +465,13 @@ function Shell() {
       ) : null}
       {tab === 'events' ? <EventsTab /> : null}
       {tab === 'you' ? <You f={f} onOpenWeb={pickTab} onSignedOut={signedOut} />
-        : tab === 'messages' ? <Messages f={f} onBack={goHome} />
+        : tab === 'messages' ? <Messages key={chatOpens} f={f} onBack={goHome} onSesh={goHome} />
+        : tab === 'friends' ? <Friends f={f} onBack={goHome} onOpenWeb={pickTab} />
         : tab === 'crews' ? <Crews f={f} onBack={goBefore} onPlanned={openPlanned} />
         : null}
       </Swipe>
-      <Tabs tab={tab === 'venue' ? 'home' : tab === 'crews' ? 'you' : tab === 'messages' ? 'home' : tab} requests={f.state ? f.state.requests_in.length : 0} onPick={pickTab} />
-      <FriendProfileHost f={f} onMessages={() => setTab('messages')} />
+      <Tabs tab={tab === 'venue' ? 'home' : tab === 'crews' ? 'you' : tab === 'messages' || tab === 'friends' ? 'home' : tab} requests={f.state ? f.state.requests_in.length : 0} onPick={pickTab} />
+      <FriendProfileHost f={f} onMessages={openChatWith} />
       {tour && me ? <Tour name={first(me.name)} onClose={() => { clearTour(); setTour(false); askAfterTour().catch(() => {}); }} /> : null}
     </Layer>
   );

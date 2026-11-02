@@ -645,7 +645,7 @@ export default function You({ f, onOpenWeb, onSignedOut }: { f: Frendzy; onOpenW
             <View style={styles.start}><Button small ghost label="Show the tour" onPress={() => setTour(true)} /></View>
           </Section>
 
-          <Section k="about" title="About" onToggle={toggle}>
+          <Section k="info" title="About" onToggle={toggle}>
             <Pressable accessibilityRole="link" onPress={() => Linking.openURL(WEB_URL + 'privacy.html').catch(() => {})}>
               <Text style={[styles.body, styles.small, styles.link]}>Privacy Policy</Text>
             </Pressable>

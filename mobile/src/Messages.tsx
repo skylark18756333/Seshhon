@@ -12,10 +12,10 @@ import nacl from 'tweetnacl';
 import { decodeBase64, decodeUTF8, encodeBase64, encodeUTF8 } from 'tweetnacl-util';
 import type { Friend } from './api';
 import Icon from './Icon';
-import { Button, Face, Toast } from './Parts';
+import { Button, Face, Toast, setWaiting } from './Parts';
 import { rpc, type ApiError } from './session';
 import type { Frendzy } from './useFrendzy';
-import { C, F, first, themed } from './theme';
+import { C, COLOURS, F, LABELS, fade, first, fmtTime, themed } from './theme';
 
 nacl.setPRNG((x, n) => { x.set(Crypto.getRandomBytes(n)); });
 
@@ -75,6 +75,7 @@ type Row = { id: string; from: string; key: string; body: string; at: string };
 async function collect(uid: string, h: History): Promise<History> {
   const kp = await ensureKey(uid);
   const rows: Row[] = await rpc('my_friend_messages');
+  setWaiting(0);   // this screen collects them, so the header's count clears
   if (!rows.length) return h;
   let next = h;
   for (const r of rows) {
@@ -91,13 +92,18 @@ async function collect(uid: string, h: History): Promise<History> {
   return next;
 }
 
+// Opening Messages straight on one friend's chat (the Message button on a friend's profile, or a face on Friends).
+let pendingChat: string | null = null;
+export function chatWith(id: string | null) { pendingChat = id; }
+const TONIGHT_MS = 12 * 3600000;   // chats with a message in the last 12 hours sit under "Tonight"
+
 /* ---------- the screen ---------- */
-export default function Messages({ f, onBack }: { f: Frendzy; onBack: () => void }) {
+export default function Messages({ f, onBack, onSesh }: { f: Frendzy; onBack: () => void; onSesh: () => void }) {
   const me = f.state && f.state.me;
   const friends = (f.state && f.state.friends) || [];
   const uid = me ? me.id : '';
   const [hist, setHist] = useState<History>({ chats: {}, seen: {} });
-  const [open, setOpen] = useState<string | null>(null);
+  const [open, setOpen] = useState<string | null>(() => { const p = pendingChat; pendingChat = null; return p; });
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const live = useRef({ hist, uid });
@@ -142,6 +148,33 @@ export default function Messages({ f, onBack }: { f: Frendzy; onBack: () => void
   if (!me) return null;
   const friend: Friend | undefined = open ? friends.find((x) => x.id === open) : undefined;
   const ordered = friends.slice().sort((a, b) => (last(b.id)?.at || '').localeCompare(last(a.id)?.at || '') || a.name.localeCompare(b.name));
+  const since = new Date(Date.now() - TONIGHT_MS).toISOString();
+  const tonight = ordered.filter((fr) => { const m = last(fr.id); return !!m && m.at >= since; });
+  const earlier = ordered.filter((fr) => { const m = last(fr.id); return !!m && m.at < since; });
+  const quiet = ordered.filter((fr) => !last(fr.id));
+  // Red friends are never shown as red: only green and amber friends get a chat head.
+  const heads = friends.filter((fr) => fr.colour === 'on').concat(friends.filter((fr) => fr.colour === 'thinking'));
+  const seshes = (f.state && f.state.seshes) || [];
+  const liveSesh = seshes.filter((x) => x.am_member && !(x.planned && x.starts_at && new Date(x.starts_at).getTime() > Date.now()))[0] || null;
+  const row = (fr: Friend) => {
+    const m = last(fr.id), un = unread(fr.id);
+    return (
+      <Pressable key={fr.id} style={styles.row} onPress={() => openChat(fr.id)} accessibilityRole="button" accessibilityLabel={'Message ' + fr.name + (un ? ', new message' : '')}>
+        <View>
+          <Face id={fr.id} name={fr.name} photos={f.photos} size={50} font={17} />
+          {fr.colour === 'on' ? <View style={[styles.onDot, { backgroundColor: C.on }]} /> : null}
+        </View>
+        <View style={styles.grow}>
+          <View style={styles.titleRow}>
+            <Text style={[styles.body, styles.strong, styles.shrink]} numberOfLines={1}>{fr.name}</Text>
+            {m ? <Text style={[styles.muted, styles.tiny]}>{fmtTime(m.at)}</Text> : null}
+          </View>
+          <Text style={[styles.muted, styles.small, un && styles.unreadText]} numberOfLines={1}>{m ? (m.me ? 'You: ' : '') + m.text : 'Say hi'}</Text>
+        </View>
+        {un ? <View style={styles.dot} /> : null}
+      </Pressable>
+    );
+  };
 
   return (
     <View style={styles.fill}>
@@ -179,21 +212,43 @@ export default function Messages({ f, onBack }: { f: Frendzy; onBack: () => void
           </>
         ) : (
           <ScrollView style={styles.fill} contentContainerStyle={styles.view}>
-            <Text style={[styles.muted, styles.small]}>Messages are locked on your phone. Crewzy can't read them and deletes its copy as soon as your friend's phone has it.</Text>
-            {!ordered.length ? <Text style={styles.muted}>Add friends to message them.</Text> : null}
-            {ordered.map((fr) => {
-              const m = last(fr.id);
-              return (
-                <Pressable key={fr.id} style={styles.item} onPress={() => openChat(fr.id)} accessibilityRole="button" accessibilityLabel={'Message ' + fr.name}>
-                  <Face id={fr.id} name={fr.name} photos={f.photos} size={44} font={16} />
-                  <View style={styles.grow}>
-                    <Text style={[styles.body, unread(fr.id) && styles.strong]} numberOfLines={1}>{fr.name}</Text>
-                    <Text style={[styles.muted, styles.small]} numberOfLines={1}>{m ? (m.me ? 'You: ' : '') + m.text : 'No messages yet'}</Text>
+            {/* Chat heads: friends who are green (or amber and letting you see), one tap to chat. */}
+            {heads.length ? (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.heads}>
+                {heads.map((fr) => (
+                  <Pressable key={fr.id} style={styles.head} onPress={() => openChat(fr.id)} accessibilityRole="button" accessibilityLabel={'Message ' + fr.name + ', ' + LABELS[fr.colour]}>
+                    <View style={[styles.headRing, { borderColor: COLOURS[fr.colour], shadowColor: COLOURS[fr.colour] }]}>
+                      <Face id={fr.id} name={fr.name} photos={f.photos} size={52} font={18} />
+                    </View>
+                    <Text style={styles.headName} numberOfLines={1}>{first(fr.name)}</Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            ) : null}
+
+            {liveSesh || tonight.length ? <Text style={styles.group}>Tonight</Text> : null}
+            {liveSesh ? (
+              <Pressable style={styles.row} onPress={onSesh} accessibilityRole="button" accessibilityLabel="Open tonight's sesh chat" testID="messages-sesh">
+                <View style={[styles.seshIcon, { backgroundColor: C.heroTo }]}><View style={[styles.seshIconIn, { backgroundColor: C.heroFrom }]}><Icon name="bolt" size={20} colour="#fff" /></View></View>
+                <View style={styles.grow}>
+                  <View style={styles.titleRow}>
+                    <Text style={[styles.body, styles.strong, styles.shrink]} numberOfLines={1}>{liveSesh.mine ? 'Your sesh' : first(liveSesh.creator_name) + "'s sesh"}</Text>
+                    <Text style={styles.livePin}>LIVE</Text>
                   </View>
-                  {unread(fr.id) ? <View style={styles.dot} /> : null}
-                </Pressable>
-              );
-            })}
+                  <Text style={[styles.muted, styles.small]} numberOfLines={1}>{liveSesh.members.length} in. Tap to open the sesh chat</Text>
+                </View>
+              </Pressable>
+            ) : null}
+            {tonight.map(row)}
+            {earlier.length ? <Text style={styles.group}>Earlier</Text> : null}
+            {earlier.map(row)}
+            {quiet.length ? <Text style={styles.group}>Start a chat</Text> : null}
+            {quiet.map(row)}
+            {!friends.length ? <Text style={styles.muted}>Add friends to message them.</Text> : null}
+            <View style={styles.lockLine}>
+              <Icon name="lock" size={12} colour={C.muted} />
+              <Text style={[styles.muted, styles.tiny]}>Locked on your phone. Crewzy can't read them and deletes its copy once your friend's phone has it.</Text>
+            </View>
           </ScrollView>
         )}
       </KeyboardAvoidingView>
@@ -214,7 +269,22 @@ const styles = themed(() => StyleSheet.create({
   muted: { fontFamily: F.body, fontSize: 16, lineHeight: 22, color: C.muted },
   small: { fontSize: 14, lineHeight: 20 },
   item: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: C.surface, borderRadius: 18, borderWidth: 1, borderColor: C.line, padding: 12 },
-  dot: { width: 10, height: 10, borderRadius: 5, backgroundColor: C.on },
+  dot: { width: 10, height: 10, borderRadius: 5, backgroundColor: C.accent },
+  tiny: { fontSize: 12, lineHeight: 16 },
+  shrink: { flexShrink: 1 },
+  heads: { gap: 14, paddingVertical: 6, paddingRight: 8 },
+  head: { alignItems: 'center', gap: 6, width: 66 },
+  headRing: { borderWidth: 2.5, borderRadius: 32, padding: 3, shadowOpacity: C.dark ? 0.8 : 0, shadowRadius: 10, shadowOffset: { width: 0, height: 0 } },
+  headName: { fontFamily: F.bodyBold, fontSize: 13, color: C.fg, maxWidth: 66 },
+  group: { fontFamily: F.bodyBold, fontSize: 12, letterSpacing: 1.4, textTransform: 'uppercase', color: C.muted, marginTop: 6 },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 4 },
+  titleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  unreadText: { color: C.fg, fontFamily: F.bodyBold },
+  onDot: { position: 'absolute', right: 0, bottom: 0, width: 14, height: 14, borderRadius: 7, borderWidth: 2.5, borderColor: C.bg },
+  seshIcon: { width: 50, height: 50, borderRadius: 25, overflow: 'hidden' },
+  seshIconIn: { position: 'absolute', top: 0, left: 0, right: 12, bottom: 12, borderRadius: 25, alignItems: 'center', justifyContent: 'center', width: 50, height: 50 },
+  livePin: { fontFamily: F.bodyBold, fontSize: 10, letterSpacing: 1, color: '#fff', backgroundColor: C.off, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, overflow: 'hidden' },
+  lockLine: { flexDirection: 'row', alignItems: 'center', gap: 6, justifyContent: 'center', marginTop: 10 },
   bubble: { maxWidth: '82%', borderRadius: 18, paddingHorizontal: 14, paddingVertical: 10 },
   mine: { alignSelf: 'flex-end', backgroundColor: C.accent },
   mineText: { color: C.accentInk },

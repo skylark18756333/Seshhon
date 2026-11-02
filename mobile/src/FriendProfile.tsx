@@ -57,12 +57,12 @@ type Style = { theme: string; frame: string; cover?: string | null; badges: stri
 let show: ((id: string | null) => void) | null = null;
 export function openFriend(id: string) { if (show) show(id); }
 
-export function FriendProfileHost({ f, onMessages }: { f: Frendzy; onMessages: () => void }) {
+export function FriendProfileHost({ f, onMessages }: { f: Frendzy; onMessages: (id: string) => void }) {
   const [id, setId] = useState<string | null>(null);
   useEffect(() => { show = setId; return () => { show = null; }; }, []);
   return (
     <Modal visible={!!id} animationType="slide" onRequestClose={() => setId(null)} statusBarTranslucent>
-      {id ? <FriendProfile f={f} id={id} onClose={() => setId(null)} onMessages={() => { setId(null); onMessages(); }} /> : null}
+      {id ? <FriendProfile f={f} id={id} onClose={() => setId(null)} onMessages={() => { setId(null); onMessages(id); }} /> : null}
     </Modal>
   );
 }
