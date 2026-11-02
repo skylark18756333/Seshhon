@@ -1587,10 +1587,9 @@
     if (!standaloneAsked) { standaloneAsked = true; loadStandalone().then(function () { render(); }); }
     var h = '<div class="stack" style="gap:6px"><h1>Events</h1><p class="muted small">What\'s on at venues, festivals and concerts.</p></div>';
     var extra = (STANDALONE || []).map(function (s) {
-      return '<div class="card"><div class="row between"><div class="eyebrow">' + esc(s.kind) + '</div><span class="small muted">' + esc(s.place) + '</span></div>' +
-        '<div style="font-weight:700;font-size:17px">' + esc(s.title) + '</div>' +
-        '<div class="muted small">' + esc(s.time_to_confirm ? dayLine(s.starts_at) + ', time to confirm' : whenLine(s.starts_at)) + '</div>' +
-        (s.source_url ? '<a class="small" href="' + esc(s.source_url) + '" target="_blank" rel="noopener">More info</a>' : '') + '</div>';
+      return '<div class="deal-banner"><div class="row between"><span class="sub">' + esc(s.kind) + '</span><span class="small muted">' + esc(s.place) + '</span></div>' +
+        '<div class="big">' + esc(s.title) + '</div><div class="small muted">' + esc(s.time_to_confirm ? dayLine(s.starts_at) + ', time to confirm' : whenLine(s.starts_at)) + '</div>' +
+        (s.source_url ? '<div class="row"><a class="btn small-btn ghost" href="' + esc(s.source_url) + '" target="_blank" rel="noopener">More info</a></div>' : '') + '</div>';
     }).join('');
     if (!list.length && !extra) return h + (STANDALONE == null ? '<p class="muted small">Loading events...</p>' : '<div class="card"><h2>Nothing listed yet</h2><p class="muted small">Gigs, festivals and live music show up here when they are added.</p></div>');
     return h + '<div class="stack" style="gap:14px">' + list.map(function (e) {
