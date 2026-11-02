@@ -1,8 +1,10 @@
-// The Events tab on the phone: festivals, concerts and gigs from the events table (api_events), in the app's own
-// look so it follows You > Look. Each card has a badge for its kind, the place, the time (or "time to confirm") and
-// how far away it is from your approximate location, which stays on the phone. Sharing comes later.
+// The Events tab on the phone: festivals, concerts, gigs, comedy and food from the events table (api_events), in the
+// app's own look so it follows You > Look. Each card has a bold badge for its kind, the place, the time (or "time to
+// confirm") and how far away it is from your approximate location, which stays on the phone. Sharing comes later.
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import Svg, { Path } from 'react-native-svg';
+import { LinearGradient } from 'expo-linear-gradient';
 import { C, F, fmtWhen, themed } from './theme';
 import { rpc } from './session';
 import { km, useMyPlace } from './venues';
@@ -12,13 +14,16 @@ type Event = {
   starts_at: string; ends_at: string; source_url: string | null; time_to_confirm: boolean;
 };
 
-// Concerts, gigs and festivals get the music note; comedy the mic; anything else the fork. Colours match the
-// icon choices Sarah picked: blue for music, green for comedy, the accent for food and drink. A function, so the
-// accent follows the Look the phone is using.
-const badgeFor = (kind: string): { glyph: string; colour: string } => {
-  if (kind === 'Comedy') return { glyph: '\u{1F3A4}', colour: '#22C55E' };
-  if (kind === 'Concert' || kind === 'Gig' || kind === 'Festival') return { glyph: '\u266B', colour: '#2F7BFF' };
-  return { glyph: '\u{1F374}', colour: C.accent };   // food and drink, and anything else
+// Solid, bold icons on a glowing gradient disc, as in the mock-up Sarah picked: a note for music (blue), a mic for
+// comedy (green), a fork for food and drink (the accent). Paths are filled shapes so they read at a glance.
+const NOTE = 'M19 3v11.3a3.5 3.5 0 1 1-2-3.16V6.2L9 8.1V18a3.5 3.5 0 1 1-2-3.16V6l12-3z';
+const MIC = 'M12 2a3.5 3.5 0 0 0-3.5 3.5v5a3.5 3.5 0 0 0 7 0v-5A3.5 3.5 0 0 0 12 2z M5 10.5a1 1 0 0 1 2 0 5 5 0 0 0 10 0 1 1 0 0 1 2 0 7 7 0 0 1-6 6.93V21h3a1 1 0 0 1 0 2H8a1 1 0 0 1 0-2h3v-3.57A7 7 0 0 1 5 10.5z';
+const FORK = 'M6 2h2v6a2 2 0 0 1-4 0V2h2v5h0V2zM9 2h2v5h1V2h2v5a4 4 0 0 1-3 3.87V22H9V10.87A4 4 0 0 1 6 7V2h3z M18 2c-2.2 0-3.5 2.4-3.5 5.5 0 2 .9 3.3 2.5 3.8V22h2V2z';
+
+const badgeFor = (kind: string): { colours: [string, string]; glow: string; path: string } => {
+  if (kind === 'Comedy') return { colours: ['#22C55E', '#86EFAC'], glow: '#22C55E', path: MIC };
+  if (kind === 'Concert' || kind === 'Gig' || kind === 'Festival') return { colours: ['#2F7BFF', '#5AA8FF'], glow: '#2F7BFF', path: NOTE };
+  return { colours: [C.accent, C.accent], glow: C.accent, path: FORK };   // food and drink, and anything else
 };
 
 function whenLine(e: Event): string {
@@ -27,6 +32,19 @@ function whenLine(e: Event): string {
     return d.toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'Australia/Perth' }) + ', time to confirm';
   }
   return fmtWhen(e.starts_at);
+}
+
+function Badge({ kind }: { kind: string }) {
+  const b = badgeFor(kind);
+  return (
+    <View style={[styles.glow, { shadowColor: b.glow }]}>
+      <LinearGradient colors={b.colours} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.badge}>
+        <Svg width={34} height={34} viewBox="0 0 24 24">
+          <Path d={b.path} fill="#FFFFFF" />
+        </Svg>
+      </LinearGradient>
+    </View>
+  );
 }
 
 export default function EventsTab() {
@@ -49,21 +67,18 @@ export default function EventsTab() {
   return (
     <ScrollView contentContainerStyle={styles.page} showsVerticalScrollIndicator={false}>
       <Text style={styles.heading}>Events</Text>
-      <Text style={styles.sub}>Festivals, concerts and gigs near you.</Text>
+      <Text style={styles.sub}>Festivals, concerts, gigs, comedy and food near you.</Text>
       {list.length === 0 ? (
         <View style={styles.card}>
           <Text style={styles.title}>{failed ? "Couldn't load events" : 'Nothing listed yet'}</Text>
-          <Text style={styles.small}>{failed ? 'Check your connection and try again.' : 'Gigs, festivals and comedy show up here when they are added.'}</Text>
+          <Text style={styles.small}>{failed ? 'Check your connection and try again.' : 'Gigs, festivals, comedy and food show up here when they are added.'}</Text>
         </View>
       ) : list.map((e) => {
-        const badge = badgeFor(e.kind);
         const away = here && e.lat != null && e.lng != null ? km(here, [e.lat, e.lng]) : null;
         return (
           <View key={e.id} style={styles.card}>
             <View style={styles.top}>
-              <View style={[styles.badge, { backgroundColor: badge.colour }]}>
-                <Text style={styles.glyph}>{badge.glyph}</Text>
-              </View>
+              <Badge kind={e.kind} />
               <View style={styles.main}>
                 <Text style={styles.kind}>{e.kind}</Text>
                 <Text style={styles.title}>{e.title}</Text>
@@ -95,8 +110,8 @@ const styles = themed(() => StyleSheet.create({
   sub: { fontFamily: F.body, fontSize: 13, color: C.muted, marginBottom: 6 },
   card: { backgroundColor: C.surface, borderWidth: 1, borderColor: C.line, borderRadius: 22, padding: 16, gap: 12 },
   top: { flexDirection: 'row', gap: 14, alignItems: 'center' },
-  badge: { width: 66, height: 66, borderRadius: 33, alignItems: 'center', justifyContent: 'center' },
-  glyph: { fontSize: 38, lineHeight: 44, color: '#fff' },
+  glow: { borderRadius: 33, shadowOpacity: 0.55, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 6 },
+  badge: { width: 66, height: 66, borderRadius: 33, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: 'rgba(255,255,255,0.55)' },
   main: { flex: 1, minWidth: 0, gap: 2 },
   kind: { fontFamily: F.bodyBold, fontSize: 11, letterSpacing: 1, color: C.muted, textTransform: 'uppercase' },
   title: { fontFamily: F.displayBold, fontSize: 17, color: C.fg },
