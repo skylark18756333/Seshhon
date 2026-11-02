@@ -9,6 +9,7 @@ import { Animated, Easing, Image, Modal, Pressable, ScrollView, Share, StyleShee
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { Colour } from './api';
 import Icon from './Icon';
+import GemBadge from './GemBadge';
 import { Button, Face, Toast } from './Parts';
 import { shrinkCover, shrinkPhoto } from './photos';
 import { rpc, type ApiError } from './session';
@@ -27,11 +28,11 @@ type Profile = {
 // migration 0041). Names are about meeting up, never drinking: WA's rules on promoting liquor (Sarah, 2026-11-02).
 type Badge = { key: string; name: string; icon: string; colour: string; dark: string; how: string; tip: string; count: 'joined' | 'hosted' | 'planned' | 'friends'; need: number };
 const BADGES: Badge[] = [
-  { key: 'first_round', name: 'First meetup', icon: 'tick', colour: '#FFC83D', dark: '#E08A00', how: 'Joined a friend\'s sesh', tip: 'Join a friend\'s sesh, or say "I\'m in" to a friend\'s plan.', count: 'joined', need: 1 },
-  { key: 'regular', name: 'Regular', icon: 'clock', colour: '#FF4FA3', dark: '#A0177A', how: 'Joined 10 seshes', tip: 'Join 10 of your friends\' seshes. Every one you join counts.', count: 'joined', need: 10 },
-  { key: 'ringleader', name: 'Ringleader', icon: 'sesh', colour: '#3DDC84', dark: '#0F8A52', how: 'Friends joined 5 of your seshes', tip: 'Start a sesh and get friends to join it. Each friend who joins counts.', count: 'hosted', need: 5 },
-  { key: 'planner', name: 'Planner', icon: 'events', colour: '#8B5CFF', dark: '#4B25C9', how: 'Friends said they\'re in to 3 of your plans', tip: 'Plan a sesh ahead with Sesh request, then get friends to say they\'re in.', count: 'planned', need: 3 },
-  { key: 'social', name: 'Social', icon: 'you', colour: '#3DC8FF', dark: '#1460C8', how: '10 friends on Crewzy', tip: 'Add friends by their username. Once 10 of them accept, it\'s yours.', count: 'friends', need: 10 }
+  { key: 'first_round', name: 'First meetup', icon: 'tick', colour: '#FFD84D', dark: '#F08A00', how: 'Joined a friend\'s sesh', tip: 'Join a friend\'s sesh, or say "I\'m in" to a friend\'s plan.', count: 'joined', need: 1 },
+  { key: 'regular', name: 'Regular', icon: 'clock', colour: '#FF6FB5', dark: '#B0127E', how: 'Joined 10 seshes', tip: 'Join 10 of your friends\' seshes. Every one you join counts.', count: 'joined', need: 10 },
+  { key: 'ringleader', name: 'Ringleader', icon: 'sesh', colour: '#4DEB95', dark: '#0B8A50', how: 'Friends joined 5 of your seshes', tip: 'Start a sesh and get friends to join it. Each friend who joins counts.', count: 'hosted', need: 5 },
+  { key: 'planner', name: 'Planner', icon: 'events', colour: '#A47BFF', dark: '#4A1FC8', how: 'Friends said they\'re in to 3 of your plans', tip: 'Plan a sesh ahead with Sesh request, then get friends to say they\'re in.', count: 'planned', need: 3 },
+  { key: 'social', name: 'Social', icon: 'you', colour: '#55D4FF', dark: '#1258C8', how: '10 friends on Crewzy', tip: 'Add friends by their username. Once 10 of them accept, it\'s yours.', count: 'friends', need: 10 }
 ];
 // A title on the cover that grows with your level.
 function rankOf(level: number): string {
@@ -209,13 +210,9 @@ function FriendProfile({ f, id, onClose, onMessages }: { f: Frendzy; id: string;
                   return (
                     <Pressable key={b.key} style={styles.badge} onPress={() => setBadge(b)} accessibilityRole="button" accessibilityLabel={b.name + (lit ? ', earned. ' : ', not yet. ') + b.how + '. Tap to see how to earn it.'}>
                       {lit ? (
-                        <Bob delay={i * 300}>
-                          <LinearGradient colors={[b.colour, b.dark]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[styles.badgeIcon, { shadowColor: b.colour }]}>
-                            <Icon name={b.icon} size={22} colour="#fff" />
-                          </LinearGradient>
-                        </Bob>
+                        <Bob delay={i * 300}><GemBadge kind={b.key} c1={b.colour} c2={b.dark} lit need={b.need} size={58} delay={i * 500} /></Bob>
                       ) : (
-                        <View style={[styles.badgeIcon, styles.badgeLocked]}><Icon name={b.icon} size={20} colour={C.muted} /></View>
+                        <GemBadge kind={b.key} c1={b.colour} c2={b.dark} lit={false} have={view.counts ? have(b) : 0} need={b.need} size={58} />
                       )}
                       <Text style={[styles.badgeName, !lit && { color: C.muted }]} numberOfLines={2}>{b.name}</Text>
                       {!lit && view.counts ? <Text style={styles.badgeProg}>{have(b)}/{b.need}</Text> : null}
@@ -310,13 +307,7 @@ function FriendProfile({ f, id, onClose, onMessages }: { f: Frendzy; id: string;
         return (
           <Sheet onClose={() => setBadge(null)} insets={insets.bottom}>
             <View style={styles.badgeTop}>
-              {lit ? (
-                <LinearGradient colors={[badge.colour, badge.dark]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[styles.badgeBig, { shadowColor: badge.colour }]}>
-                  <Icon name={badge.icon} size={34} colour="#fff" />
-                </LinearGradient>
-              ) : (
-                <View style={[styles.badgeBig, styles.badgeLocked]}><Icon name={badge.icon} size={30} colour={C.muted} /></View>
-              )}
+              <GemBadge kind={badge.key} c1={badge.colour} c2={badge.dark} lit={lit} have={view.counts ? got : 0} need={badge.need} size={84} />
               <View style={styles.grow}>
                 <Text style={styles.sheetTitle}>{badge.name}</Text>
                 <Text style={[styles.state, { color: lit ? badge.colour : C.muted }]}>{lit ? (self ? 'You earned this' : name + ' earned this') : 'Not earned yet'}</Text>
@@ -611,7 +602,6 @@ const styles = themed(() => StyleSheet.create({
   questBar: { height: 7, borderRadius: 4, backgroundColor: C.surface2, overflow: 'hidden', marginTop: 6 },
   prize: { paddingVertical: 5, paddingHorizontal: 9, borderRadius: 999 },
   prizeText: { fontFamily: F.bodyBold, fontSize: 11, color: '#fff' },
-  badgeLocked: { backgroundColor: C.surface2, borderWidth: 1.5, borderColor: C.line, shadowOpacity: 0, elevation: 0 },
   badgeProg: { fontFamily: F.bodyBold, fontSize: 10, color: C.muted },
   lvl: { width: 58, height: 58, borderRadius: 18, alignItems: 'center', justifyContent: 'center', transform: [{ rotate: '-6deg' }] },
   lvlSmall: { fontFamily: F.bodyBold, fontSize: 9, letterSpacing: 1, color: '#fff' },
@@ -628,9 +618,7 @@ const styles = themed(() => StyleSheet.create({
   badges: { flexDirection: 'row', justifyContent: 'space-between' },
   badgesPicked: { justifyContent: 'flex-start', gap: 14 },
   badge: { width: '19%', alignItems: 'center', gap: 6 },
-  badgeIcon: { width: 52, height: 52, borderRadius: 18, borderWidth: 0, alignItems: 'center', justifyContent: 'center', shadowOpacity: 0.7, shadowRadius: 10, shadowOffset: { width: 0, height: 0 }, elevation: 4 },
   badgeTop: { flexDirection: 'row', alignItems: 'center', gap: 14 },
-  badgeBig: { width: 72, height: 72, borderRadius: 24, alignItems: 'center', justifyContent: 'center', shadowOpacity: 0.7, shadowRadius: 14, shadowOffset: { width: 0, height: 0 }, elevation: 5 },
   badgeName: { fontFamily: F.bodyBold, fontSize: 11, textAlign: 'center', color: C.fg },
 
   row: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, borderRadius: 16, backgroundColor: C.surface, borderWidth: 1, borderColor: C.line },
