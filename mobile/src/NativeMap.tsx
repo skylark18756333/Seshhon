@@ -108,7 +108,7 @@ const VenuePin = memo(function VenuePin({ m, onPick }: { m: MapMarker; onPick: (
 // stays easy and nothing on the map is redrawn. Everything moves on the native animation driver from one value, so
 // the JS thread does no work per frame. The layer is worked out again only when the map stops moving, and hidden
 // while it moves.
-const SWEEP_MS = 4000, FAN = 14, FAN_DEG = 3.2, FADE = 0.65;
+const SWEEP_MS = 4000, FAN = 9, FAN_DEG = 4.5, FADE = 0.65, BLIPS_MAX = 16, SETTLE_MS = 180;
 type Px = { x: number; y: number };
 type Blip = { id: string; x: number; y: number; at: number };   // at: where round the circle, 0 to 1 clockwise from east
 
@@ -123,11 +123,25 @@ function blipCurve(at: number, peak: number, rest: number) {
   return { inputRange: input, outputRange: input.map((t) => (t === just && just !== at ? rest : value(t))) };
 }
 
-const Radar = memo(function Radar({ centre, r, blips, turn }: { centre: Px; r: number; blips: Blip[]; turn: Animated.Value }) {
-  const spin = turn.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
+// The radar owns its turning value and starts it when it appears. (A value shared with the map stopped for good
+// the first time the map moved: hiding the layer detaches the value, and detaching an Animated value stops it.)
+const Radar = memo(function Radar({ centre, r, blips, active }: { centre: Px; r: number; blips: Blip[]; active: boolean }) {
+  const turn = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (!active) return;
+    const loop = Animated.loop(Animated.timing(turn, { toValue: 1, duration: SWEEP_MS, easing: Easing.linear, useNativeDriver: true }));
+    loop.start();
+    return () => loop.stop();
+  }, [active, turn]);
+  // Made once (and once per set of blips), so a redraw never swaps the nodes the turning value drives.
+  const spin = useMemo(() => turn.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] }), [turn]);
+  const anims = useMemo(() => blips.map((b) => ({ b, op: turn.interpolate(blipCurve(b.at, 1, 0.12)), sc: turn.interpolate(blipCurve(b.at, 1.5, 0.8)) })), [blips, turn]);
   const box = { position: 'absolute' as const, left: centre.x - r, top: centre.y - r, width: r * 2, height: r * 2 };
+  // Fades in once the map has settled, so it never pops in at the wrong place.
+  const shownIn = useRef(new Animated.Value(0)).current;
+  useEffect(() => { Animated.timing(shownIn, { toValue: 1, duration: 260, useNativeDriver: true }).start(); }, [shownIn]);
   return (
-    <View style={StyleSheet.absoluteFill} pointerEvents="none">
+    <Animated.View style={[StyleSheet.absoluteFill, { opacity: shownIn }]} pointerEvents="none">
       <Animated.View style={[box, { transform: [{ rotate: spin }] }]}>
         {Array.from({ length: FAN }).map((_, i) => (
           // The beam's bright edge, then a fan of fainter lines trailing behind it.
@@ -137,13 +151,10 @@ const Radar = memo(function Radar({ centre, r, blips, turn }: { centre: Px; r: n
           </View>
         ))}
       </Animated.View>
-      {blips.map((b) => {
-        const op = blipCurve(b.at, 1, 0.12), sc = blipCurve(b.at, 1.5, 0.8);
-        return (
-          <Animated.View key={b.id} style={[styles.blip, { left: b.x - BLIP / 2, top: b.y - BLIP / 2, opacity: turn.interpolate(op), transform: [{ scale: turn.interpolate(sc) }] }]} />
-        );
-      })}
-    </View>
+      {anims.map(({ b, op, sc }) => (
+        <Animated.View key={b.id} style={[styles.blip, { left: b.x - BLIP / 2, top: b.y - BLIP / 2, opacity: op, transform: [{ scale: sc }] }]} />
+      ))}
+    </Animated.View>
   );
 });
 
@@ -162,21 +173,16 @@ function NativeMap(p: MapView) {
 
   // The radar layer: where the circle and the venues are on the screen, read when the map stops moving.
   const shown = useShown();
-  const [still, setStill] = useState(true);
   const moving = useRef(false);
+  const settle = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [geom, setGeom] = useState<{ c: Px; r: number; blips: Blip[] } | null>(null);
   const [calm, setCalm] = useState(false);   // the phone asks for less motion
   useEffect(() => { AccessibilityInfo.isReduceMotionEnabled().then(setCalm, () => {}); }, []);
   const radarOn = !!p.radar && p.chosen && !calm;
-  const turn = useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    if (!radarOn || !shown) return;
-    turn.setValue(0);
-    const loop = Animated.loop(Animated.timing(turn, { toValue: 1, duration: SWEEP_MS, easing: Easing.linear, useNativeDriver: true }));
-    loop.start();
-    return () => loop.stop();
-  }, [radarOn, shown, turn]);
-  const blipList = useMemo(() => p.markers.filter((m) => m.kind === 'near' && !m.stop), [p.markers]);
+  // Only the first few venues blip (the busiest and nearest), and only when that set changes is anything read again.
+  const blipKey = p.markers.filter((m) => m.kind === 'near' && !m.stop).slice(0, BLIPS_MAX).map((m) => m.id + '@' + m.at.join(',')).join('|');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const blipList = useMemo(() => p.markers.filter((m) => m.kind === 'near' && !m.stop).slice(0, BLIPS_MAX), [blipKey]);
   const measure = useCallback(async () => {
     const m = map.current;
     if (!m || !radarOn) return;
@@ -192,10 +198,15 @@ function NativeMap(p: MapView) {
         const a = Math.atan2(pts[i].y - c.y, pts[i].x - c.x);
         return { id: b.id, x: pts[i].x, y: pts[i].y, at: ((a / (2 * Math.PI)) + 1) % 1 };
       });
-      if (!moving.current) setGeom({ c, r, blips });
+      if (!moving.current) setGeom({ c, r, blips });   // a move that started meanwhile wins: it is read again when it stops
     } catch (err) { /* the map isn't ready yet: the next stop tries again */ }
   }, [radarOn, p.radiusKm, p.centre, blipList]);
-  useEffect(() => { measure(); }, [measure]);
+  const measureSoon = useCallback(() => {
+    if (settle.current) clearTimeout(settle.current);
+    settle.current = setTimeout(() => { settle.current = null; if (!moving.current) measure(); }, SETTLE_MS);
+  }, [measure]);
+  useEffect(() => { measureSoon(); }, [measureSoon]);
+  useEffect(() => () => { if (settle.current) clearTimeout(settle.current); }, []);
 
   // Move to show the circle or the search hits when the screen asks for it.
   useEffect(() => {
@@ -224,11 +235,11 @@ function NativeMap(p: MapView) {
     const near = r.latitudeDelta < NAMES_BELOW_DELTA;
     if (names.current !== near) { names.current = near; p.onZoom(near); }
     moving.current = false;
-    if (!still) setStill(true);
-    measure();
+    measureSoon();
   };
-  // Hide the radar while the map moves (it would lag behind the map), once per move, not on every frame.
-  const onMove = () => { if (!moving.current) { moving.current = true; if (radarOn) setStill(false); } };
+  // Hide the radar while the map moves (it would lag behind the map), once per move, not on every frame. It comes
+  // back, fading in at the right place, a moment after the map stops.
+  const onMove = () => { if (!moving.current) { moving.current = true; if (settle.current) { clearTimeout(settle.current); settle.current = null; } setGeom(null); } };
 
   return (
     <View style={styles.map}>
@@ -276,7 +287,7 @@ function NativeMap(p: MapView) {
         />
       ))}
     </RNMapView>
-    {radarOn && still && geom ? <Radar centre={geom.c} r={geom.r} blips={geom.blips} turn={turn} /> : null}
+    {radarOn && geom ? <Radar centre={geom.c} r={geom.r} blips={geom.blips} active={shown} /> : null}
     </View>
   );
 }
