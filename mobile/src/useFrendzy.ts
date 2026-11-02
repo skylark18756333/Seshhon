@@ -1,6 +1,6 @@
 // Keeps the signed-in person's data for the native screens: one load at start-up, then the same five-second
 // poll the web app uses, plus the few taps Home can do. Ported from load(), act() and the ACT list in docs/app.js.
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 import { addFriendByUsername, friendPhotos, loadGates, loadState, myAccount } from './api';
 import type { Colour, State } from './api';
@@ -28,7 +28,17 @@ export type Frendzy = {
   acting: () => boolean;   // true while a tap is still running, so the chat poll waits as on the web
   refresh: () => Promise<void>;
   setUsername: (username: string | null) => void;   // the You page changed it
+  // Runs fn after every read of the database (every five seconds while Home is open), even when nothing changed,
+  // for screens that read a little more of their own each time (the Sesh Map's stops). Returns a way to stop.
+  everyRead: (fn: () => void) => () => void;
 };
+
+// What a read is compared on, to tell whether anything changed: everything except the server's clock.
+function stateKey(data: State): string {
+  const { now: _now, ...rest } = data;
+  return JSON.stringify(rest);
+}
+const PHOTOS_MS = 60000;   // photos change rarely: read again when the friend list changes, and otherwise once a minute
 
 // paused: the packed web page is on screen and looking after itself, so the native poll waits.
 export function useFrendzy(signedIn: boolean, paused?: boolean, sessionKey?: string): Frendzy {
@@ -45,6 +55,11 @@ export function useFrendzy(signedIn: boolean, paused?: boolean, sessionKey?: str
   const [tries, setTries] = useState(0);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const alive = useRef(true);
+  const lastKey = useRef('');
+  const photosKey = useRef('');
+  const photosAt = useRef(0);
+  const photosJson = useRef('{}');
+  const readers = useRef(new Set<() => void>());
 
   const say = useCallback((message: string) => {
     setToast(message);
@@ -53,17 +68,28 @@ export function useFrendzy(signedIn: boolean, paused?: boolean, sessionKey?: str
   }, []);
 
   // One quiet read of everything the screen shows. Nothing is wiped when the phone is briefly offline.
-  const read = useCallback(async (quiet: boolean) => {
+  // The screens are only drawn again when something actually changed: the poll runs every five seconds, and
+  // redrawing every screen (and every friend's photo) each time was what made the app stutter.
+  // freshPhotos: a tap or a refresh may have changed a photo, so they are read again whatever.
+  const read = useCallback(async (quiet: boolean, freshPhotos?: boolean) => {
     const ticket = reads.current.begin();
     try {
       const data = await loadState();
       if (!alive.current || !reads.current.current(ticket)) return;
-      setState(data);
+      const key = stateKey(data);
+      if (key !== lastKey.current) { lastKey.current = key; setState(data); }
       setError(null);
       setOffline(false);
       setPhase('ready');
-      if (data.me) {
-        friendPhotos().then((p) => { if (alive.current && reads.current.current(ticket)) setPhotos(p); }).catch(() => {});
+      readers.current.forEach((fn) => { try { fn(); } catch (e) { /* one screen's extra read never stops the others */ } });
+      const pk = data.me ? JSON.stringify([data.me.id].concat(data.friends.map((x) => x.id))) : '';
+      if (pk && (freshPhotos || pk !== photosKey.current || Date.now() - photosAt.current > PHOTOS_MS)) {
+        photosKey.current = pk; photosAt.current = Date.now();
+        friendPhotos().then((p) => {
+          if (!alive.current || !reads.current.current(ticket)) return;
+          const json = JSON.stringify(p);
+          if (json !== photosJson.current) { photosJson.current = json; setPhotos(p); }
+        }).catch(() => {});
       }
     } catch (e) {
       const err = e as ApiError;
@@ -80,6 +106,7 @@ export function useFrendzy(signedIn: boolean, paused?: boolean, sessionKey?: str
     alive.current = true;
     reads.current.invalidate();
     setState(null); setPhotos({}); setUsername(null); setError(null); setOffline(false);
+    lastKey.current = ''; photosKey.current = ''; photosAt.current = 0; photosJson.current = '{}';
     let cancelled = false;
     if (!signedIn) { setPhase('loading'); return () => { alive.current = false; reads.current.invalidate(); }; }
     setPhase('loading');
@@ -107,7 +134,7 @@ export function useFrendzy(signedIn: boolean, paused?: boolean, sessionKey?: str
     waiting.current += 1;
     const run = () => { if (!owner || currentSession()?.user_id !== owner.user_id) return Promise.resolve(null); reads.current.invalidate(); return rpc(fn, args || {}).then(async (result) => {
       if (okMsg) say(okMsg);
-      await read(true);
+      await read(true, true);
       return result;
     }, (e: ApiError) => { if (!e.signedOut) say(e.message); return null; }); };
     const p = queue.current.then(run);
@@ -131,12 +158,16 @@ export function useFrendzy(signedIn: boolean, paused?: boolean, sessionKey?: str
     return () => { clearInterval(timer); sub.remove(); };
   }, [phase, signedIn, paused, read, busy]);
 
-  // Status writes wait their turn; confirmed state is read back after each write.
+  // Status writes wait their turn; confirmed state is read back after each write. The switch, the glow and the
+  // logo lights move straight away instead of waiting for the database, and go back if the change didn't save.
   const setColour = useCallback((colour: Colour) => {
     setBusy(true);
+    setState((s) => (s && s.me ? { ...s, me: { ...s.me, colour } } : s));
+    lastKey.current = '';
     act('set_status', { new_colour: colour }, { on: "You're green. Friends who are around can see it.", thinking: "You're amber.", off: "You're red. You're hidden." }[colour])
+      .then((r) => { if (r === null) { lastKey.current = ''; return read(true); } })
       .finally(() => setBusy(false));
-  }, [act]);
+  }, [act, read]);
 
   const answer = useCallback((friendship: string, accept: boolean) => {
     setBusy(true);
@@ -150,7 +181,7 @@ export function useFrendzy(signedIn: boolean, paused?: boolean, sessionKey?: str
       if (!r || !r.ok) { say((r && r.message) || "That didn't work. Try again."); return false; }
       say(r.state === 'accepted' ? 'You and ' + r.name + ' are now friends.'
         : r.state === 'requested' ? 'Friend request sent to ' + r.name + '.' : 'You and ' + r.name + ' are already friends.');
-      await read(true);
+      await read(true, true);
       return true;
     } catch (e) {
       const err = e as ApiError;
@@ -162,7 +193,13 @@ export function useFrendzy(signedIn: boolean, paused?: boolean, sessionKey?: str
   const retry = useCallback(() => setTries((n) => n + 1), []);
 
   const acting = useCallback(() => waiting.current > 0, []);
-  const refresh = useCallback(() => read(true), [read]);
+  const refresh = useCallback(() => read(true, true), [read]);
+  const everyRead = useCallback((fn: () => void) => {
+    readers.current.add(fn);
+    return () => { readers.current.delete(fn); };
+  }, []);
 
-  return { phase, state, photos, username, offline, error, toast, busy, setColour, answer, addFriend, retry, say, act, acting, refresh, setUsername };
+  // The same object while nothing changed, so screens that don't need drawing again can skip it.
+  return useMemo(() => ({ phase, state, photos, username, offline, error, toast, busy, setColour, answer, addFriend, retry, say, act, acting, refresh, setUsername, everyRead }),
+    [phase, state, photos, username, offline, error, toast, busy, setColour, answer, addFriend, retry, say, act, acting, refresh, everyRead]);
 }

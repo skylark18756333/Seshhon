@@ -20,6 +20,7 @@ import { MAP_CENTRE, RADIUS_KM } from './config';
 import { Button, Face, TopBar } from './Parts';
 import type { ApiError } from './session';
 import { PlanView, type Plan } from './Sesh';
+import { useOnShow, useShownRef } from './Shown';
 import { C, COLOURS, F, first, fmtWhen, STOPS, themed } from './theme';
 import type { Frendzy } from './useFrendzy';
 import { findMe, fmtKm, hoursLine, km, myPlace, openState, refreshVenues, useVenues, type Venues } from './venues';
@@ -45,6 +46,8 @@ function circleCoords(c: LatLng, rKm: number): LatLng[] {
   const dLat = rKm / 111.2, dLng = rKm / (111.2 * Math.max(0.2, Math.cos(c[0] * Math.PI / 180)));
   return [[c[0] + dLat, c[1]], [c[0] - dLat, c[1]], [c[0], c[1] + dLng], [c[0], c[1] - dLng]];
 }
+
+const NO_STOPS: CrawlStop[] = [];   // one empty list, so "no stops" doesn't count as a change on every redraw
 
 type Hit = { ven: Venue; d: number | null };
 type Geo = { centre: LatLng; mine: boolean; busy: boolean; chosen: boolean };
@@ -76,13 +79,23 @@ export default function MapTab({ f, onVenue, onOpenWeb, onWebMap }: {
   const [crawl, setCrawl] = useState<{ sesh: string | null; stops: CrawlStop[]; off: boolean }>({ sesh: null, stops: [], off: false });
 
   /* ---------- busy and trending venues: counts only, never who ---------- */
-  useEffect(() => {
-    let gone = false;
-    const ask = () => loadBuzz().then((b) => { if (!gone) setBuzz(b); });
-    ask();
-    const t = setInterval(ask, BUZZ_MS);
-    return () => { gone = true; clearInterval(t); };
+  // Only while the Map is on show; coming back to it after a minute away reads it again straight away.
+  const shownRef = useShownRef();
+  const buzzAt = useRef(0);
+  const buzzKey = useRef('');
+  const askBuzz = useCallback(() => {
+    buzzAt.current = Date.now();
+    return loadBuzz().then((b) => {
+      const k = JSON.stringify(b);
+      if (k !== buzzKey.current) { buzzKey.current = k; setBuzz(b); }   // unchanged counts don't redraw the map
+    });
   }, []);
+  useEffect(() => {
+    askBuzz();
+    const t = setInterval(() => { if (shownRef.current) askBuzz(); }, BUZZ_MS);
+    return () => clearInterval(t);
+  }, [askBuzz, shownRef]);
+  useOnShow(() => { if (Date.now() - buzzAt.current > BUZZ_MS) askBuzz(); });
 
   /* ---------- the Sesh Map's stops for the sesh you're in tonight (as Sesh.tsx reads them) ---------- */
   // The sesh the crawl is built for: tonight's, or a planned one (crawl stops work on planned seshes too).
@@ -95,13 +108,15 @@ export default function MapTab({ f, onVenue, onOpenWeb, onWebMap }: {
   useEffect(() => {
     if (!mineId || crawl.off) { if (crawl.stops.length) setCrawl((c) => ({ ...c, sesh: null, stops: [] })); return; }
     let gone = false;
-    seshCrawl(mineId).then((l) => { if (!gone) setCrawl((c) => (JSON.stringify(c.stops) === JSON.stringify(l) && c.sesh === mineId ? c : { sesh: mineId, stops: l, off: false })); },
+    const load = () => seshCrawl(mineId).then((l) => { if (!gone) setCrawl((c) => (JSON.stringify(c.stops) === JSON.stringify(l) && c.sesh === mineId ? c : { sesh: mineId, stops: l, off: false })); },
       (e: ApiError) => { if (!gone && e.missing) setCrawl({ sesh: null, stops: [], off: true }); });
-    return () => { gone = true; };
-    // f.state is a new object after every read, so this follows the five-second refresh.
+    load();
+    // Read again after every refresh of the database (every five seconds), as the web app does, while the Map is on show.
+    const stop = f.everyRead(() => { if (shownRef.current) load(); });
+    return () => { gone = true; stop(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mineId, f.state, crawl.off]);
-  const stops = mine && crawl.sesh === mine.id ? crawl.stops : [];
+  }, [mineId, crawl.off, f.everyRead]);
+  const stops = mine && crawl.sesh === mine.id ? crawl.stops : NO_STOPS;
   const stopOf = (id: string) => stops.filter((c) => c.venue_id === id)[0] || null;
 
   /* ---------- which venues ---------- */
@@ -158,27 +173,35 @@ export default function MapTab({ f, onVenue, onOpenWeb, onWebMap }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [v.list, pins, geo, radius, filter, query, pick, buzz]);
 
-  // Stops are always on the map (even outside the circle), drawn as numbered circles.
-  const markers: MapMarker[] = shown.map(({ ven, at, inside }) => {
-    const c = stopOf(ven.id), st = openState(ven);
-    return {
-      id: ven.id, at, name: ven.name, kind: pick === ven.id ? 'goal' : inside ? 'near' : 'far', glyph: kindGlyph(ven),
-      tag: tagOf(ven), busy: busyOf(ven), open: st ? st.open : null, names, stop: c ? { n: c.position, done: c.done } : null
-    } as MapMarker;
-  });
-  const have: Record<string, boolean> = {};
-  markers.forEach((m) => { have[m.id] = true; });
-  stops.forEach((c) => {
-    const at = pins && pins[c.venue_id], ven = v.byId[c.venue_id];
-    if (at && ven && !have[c.venue_id]) markers.push({ id: ven.id, at, name: ven.name, kind: pick === ven.id ? 'goal' : 'near', glyph: kindGlyph(ven), tag: '', busy: 0, open: null, names, stop: { n: c.position, done: c.done } });
-  });
-  const route: LatLng[] = stops.map((c) => pins && pins[c.venue_id]).filter((x): x is [number, number] => !!x);
+  // Stops are always on the map (even outside the circle), drawn as numbered circles. Worked out again only when
+  // something on the map changed (not on every redraw of the screen), and the open/closed dots once a minute.
+  const minute = Math.floor(Date.now() / 60000);
+  const markers: MapMarker[] = useMemo(() => {
+    const list: MapMarker[] = shown.map(({ ven, at, inside }) => {
+      const c = stopOf(ven.id), st = openState(ven);
+      return {
+        id: ven.id, at, name: ven.name, kind: pick === ven.id ? 'goal' : inside ? 'near' : 'far', glyph: kindGlyph(ven),
+        tag: tagOf(ven), busy: busyOf(ven), open: st ? st.open : null, names, stop: c ? { n: c.position, done: c.done } : null
+      } as MapMarker;
+    });
+    const have: Record<string, boolean> = {};
+    list.forEach((m) => { have[m.id] = true; });
+    stops.forEach((c) => {
+      const at = pins && pins[c.venue_id], ven = v.byId[c.venue_id];
+      if (at && ven && !have[c.venue_id]) list.push({ id: ven.id, at, name: ven.name, kind: pick === ven.id ? 'goal' : 'near', glyph: kindGlyph(ven), tag: '', busy: 0, open: null, names, stop: { n: c.position, done: c.done } });
+    });
+    return list;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shown, stops, pick, names, buzz, pins, v.byId, minute]);
+  const route: LatLng[] = useMemo(() => stops.map((c) => pins && pins[c.venue_id]).filter((x): x is [number, number] => !!x), [stops, pins]);
+  const onPickPin = useCallback((id: string) => setPick(id), []);
 
   const pickVen = pick ? v.byId[pick] : null;
 
   /* ---------- taps ---------- */
   const refit = (coords: LatLng[]) => setFit((o) => ({ key: o.key + 1, coords }));
   const choose = useCallback((at: LatLng, isMine: boolean) => setGeo({ centre: at, mine: isMine, busy: false, chosen: true }), []);
+  const onMapPress = useCallback((at: LatLng) => { choose(at, false); setPick(null); }, [choose]);
 
   const radiusNow = useRef(radius); radiusNow.current = radius;
   const locate = async (quiet?: boolean) => {
@@ -308,8 +331,8 @@ export default function MapTab({ f, onVenue, onOpenWeb, onWebMap }: {
           <>
             <NativeMap
               centre={geo.centre} radiusKm={radius} chosen={geo.chosen} mine={geo.mine} meName={me.name}
-              markers={markers} route={route} fit={fit} focus={focus} onPick={(id) => { setPick(id); }}
-              onMapPress={(at) => { choose(at, false); setPick(null); }} onZoom={setNames}
+              markers={markers} route={route} fit={fit} focus={focus} onPick={onPickPin}
+              onMapPress={onMapPress} onZoom={setNames}
             />
             {out.length ? (
               <View style={styles.friends} accessibilityLabel="Friends out tonight" pointerEvents="none">

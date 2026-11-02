@@ -453,8 +453,10 @@ try {
   // Open venue: the existing venue page flow takes over (in the browser the page itself can't run, so the map just leaves).
   await natMap.page.getByTestId('marker-' + venueA).click().catch(() => {});
   await natMap.page.getByTestId('pick-open').click();
-  await until(async () => (await natMap.page.getByTestId('map-stub').count()) === 0);
-  expect('Open venue leaves the native map for the venue page', await natMap.page.getByTestId('map-stub').count(), 0);
+  // (The map stays loaded but hidden behind the venue page, so going back to it is instant: only the shown one counts.)
+  const mapsShown = async () => (await natMap.page.getByTestId('map-stub').filter({ visible: true }).count());
+  await until(async () => (await mapsShown()) === 0);
+  expect('Open venue leaves the native map for the venue page', await mapsShown(), 0);
   await natMap.page.getByRole('tab', { name: 'Map' }).click();
   await natMap.page.getByTestId('map-stub').waitFor();
   console.log('back on the native map after a venue: yes');

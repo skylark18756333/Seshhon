@@ -7,6 +7,7 @@
 // not drawn here: "See venue" opens the web venue page, which has the map, and the crawl is drawn as a plain
 // sketch of its stops in order.
 import { HomeBottom, HomeTop } from './Home';
+import { useOnShow, useShownRef } from './Shown';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AppState, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
@@ -53,6 +54,7 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
   const [confirm, setConfirm] = useState<string | null>(null);
   const [crawl, setCrawl] = useState<Crawl>({ sesh: null, stops: [], key: '', off: false });
   const scroll = useRef<ScrollView>(null);
+  const shownRef = useShownRef();
 
   // The sesh this tab shows: one opened from the Planned list, or else the one you're in tonight.
   const live = seshes.filter((s) => s.am_member && !isPlanned(s))[0] || null;
@@ -67,15 +69,17 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
       return;
     }
     let gone = false;
-    seshCrawl(mineId).then((list) => {
+    const load = () => seshCrawl(mineId).then((list) => {
       if (gone) return;
       const key = mineId + JSON.stringify(list);
       setCrawl((c) => (c.key === key ? c : { sesh: mineId, stops: list, key, off: false }));
     }, (e: ApiError) => { if (!gone && e.missing) setCrawl({ sesh: null, stops: [], key: '', off: true }); });
-    return () => { gone = true; };
-    // f.state is a new object after every read, so this follows the five-second refresh.
+    load();
+    // Read again after every refresh of the database (every five seconds), as the web app does, while Home is on show.
+    const stop = f.everyRead(() => { if (shownRef.current) load(); });
+    return () => { gone = true; stop(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mineId, f.state, crawl.off]);
+  }, [mineId, crawl.off, f.everyRead]);
   const stops = mine && crawl.sesh === mine.id ? crawl.stops : [];
   const crawlRun = (fn: string, venue: string, extra: Record<string, unknown>, okMsg?: string) => {
     if (!mine) return;
@@ -945,12 +949,15 @@ function Chat({ f, seshId, myId, confirm, setConfirm }: { f: Frendzy; seshId: st
     }, () => {});
   }, [seshId]);
 
-  // The chat is asked again every couple of seconds while it's open, and waits while a tap is still running.
+  // The chat is asked again every couple of seconds while it's open, and waits while a tap is still running
+  // or while Home is hidden behind another tab (it is read straight away when you come back).
+  const shown = useShownRef();
+  useOnShow(() => { refresh(false); });
   useEffect(() => {
     key.current = ''; setMessages([]); nearEnd.current = true;
     refresh(false);
     const t = setInterval(() => {
-      if (AppState.currentState === 'active' && !f.acting()) refresh(false);
+      if (AppState.currentState === 'active' && shown.current && !f.acting()) refresh(false);
     }, CHAT_POLL_MS);
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps

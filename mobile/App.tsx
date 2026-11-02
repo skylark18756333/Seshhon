@@ -25,6 +25,7 @@ import Messages from './src/Messages';
 import { Glow, Toast } from './src/Parts';
 import { askAfterTour, registerPushToken, watchNotificationTaps } from './src/push';
 import Sesh from './src/Sesh';
+import { Shown } from './src/Shown';
 import Swipe from './src/Swipe';
 import Tabs from './src/Tabs';
 import Tour from './src/Tour';
@@ -146,6 +147,15 @@ function Shell() {
   const sessionKey = session ? session.user_id || 'in' : 'out';
   useEffect(() => { setWebLive(false); }, [sessionKey]);   // a different sign-in needs a fresh page
   const onWeb = !NATIVE_TABS.includes(tab);
+  // Home and the native Map stay loaded once opened (hidden while another tab is on show), so switching back is
+  // instant: Home keeps its place and the map isn't built from scratch, re-zoomed and re-fetched every time.
+  const onMap = tab === 'map' && nativeMap;
+  const onHome = !onWeb && !onMap && tab !== 'you' && tab !== 'messages' && tab !== 'crews';
+  const [mapSeen, setMapSeen] = useState(false);
+  const [homeSeen, setHomeSeen] = useState(false);
+  if (onMap && !mapSeen) setMapSeen(true);
+  if (onHome && !homeSeen) setHomeSeen(true);
+  useEffect(() => { setMapSeen(false); setHomeSeen(false); }, [sessionKey]);   // a different sign-in starts fresh
   const f = useFrendzy(signedIn && !authOwns, onWeb, sessionKey);
   const me = f.state && f.state.me;
   const native = signedIn && !authOwns && f.phase === 'ready' && !!me;
@@ -271,6 +281,11 @@ function Shell() {
     setTab('venue');
     setPage(WEB_URL); setOpens((n) => n + 1);
   }, []);
+
+  const openMapVenue = useCallback((id: string) => openVenue(id, 'map'), [openVenue]);
+  const goHome = useCallback(() => setTab('home'), []);
+  const goBefore = useCallback(() => setTab(before), [before]);
+  const openPlanned = useCallback(() => pickTab('sesh'), [pickTab]);
 
   // Tapping a notification opens the screen it is about (Home, Sesh or Crews), once the native screens are up.
   const [tapTab, setTapTab] = useState<string | null>(null);
@@ -427,12 +442,24 @@ function Shell() {
     <Layer glow={me ? me.colour : undefined}>
       <Swipe tab={tab === 'venue' ? 'home' : tab} onPick={pickTab}>
       {webLive || onWeb ? <View style={onWeb ? styles.fill : styles.hidden}>{webView}</View> : null}
-      {onWeb ? null
-        : tab === 'map' ? <MapGuard onFail={webMap}><MapTab f={f} onOpenWeb={pickTab} onVenue={(id) => openVenue(id, 'map')} onWebMap={webMap} /></MapGuard>
-        : tab === 'you' ? <You f={f} onOpenWeb={pickTab} onSignedOut={signedOut} />
-        : tab === 'messages' ? <Messages f={f} onBack={() => setTab('home')} />
-        : tab === 'crews' ? <Crews f={f} onBack={() => setTab(before)} onPlanned={() => pickTab('sesh')} />
-        : <Sesh f={f} onOpenWeb={pickTab} onVenue={openVenue} />}
+      {nativeMap && (mapSeen || onMap) ? (
+        <View style={onMap ? styles.fill : styles.hidden}>
+          <Shown.Provider value={onMap}>
+            <MapGuard onFail={webMap}><MapTab f={f} onOpenWeb={pickTab} onVenue={openMapVenue} onWebMap={webMap} /></MapGuard>
+          </Shown.Provider>
+        </View>
+      ) : null}
+      {homeSeen || onHome ? (
+        <View style={onHome ? styles.fill : styles.hidden}>
+          <Shown.Provider value={onHome}>
+            <Sesh f={f} onOpenWeb={pickTab} onVenue={openVenue} />
+          </Shown.Provider>
+        </View>
+      ) : null}
+      {tab === 'you' ? <You f={f} onOpenWeb={pickTab} onSignedOut={signedOut} />
+        : tab === 'messages' ? <Messages f={f} onBack={goHome} />
+        : tab === 'crews' ? <Crews f={f} onBack={goBefore} onPlanned={openPlanned} />
+        : null}
       </Swipe>
       <Tabs tab={tab === 'venue' ? 'home' : tab === 'crews' ? 'you' : tab === 'messages' ? 'home' : tab} requests={f.state ? f.state.requests_in.length : 0} onPick={pickTab} />
       {tour && me ? <Tour name={first(me.name)} onClose={() => { clearTour(); setTour(false); askAfterTour().catch(() => {}); }} /> : null}
