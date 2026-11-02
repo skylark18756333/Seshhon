@@ -236,15 +236,39 @@ function StatusCard({ colour, word, note, onPick, compact }: { colour: Colour; w
     }
   })).current;
   const x = slide.interpolate({ inputRange: [0, 1, 2], outputRange: [4, 4 + stop, 4 + stop * 2] });
-  return (
-    <View style={[styles.statusCard, compact && styles.statusSlim, { borderColor: fade(mode, 0.55), shadowColor: mode }]}>
-      <View style={[styles.statusTop, compact && styles.grow]}>
-        {compact ? null : <Text style={styles.eyebrow}>Your status</Text>}
-        <Text style={[styles.statusWord, compact && styles.statusWordSlim, { color: mode }]} numberOfLines={1}>{word}</Text>
-        <Text style={[styles.muted, styles.small, compact && styles.tiny]} numberOfLines={compact ? 1 : undefined}>{note}</Text>
+  // In a live sesh: one slim bar, your colour in words on the left and three lights on the right. The lit one is
+  // big and glowing; tap another to change.
+  if (compact) {
+    return (
+      <View style={[styles.statusCard, styles.statusSlim, { borderColor: fade(mode, 0.55), shadowColor: mode }]}>
+        <View style={styles.grow}>
+          <Text style={[styles.statusWord, styles.statusWordSlim, { color: mode }]} numberOfLines={1}>{word}</Text>
+          <Text style={[styles.muted, styles.tiny]} numberOfLines={1}>{note}</Text>
+        </View>
+        <View style={styles.slimLights} accessibilityLabel="Set your status">
+          {SWITCH.map((k) => {
+            const lit = k === colour;
+            return (
+              <Pressable key={k} style={styles.slimStop} onPress={() => onPick(k)} accessibilityRole="button" accessibilityLabel={LABELS[k]} accessibilityState={{ selected: lit }}>
+                <View style={lit
+                  ? [styles.slimLit, { backgroundColor: COLOURS[k], shadowColor: COLOURS[k] }]
+                  : [styles.dotSlim, { backgroundColor: fade(COLOURS[k], 0.55) }]} />
+              </Pressable>
+            );
+          })}
+        </View>
       </View>
-      <View style={[styles.track, compact && styles.trackSlim, { borderColor: fade(mode, 0.35) }]} onLayout={(e) => setW(e.nativeEvent.layout.width)} accessibilityLabel="Set your status" {...drag.panHandlers}>
-        <View pointerEvents="none" style={[styles.ticks, compact && { display: 'none' }]}>
+    );
+  }
+  return (
+    <View style={[styles.statusCard, { borderColor: fade(mode, 0.55), shadowColor: mode }]}>
+      <View style={styles.statusTop}>
+        <Text style={styles.eyebrow}>Your status</Text>
+        <Text style={[styles.statusWord, { color: mode }]}>{word}</Text>
+        <Text style={[styles.muted, styles.small]}>{note}</Text>
+      </View>
+      <View style={[styles.track, { borderColor: fade(mode, 0.35) }]} onLayout={(e) => setW(e.nativeEvent.layout.width)} accessibilityLabel="Set your status" {...drag.panHandlers}>
+        <View pointerEvents="none" style={styles.ticks}>
           {Array.from({ length: 24 }, (_, i) => <View key={i} style={[styles.tick, i % 4 === 0 && styles.tickBig]} />)}
         </View>
         {w ? (
@@ -255,13 +279,6 @@ function StatusCard({ colour, word, note, onPick, compact }: { colour: Colour; w
         ) : null}
         {SWITCH.map((k) => {
           const lit = k === colour;
-          if (compact) {
-            return (
-              <Pressable key={k} style={styles.stop} onPress={() => onPick(k)} accessibilityRole="button" accessibilityLabel={LABELS[k]} accessibilityState={{ selected: lit }}>
-                <View style={[styles.dotSlim, lit ? { backgroundColor: C.ink } : { backgroundColor: fade(COLOURS[k], 0.6) }]} />
-              </Pressable>
-            );
-          }
           return (
             <Pressable
               key={k}
@@ -309,8 +326,10 @@ const styles = themed(() => StyleSheet.create({
   statusSlim: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, paddingHorizontal: 14, borderRadius: 26 },
   statusWordSlim: { fontSize: 20, lineHeight: 24, letterSpacing: -0.4 },
   tiny: { fontSize: 12, lineHeight: 16 },
-  trackSlim: { width: 132, height: 46, borderRadius: 23, flex: 0 },
-  dotSlim: { width: 12, height: 12, borderRadius: 6 },
+  slimLights: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: C.track, borderRadius: 24, padding: 4, borderWidth: 1, borderColor: C.line },
+  slimStop: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
+  slimLit: { width: 34, height: 34, borderRadius: 17, borderWidth: 3, borderColor: C.surface, shadowOpacity: 0.9, shadowRadius: 10, shadowOffset: { width: 0, height: 0 }, elevation: 5 },
+  dotSlim: { width: 14, height: 14, borderRadius: 7 },
   track: { flexDirection: 'row', height: 78, borderRadius: 39, backgroundColor: C.track, borderWidth: 1 },
   ticks: { position: 'absolute', left: 22, right: 22, top: 0, bottom: 0, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', opacity: 0.5 },
   tick: { width: 1, height: 8, backgroundColor: C.trackLine },
