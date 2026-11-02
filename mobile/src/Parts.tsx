@@ -16,7 +16,8 @@ import { C, COLOURS, F, fade, hue, initials, themed } from './theme';
 const GLOW_HEIGHT = 320;
 const STRIP = 5;
 const GLOW_STRIPS = Array.from({ length: GLOW_HEIGHT / STRIP }, (_, i) => 0.5 * Math.pow(1 - (i + 0.5) / (GLOW_HEIGHT / STRIP), 2.2));
-export function Glow({ colour }: { colour: Colour }) {
+// Memoised: it is 65 strips, and only needs drawing again when your colour changes.
+export const Glow = React.memo(function Glow({ colour }: { colour: Colour }) {
   const inset = useSafeAreaInsets().top;
   const rgb = COLOURS[colour];
   return (
@@ -25,7 +26,7 @@ export function Glow({ colour }: { colour: Colour }) {
       {GLOW_STRIPS.map((alpha, i) => <View key={i} style={{ height: STRIP, backgroundColor: fade(rgb, alpha) }} />)}
     </View>
   );
-}
+});
 
 // The header above every tab: the logo with the status switch on the left, you on the right.
 export function TopBar({ f, onOpenWeb }: { f: Frendzy; onOpenWeb: (tab: string) => void }) {
@@ -45,7 +46,8 @@ export function TopBar({ f, onOpenWeb }: { f: Frendzy; onOpenWeb: (tab: string) 
 }
 
 // Someone's photo if they added one and you're allowed to see it, otherwise their initials on a colour of their own.
-export function Face({ id, name, photos, size, font, away }: { id: string; name: string; photos: Record<string, string>; size: number; font: number; away?: boolean }) {
+// Memoised, like Avatar below: a photo is only decoded and drawn again when it (or the face) changes.
+export const Face = React.memo(function Face({ id, name, photos, size, font, away }: { id: string; name: string; photos: Record<string, string>; size: number; font: number; away?: boolean }) {
   const pic = photos[id];
   const h = hue(name);
   return (
@@ -64,10 +66,10 @@ export function Face({ id, name, photos, size, font, away }: { id: string; name:
         )}
     </View>
   );
-}
+});
 
 // The web app's .avatar: a face in a ring of a colour (status colour, or green for people in the sesh).
-export function Avatar({ id, name, photos, ring, size, font }: { id?: string; name: string; photos: Record<string, string>; ring?: string; size?: number; font?: number }) {
+export const Avatar = React.memo(function Avatar({ id, name, photos, ring, size, font }: { id?: string; name: string; photos: Record<string, string>; ring?: string; size?: number; font?: number }) {
   const s = size || 40;
   const pic = id ? photos[id] : undefined;
   return (
@@ -76,7 +78,7 @@ export function Avatar({ id, name, photos, ring, size, font }: { id?: string; na
         : <Text style={[styles.avatarText, { fontSize: font || (s < 40 ? 12 : 13) }]}>{initials(name)}</Text>}
     </View>
   );
-}
+});
 
 export function Button({ label, onPress, small, ghost, colour, ink, disabled, icon, pressed, testID }: {
   label: string; onPress: () => void; small?: boolean; ghost?: boolean; colour?: string; ink?: boolean;

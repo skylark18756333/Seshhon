@@ -9,6 +9,7 @@ import { Button } from './Parts';
 import type { ApiError } from './session';
 import { C, F, themed } from './theme';
 import { distanceAway, findMe, hoursLine, type Venues } from './venues';
+import { useShownRef } from './Shown';
 
 const MEET_MS = 15000;   // asked again this often while the sesh is open, so a mate's share shows up
 const MEET_LIST = 4;
@@ -21,11 +22,12 @@ export default function MeetMiddle({ s, v, myVote, onVote }: { s: Sesh; v: Venue
   const id = s.id;
 
   const failed = useCallback((e: ApiError) => { if (e && e.missing) setOff(true); else setNote((e && e.message) || 'Something went wrong. Try again.'); }, []);
+  const shown = useShownRef();
   useEffect(() => {
     let gone = false;
     const ask = () => meetVenues(id).then((m) => { if (!gone) setMeet(m); }, (e: ApiError) => { if (!gone && e.missing) setOff(true); });
     ask();
-    const t = setInterval(ask, MEET_MS);
+    const t = setInterval(() => { if (shown.current) ask(); }, MEET_MS);   // waits while Home is hidden behind another tab
     return () => { gone = true; clearInterval(t); };
   }, [id]);
 
