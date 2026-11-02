@@ -1,12 +1,13 @@
 // Pieces more than one native screen uses: the header with the logo and you, the status glow, faces,
 // buttons and the toast. Same look as the web app's topBar(), avatar() and .btn in docs/.
 import { LinearGradient } from 'expo-linear-gradient';
-import React from 'react';
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { AppState, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { Colour } from './api';
 import Icon from './Icon';
 import Logo from './Logo';
+import { rpc } from './session';
 import type { Frendzy } from './useFrendzy';
 import { C, COLOURS, F, fade, hue, initials, themed } from './theme';
 
@@ -28,17 +29,48 @@ export const Glow = React.memo(function Glow({ colour }: { colour: Colour }) {
   );
 });
 
-// The header above every tab: the logo with the status switch on the left, you on the right.
+// How many locked friend messages are waiting to be collected (migration 0038). Checked when a screen with the
+// header opens and every half minute after; only the count is read here, the Messages screen opens them.
+let waitingNow = 0;
+const waitingListeners = new Set<(n: number) => void>();
+export function setWaiting(n: number) { waitingNow = n; waitingListeners.forEach((l) => l(n)); }
+function useWaiting(on: boolean): number {
+  const [n, setN] = useState(waitingNow);
+  useEffect(() => {
+    waitingListeners.add(setN);
+    if (!on) return () => { waitingListeners.delete(setN); };
+    const check = () => {
+      if (AppState.currentState !== 'active') return;
+      rpc('my_friend_messages').then((rows: unknown) => setWaiting(Array.isArray(rows) ? rows.length : 0), () => {});
+    };
+    check();
+    const t = setInterval(check, 30000);
+    return () => { clearInterval(t); waitingListeners.delete(setN); };
+  }, [on]);
+  return n;
+}
+
+// The header above every tab: the logo with the status lights on the left; Friends, Messages and you on the right.
 export function TopBar({ f, onOpenWeb }: { f: Frendzy; onOpenWeb: (tab: string) => void }) {
   const me = f.state && f.state.me;
+  const requests = f.state ? f.state.requests_in.length : 0;
+  const waiting = useWaiting(!!me);
   if (!me) return null;
   return (
     <View style={styles.top}>
       <Logo status={me.colour} onPick={(c) => { if (c !== me.colour) f.setColour(c); }} onHome={() => onOpenWeb('home')} />
       <View style={styles.topRight}>
         {f.offline ? <Text style={styles.pill}>Offline</Text> : null}
+        <Pressable onPress={() => onOpenWeb('friends')} accessibilityRole="button" accessibilityLabel={'Friends' + (requests ? ', ' + requests + ' new requests' : '')} style={styles.headBtn} testID="open-friends">
+          <Icon name="sesh" size={17} colour={C.fg} />
+          {requests ? <View style={styles.headBadge}><Text style={styles.headBadgeText}>{requests}</Text></View> : null}
+        </Pressable>
+        <Pressable onPress={() => onOpenWeb('messages')} accessibilityRole="button" accessibilityLabel={'Messages' + (waiting ? ', ' + waiting + ' new' : '')} style={styles.headBtn} testID="home-messages">
+          <Icon name="chat" size={17} colour={C.fg} />
+          {waiting ? <View style={styles.headBadge}><Text style={styles.headBadgeText}>{waiting > 9 ? '9+' : waiting}</Text></View> : null}
+        </Pressable>
         <Pressable onPress={() => onOpenWeb('you')} accessibilityRole="button" accessibilityLabel="You" style={[styles.profile, { borderColor: COLOURS[me.colour] }]}>
-          <Face id={me.id} name={me.name} photos={f.photos} size={40} font={13} />
+          <Face id={me.id} name={me.name} photos={f.photos} size={36} font={12} />
         </Pressable>
       </View>
     </View>
@@ -113,10 +145,13 @@ export function Toast({ text }: { text: string | null }) {
 
 const styles = themed(() => StyleSheet.create({
   glow: { position: 'absolute', left: 0, right: 0 },
-  top: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, paddingHorizontal: 18, paddingTop: 12, paddingBottom: 10, maxWidth: 440, width: '100%', alignSelf: 'center' },
-  topRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  top: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, paddingHorizontal: 14, paddingTop: 12, paddingBottom: 10, maxWidth: 440, width: '100%', alignSelf: 'center' },
+  topRight: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  headBtn: { width: 34, height: 34, borderRadius: 17, borderWidth: 1, borderColor: C.line, backgroundColor: C.surface, alignItems: 'center', justifyContent: 'center' },
+  headBadge: { position: 'absolute', top: -3, right: -3, minWidth: 18, height: 18, paddingHorizontal: 4, borderRadius: 9, backgroundColor: C.off, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: C.bg },
+  headBadgeText: { fontFamily: F.bodyBold, fontSize: 10, color: '#fff' },
   pill: { fontFamily: F.bodyBold, fontSize: 12, letterSpacing: 0.8, textTransform: 'uppercase', paddingVertical: 5, paddingHorizontal: 10, borderRadius: 999, borderWidth: 1, borderColor: C.off, color: C.off },
-  profile: { width: 44, height: 44, borderRadius: 22, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
+  profile: { width: 40, height: 40, borderRadius: 20, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
 
   face: { borderWidth: 2, overflow: 'hidden' },
   faceFill: { flex: 1, alignItems: 'center', justifyContent: 'center' },

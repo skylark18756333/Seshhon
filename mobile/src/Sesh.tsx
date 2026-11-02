@@ -7,7 +7,7 @@
 // not drawn here: "See venue" opens the web venue page, which has the map, and the crawl is drawn as a
 // treasure-map trail of its stops in order (TreasureMap in Crawl.tsx). A Crewzy crawl is picked when you start
 // or plan a sesh (CrawlBuilder), and its stops are the same Sesh Map stops.
-import { HomeBottom, HomeTop } from './Home';
+import { GreenRow, HomeBottom, HomeTop } from './Home';
 import { useOnShow, useShownRef } from './Shown';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -17,14 +17,14 @@ import {
 import { addCrawlStops, getMessages, reportMessage, seshCrawl, sendMessage, type CrawlStop, type Friend, type Member, type Message, type Sesh as SeshT } from './api';
 import { CHAT_POLL_MS, RADIUS_KM } from './config';
 import { openFriend } from './FriendProfile';
-import { CrawlBuilder, CrawlCard, TreasureMap } from './Crawl';
+import { CrawlBuilder, TreasureMap } from './Crawl';
 import Icon from './Icon';
 import MeetMiddle from './MeetMiddle';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Avatar, Button, Face, Toast, TopBar } from './Parts';
 import type { ApiError } from './session';
 import type { Frendzy } from './useFrendzy';
-import { C, COLOURS, F, LABELS, STOPS, first, fmtLeft, fmtTime, fmtWhen, themed } from './theme';
+import { C, COLOURS, F, LABELS, STOPS, fade, first, fmtLeft, fmtTime, fmtWhen, themed } from './theme';
 import { awayText, distanceAway, fmtKm, hoursLine, km, leaderOf, useVenues, votePicks, type Venues } from './venues';
 
 const CRAWL_MAX = 12;
@@ -34,6 +34,9 @@ type Picked = Record<string, true>;
 type Picker = { mode: 'start' | 'invite'; picked: Picked };
 export type Plan = { at: number; pick: boolean; picked: Picked; crawl?: boolean };
 type Crawl = { sesh: string | null; stops: CrawlStop[]; key: string; off: boolean };
+// The part of the sesh open under its card.
+type Panel = 'chat' | 'where' | 'crawl' | 'more';
+type LobbyTile = { key: string; emoji: string; title: string; note: string; colours: [string, string]; onPress: () => void };
 
 // Planned seshes (migration 0025) start later. Until then they only show under "Planned", never as tonight's.
 function isPlanned(s: SeshT | null | undefined): boolean {
@@ -57,6 +60,8 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
   const [crawl, setCrawl] = useState<Crawl>({ sesh: null, stops: [], key: '', off: false });
   // Building a Crewzy crawl: target is the planned sesh it's for, or null to start one now with the stops.
   const [make, setMake] = useState<{ target: string | null } | null>(null);
+  const [panel, setPanel] = useState<Panel | null>(null);
+  const [lastMsg, setLastMsg] = useState<{ sesh: string; m: Message | null } | null>(null);
   const [making, setMaking] = useState(false);
   const scroll = useRef<ScrollView>(null);
   const shownRef = useShownRef();
@@ -160,7 +165,7 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
             f.act('plan_sesh', { p_at: new Date(plan.at).toISOString(), p_friends: plan.pick ? ids : null },
               plan.pick ? 'Planned. Only the friends you picked can see it.' : "Planned. Your friends can see it and say they're in.").then((r) => {
               if (!r) return;
-              setPlan(null); setSeshId(r.id);
+              setPlan(null); setSeshId(r.id); setPanel(null);
               if (plan.crawl && !crawl.off) setMake({ target: r.id });
               top();
             });
@@ -182,29 +187,51 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
       skipId={mine ? mine.id : null}
       canPlan   // planning works on any colour (migration 0033); starting a sesh now needs green
       v={v}
-      onOpen={(id) => { setSeshId(id); top(); }}
+      onOpen={(id) => { setSeshId(id); setPanel(null); top(); }}
       onJoin={(id) => f.act('join_sesh', { p_sesh: id }, "You're in. It goes live at the planned time.")}
       onPlan={startPlan}
     />
   );
 
-  /* ---------- not in a sesh: join one or start one ---------- */
+  /* ---------- not in a sesh: the party lobby. Join a friend's sesh, or start or plan your own from the tiles ---------- */
   if (!mine) {
-    const others = seshes.filter((s) => !s.am_member && !isPlanned(s));
+    const others = me.colour === 'off' ? [] : seshes.filter((s) => !s.am_member && !isPlanned(s));
+    const green = me.colour === 'on';
+    // Starting now needs green. Tapping a "now" tile while amber or red turns you green first, as "Go green and
+    // start it now" does for a planned sesh: you asked to go out, so nobody is switched without tapping.
+    const goGreen = (then: () => void) => {
+      if (green) { then(); return; }
+      f.act('set_status', { new_colour: 'on' }, "You're green.").then((r) => { then(); });
+    };
+    const tiles: LobbyTile[] = [
+      { key: 'now', emoji: '⚡', title: 'Go now', note: green ? 'Friends on green and amber can join' : 'Turns you green', colours: ['#FF7A45', '#E0407A'],
+        onPress: () => goGreen(() => { f.act('start_sesh', {}, 'Sesh started. Friends who are around can join.').then(top); }) },
+      ...(crawl.off ? [] : [{ key: 'crawl', emoji: '📍', title: 'Crewzy crawl', note: 'A few spots a short walk apart', colours: ['#21C6A4', '#2A7FD4'] as [string, string],
+        onPress: () => goGreen(() => { setMake({ target: null }); top(); }) }]),
+      { key: 'plan', emoji: '🗓', title: 'Plan for later', note: 'Any day in the next 2 weeks', colours: ['#5B8CFF', '#9B5BFF'], onPress: startPlan },
+      { key: 'private', emoji: '🔒', title: 'Invite only', note: 'Only friends you pick see it', colours: ['#C04BD8', '#5E3BD1'],
+        onPress: () => goGreen(() => { setPicker({ mode: 'start', picked: {} }); top(); }) },
+      { key: 'events', emoji: '🎶', title: "What's on", note: 'Gigs and events near you', colours: ['#F5A623', '#D4572A'], onPress: () => onOpenWeb('events') },
+      { key: 'crews', emoji: '🤝', title: 'Crew catch-up', note: 'See when your crews are free', colours: ['#7AA52F', '#2E8F6A'], onPress: () => onOpenWeb('crews') }
+    ];
     return (
       <Frame f={f} onOpenWeb={onOpenWeb} scroll={scroll} home>
-        <SeshHeader s={null} later={false} startMs={0} creator="" onBack={() => {}} onStarted={f.refresh} />
-        {me.colour !== 'off' && friends.length ? <People friends={friends} seshes={seshes} v={v} photos={f.photos} /> : null}
         {others.length ? (
           <View style={styles.stack}>
+            <Text style={styles.h2}>Join a sesh</Text>
             {others.map((s) => (
-              <View key={s.id} style={styles.card}>
-                <View style={[styles.row, styles.between]}>
+              <View key={s.id} style={[styles.card, styles.joinCard]}>
+                <View style={styles.row}>
+                  <View style={styles.faceStack}>
+                    {s.members.slice(0, 3).map((m, i) => (
+                      <View key={m.id} style={[styles.stackFace, { borderColor: C.bg }, i ? { marginLeft: -12 } : null]}><Face id={m.id} name={m.name} photos={f.photos} size={34} font={12} /></View>
+                    ))}
+                  </View>
                   <View style={styles.grow}>
-                    <Text style={styles.title}>{first(s.creator_name)}'s sesh</Text>
+                    <Text style={styles.title} numberOfLines={1}>{first(s.creator_name)}'s sesh</Text>
                     {s.private ? <IconLine icon="lock" colour={C.accent} text="Private, you're invited" /> : null}
-                    <Text style={[styles.muted, styles.small]}>
-                      {s.members.length} in{s.locked_venue && v.byId[s.locked_venue] ? ', going to ' + v.byId[s.locked_venue].name : ', still choosing where'}
+                    <Text style={[styles.muted, styles.small]} numberOfLines={1}>
+                      {s.members.length} in{s.locked_venue && v.byId[s.locked_venue] ? ', at ' + v.byId[s.locked_venue].name : ', picking a spot'}
                     </Text>
                   </View>
                   <Button small label="Join" onPress={() => f.act('join_sesh', { p_sesh: s.id }, "You're in.")} />
@@ -213,45 +240,35 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
             ))}
           </View>
         ) : null}
-        {me.colour === 'on' ? (
-          <>
-            <Text style={styles.muted}>{others.length ? 'Or start your own.' : 'Nobody has started one yet. Start a sesh and your friends on green or amber can join and vote on where to go.'}</Text>
-            <Button label="Start a sesh" ghost={!!others.length} onPress={() => f.act('start_sesh', {}, 'Sesh started. Friends who are around can join.').then(top)} />
-            {crawl.off ? null : <CrawlCard onPress={() => { setMake({ target: null }); top(); }} />}
-            <Button label="Start a private sesh" icon="lock" ghost onPress={() => { setPicker({ mode: 'start', picked: {} }); top(); }} />
-          </>
-        ) : me.colour === 'thinking' ? (
-          <>
-            <Text style={styles.muted}>{others.length ? 'Slide the switch up top to green to start your own now, or plan one for later on any colour.' : 'No sesh yet. Slide the switch up top to green to start one now, or plan one for later on any colour.'}</Text>
-          </>
-        ) : (
-          <>
-            <Text style={styles.muted}>You're red, so tonight's seshes are hidden. Slide the switch up top to green, or plan one for later and see your friends' plans below.</Text>
-          </>
-        )}
+        <Lobby
+          f={f}
+          tiles={tiles}
+          note={me.colour === 'off' ? "You're red, so tonight's seshes are hidden. You can still plan one for later." : null}
+          onSeat={() => goGreen(() => { setPicker({ mode: 'start', picked: {} }); top(); })}
+        />
+        <GreenRow f={f} />
         {planned}
       </Frame>
     );
   }
 
-  /* ---------- in a sesh ---------- */
+  /* ---------- in a sesh: one card holds it, and the part you pick opens under it ---------- */
   const later = isPlanned(mine);
   const startMs = later && mine.starts_at ? new Date(mine.starts_at).getTime() : 0;
   const creator = first(mine.creator_name);
   const asked = (mine.invited || []).length;
+  const isCrawl = stops.length > 1;
+  const picking = !mine.locked_venue && !(mine.planned && mine.starts_at && new Date(mine.starts_at).getTime() > Date.now());
+  const open: Panel = panel && (panel !== 'crawl' || !crawl.off) ? panel : later ? 'more' : mine.locked_venue ? 'chat' : 'where';
+  const latest = lastMsg && lastMsg.sesh === mine.id ? lastMsg.m : null;
 
   return (
-    <Frame f={f} onOpenWeb={onOpenWeb} scroll={scroll} home>
-      <SeshHeader
-        s={mine}
-        later={later}
-        startMs={startMs}
-        creator={creator}
-        isCrawl={stops.length > 1}
-        onBack={() => { setSeshId(null); top(); }}
-        onStarted={f.refresh}
-      />
-      <Members s={mine} myId={me.id} photos={f.photos} />
+    <Frame f={f} onOpenWeb={onOpenWeb} scroll={scroll} home compact={!later}>
+      {later ? (
+        <Pressable style={styles.linkRow} onPress={() => { setSeshId(null); setPanel(null); top(); }} accessibilityRole="button" accessibilityLabel="Back to Home">
+          <Icon name="back" size={16} colour={C.muted} /><Text style={styles.linkText}>Back to Home</Text>
+        </Pressable>
+      ) : null}
 
       {!later && me.colour !== 'on' ? (   // a planned sesh has gone live: ask, never switch anyone automatically
         <View style={[styles.card, styles.lead]}>
@@ -261,113 +278,129 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
         </View>
       ) : null}
 
-      <PresCard
+      <SeshCard
         s={mine}
-        editing={presEdit === mine.id}
-        address={presAddress}
-        minute={presMin}
-        onAddress={setPresAddress}
-        onMinute={setPresMin}
-        onEdit={() => {
-          const p = mine.pres, at = p && p.at ? new Date(p.at) : null;
-          setPresAddress((p && p.address) || '');
-          setPresMin(at ? at.getHours() * 60 + at.getMinutes() : null);
-          setPresEdit(mine.id);
-        }}
-        onCancel={() => setPresEdit(null)}
-        onRemove={() => f.act('set_sesh_pres', { p_sesh: mine.id, p_address: '', p_at: null }, 'Pres address removed.').then((r) => { if (r) setPresEdit(null); })}
-        onSave={() => {
-          if (!presAddress.trim()) { f.say('Type the address first.'); return; }
-          let at: string | null = null;
-          if (presMin !== null && mine.starts_at) {   // that time on the day of the sesh, or the evening before for a sesh after midnight
-            const start = new Date(mine.starts_at), d = new Date(start);
-            d.setHours(Math.floor(presMin / 60), presMin % 60, 0, 0);
-            if (d > start) d.setDate(d.getDate() - 1);
-            at = d.toISOString();
-          }
-          f.act('set_sesh_pres', { p_sesh: mine.id, p_address: presAddress.trim(), p_at: at }, 'Pres address saved. Only the people in the sesh can see it.')
-            .then((r) => { if (r) setPresEdit(null); });
-        }}
+        later={later}
+        startMs={startMs}
+        creator={creator}
+        isCrawl={isCrawl}
+        stops={stops}
+        v={v}
+        myId={me.id}
+        photos={f.photos}
+        latest={latest}
+        panel={open}
+        crawlOn={!crawl.off}
+        onPanel={setPanel}
+        onStarted={f.refresh}
       />
 
-      {mine.private ? (
-        <View style={styles.card}>
-          <View style={[styles.row, styles.between]}>
-            <View style={styles.grow}>
-              <IconLine icon="lock" colour={C.fg} text="Private sesh" bold />
-              <Text style={[styles.muted, styles.small]}>
-                {mine.mine ? 'Only you and the ' + asked + ' friend' + (asked === 1 ? '' : 's') + ' you picked can see it.' : 'Only the friends ' + creator + ' picked can see it.'}
-              </Text>
-            </View>
-            {mine.mine ? <Button small ghost label="Invite" onPress={() => { setPicker({ mode: 'invite', picked: {} }); top(); }} /> : null}
-          </View>
-        </View>
-      ) : null}
-
-      {!mine.locked_venue && !(mine.planned && mine.starts_at && new Date(mine.starts_at).getTime() > Date.now()) ? (
-        <MeetMiddle
-          s={mine}
-          v={v}
-          myVote={(mine.votes.filter((x) => x.user_id === me.id)[0] || { venue_id: null }).venue_id}
-          onVote={(venue) => f.act('cast_vote', { p_sesh: mine.id, p_venue: venue }, 'Your vote is in.')}
-        />
-      ) : null}
-
-      {mine.locked_venue ? (
-        <LockedCard id={mine.locked_venue} v={v} onVenue={onVenue} />
-      ) : (
-        <VoteSection
-          s={mine}
-          myId={me.id}
-          v={v}
-          photos={f.photos}
-          onVote={(venue) => {
-            const current = (mine.votes.filter((x) => x.user_id === me.id)[0] || { venue_id: null }).venue_id;
-            f.act('cast_vote', { p_sesh: mine.id, p_venue: current === venue ? null : venue });
-          }}
-          onMap={() => onOpenWeb('map')}
-          onLock={() => f.act('lock_sesh', { p_sesh: mine.id }, 'Locked in.').then(top)}
-        />
-      )}
-
-      {crawl.off ? null : (
-        <CrawlSection
-          s={mine}
-          stops={stops}
-          v={v}
-          onMap={() => onOpenWeb('map')}
-          onVenue={onVenue}
-          onRun={crawlRun}
-        />
-      )}
-
-      <Chat f={f} seshId={mine.id} myId={me.id} confirm={confirm} setConfirm={setConfirm} />
-
-      {later ? (
-        mine.mine ? (
-          <>
-            <Button
-              label={me.colour === 'on' ? 'Start it now' : 'Go green and start it now'}
-              onPress={() => {
-                // Starting a sesh now needs green, so tapping this switches you to green first.
-                const start = () => f.act('start_planned_sesh', { p_sesh: mine.id }, "Sesh started. It's live now.");
-                (me.colour === 'on' ? start() : f.act('set_status', { new_colour: 'on' }, "You're green.").then(start))
-                  .then((r) => { if (r) { setSeshId(null); top(); } });
-              }}
-            />
-            <Button label="Cancel the sesh" ghost onPress={() => { setSeshId(null); f.act('end_sesh', { p_sesh: mine.id }, 'Planned sesh cancelled.'); }} />
-          </>
-        ) : (
-          <Button label="Can't make it" ghost onPress={() => { setSeshId(null); f.act('leave_sesh', { p_sesh: mine.id }); }} />
-        )
-      ) : (
+      {open === 'where' ? (
         <>
-          {mine.mine
-            ? <Button label="End the sesh" ghost onPress={() => { setSeshId(null); f.act('end_sesh', { p_sesh: mine.id }, 'Sesh ended.'); }} />
-            : <Button label="Leave the sesh" ghost onPress={() => { setSeshId(null); f.act('leave_sesh', { p_sesh: mine.id }); }} />}
-          {planned}
+          {picking ? (
+            <MeetMiddle
+              s={mine}
+              v={v}
+              myVote={(mine.votes.filter((x) => x.user_id === me.id)[0] || { venue_id: null }).venue_id}
+              onVote={(venue) => f.act('cast_vote', { p_sesh: mine.id, p_venue: venue }, 'Your vote is in.')}
+            />
+          ) : null}
+          {mine.locked_venue ? (
+            <LockedCard id={mine.locked_venue} v={v} onVenue={onVenue} />
+          ) : (
+            <VoteSection
+              s={mine}
+              myId={me.id}
+              v={v}
+              photos={f.photos}
+              onVote={(venue) => {
+                const current = (mine.votes.filter((x) => x.user_id === me.id)[0] || { venue_id: null }).venue_id;
+                f.act('cast_vote', { p_sesh: mine.id, p_venue: current === venue ? null : venue });
+              }}
+              onMap={() => onOpenWeb('map')}
+              onLock={() => f.act('lock_sesh', { p_sesh: mine.id }, 'Locked in.').then(() => { setPanel('where'); top(); })}
+            />
+          )}
         </>
-      )}
+      ) : null}
+
+      {open === 'crawl' && !crawl.off ? (
+        <CrawlSection s={mine} stops={stops} v={v} onMap={() => onOpenWeb('map')} onVenue={onVenue} onRun={crawlRun} />
+      ) : null}
+
+      {/* The chat stays mounted while another part is open, so the card can show the newest line. */}
+      <View style={open === 'chat' ? null : styles.hidden}>
+        <Chat f={f} seshId={mine.id} myId={me.id} confirm={confirm} setConfirm={setConfirm} onLatest={(m) => setLastMsg({ sesh: mine.id, m })} />
+      </View>
+
+      {open === 'more' ? (
+        <>
+          {mine.private ? (
+            <View style={styles.card}>
+              <View style={[styles.row, styles.between]}>
+                <View style={styles.grow}>
+                  <IconLine icon="lock" colour={C.fg} text="Private sesh" bold />
+                  <Text style={[styles.muted, styles.small]}>
+                    {mine.mine ? 'Only you and the ' + asked + ' friend' + (asked === 1 ? '' : 's') + ' you picked can see it.' : 'Only the friends ' + creator + ' picked can see it.'}
+                  </Text>
+                </View>
+                {mine.mine ? <Button small ghost label="Invite" onPress={() => { setPicker({ mode: 'invite', picked: {} }); top(); }} /> : null}
+              </View>
+            </View>
+          ) : null}
+          <PresCard
+            s={mine}
+            editing={presEdit === mine.id}
+            address={presAddress}
+            minute={presMin}
+            onAddress={setPresAddress}
+            onMinute={setPresMin}
+            onEdit={() => {
+              const p = mine.pres, at = p && p.at ? new Date(p.at) : null;
+              setPresAddress((p && p.address) || '');
+              setPresMin(at ? at.getHours() * 60 + at.getMinutes() : null);
+              setPresEdit(mine.id);
+            }}
+            onCancel={() => setPresEdit(null)}
+            onRemove={() => f.act('set_sesh_pres', { p_sesh: mine.id, p_address: '', p_at: null }, 'Pres address removed.').then((r) => { if (r) setPresEdit(null); })}
+            onSave={() => {
+              if (!presAddress.trim()) { f.say('Type the address first.'); return; }
+              let at: string | null = null;
+              if (presMin !== null && mine.starts_at) {   // that time on the day of the sesh, or the evening before for a sesh after midnight
+                const start = new Date(mine.starts_at), d = new Date(start);
+                d.setHours(Math.floor(presMin / 60), presMin % 60, 0, 0);
+                if (d > start) d.setDate(d.getDate() - 1);
+                at = d.toISOString();
+              }
+              f.act('set_sesh_pres', { p_sesh: mine.id, p_address: presAddress.trim(), p_at: at }, 'Pres address saved. Only the people in the sesh can see it.')
+                .then((r) => { if (r) setPresEdit(null); });
+            }}
+          />
+          {later ? (
+            mine.mine ? (
+              <>
+                <Button
+                  label={me.colour === 'on' ? 'Start it now' : 'Go green and start it now'}
+                  onPress={() => {
+                    // Starting a sesh now needs green, so tapping this switches you to green first.
+                    const start = () => f.act('start_planned_sesh', { p_sesh: mine.id }, "Sesh started. It's live now.");
+                    (me.colour === 'on' ? start() : f.act('set_status', { new_colour: 'on' }, "You're green.").then(start))
+                      .then((r) => { if (r) { setSeshId(null); setPanel(null); top(); } });
+                  }}
+                />
+                <Button label="Cancel the sesh" ghost onPress={() => { setSeshId(null); setPanel(null); f.act('end_sesh', { p_sesh: mine.id }, 'Planned sesh cancelled.'); }} />
+              </>
+            ) : (
+              <Button label="Can't make it" ghost onPress={() => { setSeshId(null); setPanel(null); f.act('leave_sesh', { p_sesh: mine.id }); }} />
+            )
+          ) : mine.mine
+            ? <Button label="End the sesh" ghost onPress={() => { setSeshId(null); setPanel(null); f.act('end_sesh', { p_sesh: mine.id }, 'Sesh ended.'); }} />
+            : <Button label="Leave the sesh" ghost onPress={() => { setSeshId(null); setPanel(null); f.act('leave_sesh', { p_sesh: mine.id }); }} />}
+        </>
+      ) : null}
+
+      {later ? null : <GreenRow f={f} />}
+      {later ? null : planned}
     </Frame>
   );
 }
@@ -381,64 +414,14 @@ function toggle(picked: Picked, id: string): Picked {
 /* ---------- the top of the Sesh tab, and who's in ----------
    Kept as their own pieces so the header can later carry more about the sesh, and each member row can later
    carry more about that person, without touching the rest of the screen. */
-function SeshHeader({ s, later, startMs, creator, isCrawl, onBack, onStarted }: {
-  s: SeshT | null; later: boolean; startMs: number; creator: string; isCrawl?: boolean; onBack: () => void; onStarted: () => void;
-}) {
-  const kind = isCrawl ? 'Crewzy crawl' : 'sesh';
-  if (s && later) {
-    return (
-      <>
-        <Pressable style={styles.linkRow} onPress={onBack} accessibilityRole="button" accessibilityLabel="All seshes">
-          <Icon name="back" size={16} colour={C.muted} /><Text style={styles.linkText}>All seshes</Text>
-        </Pressable>
-        <View style={styles.head}>
-          <View style={styles.iconLine}>
-            <Icon name="clock" size={14} colour={C.thinking} />
-            <Text style={[styles.eyebrow, { color: C.thinking }]}>
-              Planned{startMs - Date.now() < DAY ? <Text>, starts in <Countdown until={startMs} onDone={onStarted} /></Text> : null}
-            </Text>
-          </View>
-          <Text style={styles.h1}>{fmtWhen(s.starts_at)}</Text>
-          <Text style={[styles.muted, styles.small]}>{s.mine ? 'Your ' + kind : creator + "'s " + kind}. It goes live at this time and is deleted 8 hours after, with the votes and chat.</Text>
-        </View>
-      </>
-    );
-  }
-  return (
-    <View style={styles.head}>
-      <Text style={[styles.eyebrow, { color: C.on }]}>{s ? 'Live now' : 'Tonight'}</Text>
-      <Text style={styles.h1}>{isCrawl ? "Tonight's crawl" : "Tonight's sesh"}</Text>
-    </View>
-  );
-}
-
-function Members({ s, myId, photos }: { s: SeshT; myId: string; photos: Record<string, string> }) {
-  return (
-    <View style={styles.card}>
-      <View style={styles.avatars}>
-        {s.members.map((m) => <MemberFace key={m.id} m={m} photos={photos} />)}
-      </View>
-      <View>
-        <Text style={styles.strongText}>{s.members.length} in</Text>
-        <Text style={[styles.muted, styles.small]}>{s.members.map((m) => (m.id === myId ? 'You' : first(m.name))).join(', ')}</Text>
-      </View>
-    </View>
-  );
-}
-
-// One person in the sesh.
-function MemberFace({ m, photos }: { m: Member; photos: Record<string, string> }) {
-  return <Avatar id={m.id} name={m.name || '?'} photos={photos} ring={C.on} />;
-}
-
 /* ---------- the page around every Sesh view: header, glow, scrolling body, toast ---------- */
-function Frame({ f, onOpenWeb, scroll, home, children }: { f: Frendzy; onOpenWeb: (tab: string) => void; scroll: React.RefObject<ScrollView | null>; home?: boolean; children: React.ReactNode }) {
+function Frame({ f, onOpenWeb, scroll, home, compact, children }: { f: Frendzy; onOpenWeb: (tab: string) => void; scroll: React.RefObject<ScrollView | null>; home?: boolean; compact?: boolean; children: React.ReactNode }) {
   const me = f.state && f.state.me;
   return (
     <KeyboardAvoidingView style={styles.fill} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <TopBar f={f} onOpenWeb={onOpenWeb} />
       <ScrollView ref={scroll} style={styles.fill} contentContainerStyle={styles.view} keyboardShouldPersistTaps="handled">
-        {home ? <HomeTop f={f} onOpenWeb={onOpenWeb} /> : null}
+        {home ? <HomeTop f={f} onOpenWeb={onOpenWeb} compact={compact} /> : null}
         {children}
         {home ? <HomeBottom f={f} onOpenWeb={onOpenWeb} /> : null}
       </ScrollView>
@@ -628,7 +611,7 @@ function Round({ icon, label, onPress, disabled, pressed, flip, size }: { icon: 
   );
 }
 
-/* ---------- the Planned list (plannedHtml) ---------- */
+/* ---------- Coming up: planned seshes as a row of small cards you swipe sideways (plannedHtml) ---------- */
 function PlannedList({ seshes, skipId, canPlan, v, onOpen, onJoin, onPlan }: {
   seshes: SeshT[]; skipId: string | null; canPlan: boolean; v: Venues;
   onOpen: (id: string) => void; onJoin: (id: string) => void; onPlan: () => void;
@@ -637,23 +620,152 @@ function PlannedList({ seshes, skipId, canPlan, v, onOpen, onJoin, onPlan }: {
     .sort((a, b) => new Date(a.starts_at || 0).getTime() - new Date(b.starts_at || 0).getTime());
   if (!list.length && !canPlan) return null;
   return (
-    <View style={[styles.stack, styles.plannedBox]}>
-      <Text style={styles.h2}>Planned</Text>
-      {list.map((s) => (
-        <View key={s.id} style={styles.card}>
-          <View style={[styles.row, styles.between]}>
-            <View style={styles.grow}>
-              <Text style={[styles.eyebrow, { color: C.thinking }]}>{fmtWhen(s.starts_at)}</Text>
-              <Text style={styles.title}>{s.mine ? 'Your sesh' : first(s.creator_name) + "'s sesh"}</Text>
-              {s.private ? <IconLine icon="lock" colour={C.accent} text={s.mine ? 'Private' : "Private, you're invited"} /> : null}
-              <Text style={[styles.muted, styles.small]}>{s.members.length} in{s.locked_venue && v.byId[s.locked_venue] ? ', going to ' + v.byId[s.locked_venue].name : ''}</Text>
-            </View>
-            {s.am_member ? <Button small ghost label="Open" onPress={() => onOpen(s.id)} /> : <Button small label="I'm in" onPress={() => onJoin(s.id)} />}
-          </View>
+    <View style={styles.stack}>
+      <View style={[styles.row, styles.between]}>
+        <Text style={styles.h2}>Coming up</Text>
+        <Text style={[styles.muted, styles.small]}>{list.length ? list.length + ' planned' : 'Nothing yet'}</Text>
+      </View>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
+        {list.map((s) => {
+          const at = s.locked_venue && v.byId[s.locked_venue] ? v.byId[s.locked_venue].name : null;
+          return (
+            <Pressable key={s.id} style={styles.chip} onPress={() => (s.am_member ? onOpen(s.id) : onJoin(s.id))}
+              accessibilityRole="button" accessibilityLabel={(s.am_member ? 'Open ' : "I'm in: ") + (s.mine ? 'your sesh' : first(s.creator_name) + "'s sesh") + ', ' + fmtWhen(s.starts_at)}>
+              <Text style={[styles.eyebrow, { color: C.thinking }]} numberOfLines={1}>{fmtWhen(s.starts_at)}</Text>
+              <Text style={styles.chipTitle} numberOfLines={1}>{s.mine ? 'Your sesh' : first(s.creator_name) + "'s sesh"}</Text>
+              <Text style={[styles.muted, styles.tiny]} numberOfLines={1}>{s.private ? 'Private, ' : ''}{s.members.length} in{at ? ', ' + at : ''}</Text>
+              <Text style={[styles.chipAct, s.am_member ? { color: C.on } : null]}>{s.am_member ? "You're in" : "Tap to say I'm in"}</Text>
+            </Pressable>
+          );
+        })}
+        {canPlan ? (
+          <Pressable style={[styles.chip, styles.chipAdd]} onPress={onPlan} accessibilityRole="button" accessibilityLabel="Plan a sesh for later">
+            <Icon name="plus" size={20} colour={C.muted} />
+            <Text style={[styles.muted, styles.small]}>Plan one</Text>
+          </Pressable>
+        ) : null}
+      </ScrollView>
+    </View>
+  );
+}
+
+/* ---------- the sesh card: who's in, where, the crawl trail, the newest chat line, and the parts to open ---------- */
+function SeshCard({ s, later, startMs, creator, isCrawl, stops, v, myId, photos, latest, panel, crawlOn, onPanel, onStarted }: {
+  s: SeshT; later: boolean; startMs: number; creator: string; isCrawl: boolean; stops: CrawlStop[]; v: Venues; myId: string;
+  photos: Record<string, string>; latest: Message | null; panel: Panel; crawlOn: boolean; onPanel: (p: Panel) => void; onStarted: () => void;
+}) {
+  const kind = isCrawl ? 'crawl' : 'sesh';
+  const venue = s.locked_venue && v.byId[s.locked_venue] ? v.byId[s.locked_venue] : null;
+  const title = venue ? venue.name : later ? fmtWhen(s.starts_at) : isCrawl ? "Tonight's crawl" : "Tonight's sesh";
+  const sub = venue ? (later ? fmtWhen(s.starts_at) : [venue.kind, hoursLine(venue)].filter(Boolean).join(', '))
+    : s.votes.length ? s.votes.length + ' vote' + (s.votes.length === 1 ? '' : 's') + ' on where to go' : 'Still picking a spot';
+  const who = (s.mine ? 'You' : creator) + ' started it';
+  const parts: [Panel, string][] = [['chat', 'Chat'], ['where', venue ? 'Where' : 'Vote'], ...(crawlOn ? [['crawl', 'Crawl'] as [Panel, string]] : []), ['more', 'More']];
+  const shown = stops.slice(0, 4);
+  return (
+    <LinearGradient colors={[C.heroFrom, C.heroTo]} start={{ x: 0, y: 0 }} end={{ x: 0.6, y: 1 }} style={styles.seshCard} testID="sesh-card">
+      <View style={[styles.row, styles.between]}>
+        <View style={styles.livePill}>
+          <View style={[styles.liveDot, later ? { backgroundColor: C.thinking, shadowColor: C.thinking } : null]} />
+          <Text style={styles.liveText}>{later ? 'PLANNED ' + kind.toUpperCase() : 'LIVE ' + kind.toUpperCase()}</Text>
         </View>
-      ))}
-      {!list.length ? <Text style={[styles.muted, styles.small]}>Nothing planned yet. Plan a sesh for later and your friends can say they're in.</Text> : null}
-      {canPlan ? <Button ghost icon="clock" label="Plan a sesh for later" onPress={onPlan} /> : null}
+        {later && startMs - Date.now() < DAY ? <Text style={styles.cardSmall}>Starts in <Countdown until={startMs} onDone={onStarted} /></Text>
+          : s.private ? <IconLine icon="lock" colour="#fff" text="Private" /> : null}
+      </View>
+      <View>
+        <Text style={styles.cardTitle} numberOfLines={2}>{title}</Text>
+        <Text style={styles.cardSmall} numberOfLines={1}>{sub}</Text>
+      </View>
+      <View style={[styles.row, styles.between]}>
+        <View style={styles.faceStack}>
+          {s.members.slice(0, 6).map((m, i) => (
+            <Pressable key={m.id} onPress={() => { if (m.id !== myId) openFriend(m.id); }} style={[styles.stackFace, { borderColor: 'rgba(255, 255, 255, 0.9)' }, i ? { marginLeft: -10 } : null]}
+              accessibilityRole="button" accessibilityLabel={m.id === myId ? 'You' : first(m.name)}>
+              <Face id={m.id} name={m.name} photos={photos} size={30} font={11} />
+            </Pressable>
+          ))}
+        </View>
+        <Text style={[styles.cardSmall, styles.cardRight]} numberOfLines={1}>{s.members.length} in · {who}</Text>
+      </View>
+      {shown.length ? (
+        <Pressable style={styles.trail} onPress={() => onPanel('crawl')} accessibilityRole="button" accessibilityLabel={'The crawl, ' + stops.length + ' stops'}>
+          {shown.map((c, i) => (
+            <React.Fragment key={c.venue_id}>
+              {i ? <View style={styles.leg} /> : null}
+              <View style={styles.trailStop}>
+                <View style={[styles.trailDot, c.done && styles.trailDone]}>
+                  {c.done ? <Icon name="tick" size={11} weight={3} colour="#04210F" /> : <Text style={styles.trailNum}>{c.position}</Text>}
+                </View>
+                <Text style={styles.trailName} numberOfLines={1}>{v.byId[c.venue_id] ? v.byId[c.venue_id].name : 'A venue'}</Text>
+              </View>
+            </React.Fragment>
+          ))}
+          {stops.length > shown.length ? <Text style={styles.trailMore}>+{stops.length - shown.length}</Text> : null}
+        </Pressable>
+      ) : null}
+      <Pressable style={styles.peek} onPress={() => onPanel('chat')} accessibilityRole="button" accessibilityLabel="Open the sesh chat">
+        {latest ? (
+          <View style={styles.row}>
+            <Face id={latest.sender} name={latest.name} photos={photos} size={22} font={9} />
+            <Text style={styles.peekText} numberOfLines={1}><Text style={styles.peekWho}>{latest.sender === myId ? 'You' : first(latest.name)}</Text> {latest.body}</Text>
+          </View>
+        ) : <Text style={styles.peekMuted} numberOfLines={1}>No messages yet. Say where you're heading.</Text>}
+        <View style={[styles.row, styles.between]}>
+          <Text style={styles.peekMuted}>Reply to the {kind}...</Text>
+          <Icon name="send" size={15} colour="#111114" />
+        </View>
+      </Pressable>
+      <View style={styles.seg}>
+        {parts.map(([k, label]) => (
+          <Pressable key={k} style={[styles.segBtn, panel === k && styles.segOn]} onPress={() => onPanel(k)}
+            accessibilityRole="tab" accessibilityLabel={label} accessibilityState={{ selected: panel === k }} testID={'sesh-' + k}>
+            <Text style={[styles.segText, panel === k && styles.segTextOn]} numberOfLines={1}>{label}</Text>
+          </Pressable>
+        ))}
+      </View>
+    </LinearGradient>
+  );
+}
+
+/* ---------- the party lobby: your seat, empty seats to fill, and big tiles to start or plan something ---------- */
+function Lobby({ f, tiles, note, onSeat }: { f: Frendzy; tiles: LobbyTile[]; note: string | null; onSeat: () => void }) {
+  const me = f.state && f.state.me;
+  if (!me) return null;
+  const greens = (f.state ? f.state.friends : []).filter((x) => x.colour === 'on');
+  return (
+    <View style={[styles.party, { borderColor: fade(COLOURS[me.colour], 0.6), shadowColor: COLOURS[me.colour] }]}>
+      <View style={{ gap: 4 }}>
+        <Text style={[styles.eyebrow, { color: COLOURS[me.colour] }]}>Start a party</Text>
+        <Text style={styles.partyTitle}>{greens.length ? greens.length + ' friend' + (greens.length === 1 ? ' is' : 's are') + ' keen. What\'s the move?' : "What's the move?"}</Text>
+        <Text style={[styles.muted, styles.tiny]}>Hosting earns XP for each friend who joins.</Text>
+      </View>
+      <View style={styles.seats}>
+        <View style={styles.seat}>
+          <View style={[styles.seatRing, { borderColor: COLOURS[me.colour] }]}><Face id={me.id} name={me.name} photos={f.photos} size={40} font={14} /></View>
+          <Text style={styles.seatName}>You</Text>
+        </View>
+        {[0, 1, 2, 3].map((i) => (
+          <Pressable key={i} style={styles.seat} onPress={onSeat} accessibilityRole="button" accessibilityLabel="Pick friends for a private sesh">
+            <View style={styles.seatEmpty}><Icon name="plus" size={18} colour={C.muted} /></View>
+            <Text style={[styles.seatName, { color: C.muted }]}>Invite</Text>
+          </Pressable>
+        ))}
+      </View>
+      {note ? <Text style={[styles.muted, styles.small]}>{note}</Text> : null}
+      <View style={styles.tiles}>
+        {tiles.map((t) => (
+          <Pressable key={t.key} style={({ pressed }) => [styles.tileWrap, pressed && { transform: [{ scale: 0.97 }] }]} onPress={t.onPress}
+            accessibilityRole="button" accessibilityLabel={t.title + '. ' + t.note} testID={'lobby-' + t.key}>
+            <LinearGradient colors={t.colours} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.tile}>
+              <Text style={styles.tileEmoji}>{t.emoji}</Text>
+              <View>
+                <Text style={styles.tileTitle} numberOfLines={1}>{t.title}</Text>
+                <Text style={styles.tileNote} numberOfLines={2}>{t.note}</Text>
+              </View>
+            </LinearGradient>
+          </Pressable>
+        ))}
+      </View>
     </View>
   );
 }
@@ -750,36 +862,6 @@ function LockedCard({ id, v, onVenue }: { id: string; v: Venues; onVenue: (id: s
           <Button label="See venue" onPress={() => onVenue(lv.id)} />
         </>
       ) : null}
-    </View>
-  );
-}
-
-// What each shown friend's status reads as when they are not in a sesh. Red friends are never listed.
-const STATUS_LINE: Record<string, string> = { on: 'Green, up for it', thinking: 'Amber, thinking about it' };
-
-// Your friends, keenest first, each with where they are tonight: in a sesh (and where), or their status.
-function People({ friends, seshes, v, photos }: { friends: Friend[]; seshes: SeshT[]; v: Venues; photos: Record<string, string> }) {
-  // Red friends are never shown, not even greyed out.
-  const sorted = friends.filter((fr) => fr.colour !== 'off').sort((x, y) => STOPS.indexOf(x.colour) - STOPS.indexOf(y.colour));
-  return (
-    <View style={styles.stack}>
-      <Text style={styles.h2}>Your people</Text>
-      {sorted.map((fr) => {
-        const out = seshes.filter((s) => !isPlanned(s) && s.members.some((m) => m.id === fr.id))[0];
-        const where = out && out.locked_venue && v.byId[out.locked_venue] ? v.byId[out.locked_venue].name : null;
-        const line = out ? 'In a sesh' + (where ? ', ' + where : '') : STATUS_LINE[fr.colour];
-        return (
-          <Pressable key={fr.id} style={[styles.card, styles.person, { borderColor: COLOURS[fr.colour] + '66' }]} onPress={() => openFriend(fr.id)} accessibilityRole="button" accessibilityLabel={'Open ' + fr.name + "'s profile"}>
-            <View style={[styles.personRing, { borderColor: COLOURS[fr.colour] }]}>
-              <Face id={fr.id} name={fr.name} photos={photos} size={44} font={16} />
-            </View>
-            <View style={styles.grow}>
-              <Text style={styles.title}>{first(fr.name)}</Text>
-              <Text style={[styles.small, { color: COLOURS[fr.colour] }]}>{line}</Text>
-            </View>
-          </Pressable>
-        );
-      })}
     </View>
   );
 }
@@ -935,7 +1017,9 @@ function StopNum({ n, done }: { n: number; done: boolean }) {
 }
 
 /* ---------- the chat (chatHtml, chatItems, paintChat, refreshChat) ---------- */
-function Chat({ f, seshId, myId, confirm, setConfirm }: { f: Frendzy; seshId: string; myId: string; confirm: string | null; setConfirm: (c: string | null) => void }) {
+function Chat({ f, seshId, myId, confirm, setConfirm, onLatest }: { f: Frendzy; seshId: string; myId: string; confirm: string | null; setConfirm: (c: string | null) => void; onLatest?: (m: Message | null) => void }) {
+  const latestCb = useRef(onLatest);
+  latestCb.current = onLatest;
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
@@ -957,6 +1041,7 @@ function Chat({ f, seshId, myId, confirm, setConfirm }: { f: Frendzy; seshId: st
       key.current = k;
       if (firstLoad || force) stick.current = true;
       setMessages(got);
+      if (latestCb.current) latestCb.current(got.length ? got[got.length - 1] : null);
     }, () => {});
   }, [seshId]);
 
@@ -989,7 +1074,6 @@ function Chat({ f, seshId, myId, confirm, setConfirm }: { f: Frendzy; seshId: st
 
   return (
     <View style={styles.stack}>
-      <Text style={styles.h2}>Chat</Text>
       <Text style={[styles.muted, styles.small]}>Messages disappear when the sesh ends. Friends can still screenshot, so only send what you're happy for them to keep.</Text>
       <ScrollView
         ref={list}
@@ -1106,6 +1190,59 @@ const styles = themed(() => StyleSheet.create({
   spotYes: { backgroundColor: C.on, shadowColor: C.on, shadowOpacity: 0.6, shadowRadius: 14, shadowOffset: { width: 0, height: 0 } },
   spotYesOn: { borderWidth: 3, borderColor: C.fg },
   center: { textAlign: 'center' },
+  hidden: { display: 'none' },
+  tiny: { fontSize: 12, lineHeight: 16 },
+
+  // The sesh card
+  seshCard: { borderRadius: 26, padding: 16, gap: 12, overflow: 'hidden' },
+  livePill: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: 'rgba(0, 0, 0, 0.25)', paddingVertical: 5, paddingHorizontal: 10, borderRadius: 999 },
+  liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: C.on, shadowColor: C.on, shadowOpacity: 1, shadowRadius: 6, shadowOffset: { width: 0, height: 0 } },
+  liveText: { fontFamily: F.bodyBold, fontSize: 11, letterSpacing: 1.3, color: '#fff' },
+  cardTitle: { fontFamily: F.display, fontSize: 28, lineHeight: 32, letterSpacing: -0.7, color: '#fff' },
+  cardSmall: { fontFamily: F.bodyMid, fontSize: 13, lineHeight: 18, color: 'rgba(255, 255, 255, 0.9)' },
+  cardRight: { flexShrink: 1, textAlign: 'right' },
+  faceStack: { flexDirection: 'row', alignItems: 'center' },
+  stackFace: { borderRadius: 20, borderWidth: 2 },
+  trail: { flexDirection: 'row', alignItems: 'flex-start', backgroundColor: 'rgba(0, 0, 0, 0.2)', borderRadius: 16, paddingVertical: 10, paddingHorizontal: 10 },
+  trailStop: { width: 64, alignItems: 'center', gap: 4 },
+  trailDot: { width: 24, height: 24, borderRadius: 12, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' },
+  trailDone: { backgroundColor: C.on },
+  trailNum: { fontFamily: F.bodyBold, fontSize: 12, color: '#B02A68' },
+  trailName: { fontFamily: F.bodyMid, fontSize: 11, color: '#fff', textAlign: 'center', maxWidth: 64 },
+  trailMore: { fontFamily: F.bodyBold, fontSize: 12, color: '#fff', marginTop: 4, marginLeft: 4 },
+  leg: { flex: 1, height: 2, marginTop: 11, backgroundColor: 'rgba(255, 255, 255, 0.5)' },
+  peek: { backgroundColor: 'rgba(255, 255, 255, 0.95)', borderRadius: 16, paddingVertical: 10, paddingHorizontal: 12, gap: 8 },
+  peekText: { flex: 1, minWidth: 0, fontFamily: F.body, fontSize: 14, color: '#111114' },
+  peekWho: { fontFamily: F.bodyBold },
+  peekMuted: { fontFamily: F.body, fontSize: 14, color: '#6B6B73' },
+  seg: { flexDirection: 'row', gap: 6 },
+  segBtn: { flex: 1, minHeight: 40, borderRadius: 14, backgroundColor: 'rgba(255, 255, 255, 0.18)', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 },
+  segOn: { backgroundColor: '#fff' },
+  segText: { fontFamily: F.bodyBold, fontSize: 13, color: '#fff' },
+  segTextOn: { color: '#111114' },
+
+  // Coming up
+  chips: { gap: 10, paddingRight: 8 },
+  chip: { width: 150, borderRadius: 18, padding: 12, gap: 3, backgroundColor: C.surface, borderWidth: 1, borderColor: C.line },
+  chipTitle: { fontFamily: F.bodyBold, fontSize: 15, color: C.fg },
+  chipAct: { fontFamily: F.bodyBold, fontSize: 12, color: C.muted, marginTop: 4 },
+  chipAdd: { width: 110, borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center', gap: 6 },
+
+  // The party lobby
+  joinCard: { borderWidth: 1.5, borderColor: fade(C.on, 0.5) },
+  party: { backgroundColor: C.surface, borderRadius: 26, padding: 16, gap: 14, borderWidth: 1.5, shadowOpacity: C.dark ? 0.35 : 0.12, shadowRadius: 20, shadowOffset: { width: 0, height: 0 } },
+  partyTitle: { fontFamily: F.display, fontSize: 22, lineHeight: 27, letterSpacing: -0.4, color: C.fg },
+  seats: { flexDirection: 'row', justifyContent: 'space-between' },
+  seat: { alignItems: 'center', gap: 4, width: 56 },
+  seatRing: { borderWidth: 2.5, borderRadius: 26, padding: 2 },
+  seatEmpty: { width: 48, height: 48, borderRadius: 24, borderWidth: 1.5, borderStyle: 'dashed', borderColor: C.muted, alignItems: 'center', justifyContent: 'center' },
+  seatName: { fontFamily: F.bodyBold, fontSize: 12, color: C.fg },
+  tiles: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  tileWrap: { width: '48%', flexGrow: 1 },
+  tile: { borderRadius: 20, padding: 14, minHeight: 116, justifyContent: 'space-between' },
+  tileEmoji: { fontSize: 26 },
+  tileTitle: { fontFamily: F.displayBold, fontSize: 16, color: '#fff' },
+  tileNote: { fontFamily: F.body, fontSize: 12, lineHeight: 16, color: 'rgba(255, 255, 255, 0.9)' },
 
   fill: { flex: 1 },
   view: { paddingHorizontal: 18, paddingTop: 20, paddingBottom: 24, gap: 20, maxWidth: 440, width: '100%', alignSelf: 'center' },

@@ -46,6 +46,9 @@ if (!process.env.NATIVE_DIST_NOKEY) execSync(`CI=1 EXPO_PUBLIC_API_URL=http://12
 
 const copy = fs.mkdtempSync('/tmp/sb-native-');
 execSync(`cp -r ${root}/supabase ${copy}/ && chmod -R a+rX ${copy} && chmod a+rx ${copy}`);
+// The live database has a hand-made private.migration_log that some migration files add their own line to; the test
+// database doesn't, so those lines are left out here.
+execSync(`sed -i '/insert into private.migration_log/d' ${copy}/supabase/migrations/*.sql`);
 const setup = execSync(`ONLY_SETUP=1 PG_PORT=54339 bash ${copy}/supabase/tests/run.sh`, { encoding: 'utf8' });
 const [, sock, dbPort] = setup.match(/socket dir (\S+) port (\d+)/);
 const api = spawn('node', [path.join(here, 'fake-supabase.mjs'), sock, dbPort, '54340'], { stdio: 'inherit' });
@@ -200,13 +203,13 @@ try {
   const id = (name) => psql(`select id from public.profiles where name = '${name}'`);
   const anaId = id('Ana'), jackId = id('Jack'), tomId = id('Tom');
   await nat.page.getByRole('tab', { name: 'Home' }).click();
-  await has(nat, "Tonight's sesh");
-  await has(nat, 'Nobody has started one yet');
+  await has(nat, "What's the move?");
+  await has(nat, 'Start a party');
   await sshot(nat, '1-no-sesh.png');
 
   // Start a sesh: start_sesh, the same function the web app calls.
-  await tap(nat, 'Start a sesh');
-  await has(nat, 'Live now');
+  await nat.page.getByTestId('lobby-now').filter({ visible: true }).first().click();
+  await has(nat, 'LIVE SESH');
   await has(nat, 'Where to?');
   const seshId = psql(`select id from public.seshes where creator = '${anaId}' and ended_at is null`);
   expect('a live sesh started by Ana', psql(`select count(*) from public.seshes where creator = '${anaId}' and ended_at is null`), 1);
@@ -229,7 +232,7 @@ try {
   await has(natJ, "Ana's sesh");
   await sshot(natJ, '3-jack-sees-sesh.png');
   await tap(natJ, 'Join');
-  await has(natJ, 'Live now');
+  await has(natJ, 'LIVE SESH');
   expect('Jack is in the sesh', psql(`select count(*) from public.sesh_members where sesh_id = '${seshId}' and user_id = '${jackId}'`), 1);
   // Jack votes for the other venue, then changes to Ana's: two votes for one venue.
   await voteFor(natJ, venueB);
@@ -263,7 +266,9 @@ try {
   console.log('Jack switched it off and his position was deleted: yes');
   await nat.ctx.clearPermissions(); await natJ.ctx.clearPermissions();
 
-  // Chat, both ways. Each phone only polls, so this also checks the chat poll.
+  // Chat, both ways. Each phone only polls, so this also checks the chat poll. The chat opens under the sesh card.
+  await nat.page.getByTestId('sesh-chat').filter({ visible: true }).first().click();
+  await natJ.page.getByTestId('sesh-chat').filter({ visible: true }).first().click();
   await natJ.page.getByLabel('Message your mates').fill('Heading there at 9, who is in?');
   await natJ.page.getByRole('button', { name: 'Send', exact: true }).click();
   await until(() => psql(`select count(*) from public.messages where sesh_id = '${seshId}'`) === '1');
@@ -422,10 +427,11 @@ try {
   }, [venueA, venueB, seshId]);
   expect('stops tidied away', psql(`select count(*) from public.crawl_stops where sesh_id = '${seshId}'`), 0);
 
-  // Friends who are out show as faces (never where they are): Jack, Tom (green) and Mia (amber), not Zoe (red).
+  // Friends who are out show as faces (never where they are): Jack and Tom (green). Mia (amber) only shows to friends
+  // she lets see her amber (migration 0036), and Zoe (red) never does.
   const faces = await natMap.page.getByLabel('Friends out tonight').innerText();
   console.log('friend faces on the map: ' + faces.replace(/\n/g, ', '));
-  expect('green and amber friends are shown', ['Jack', 'Mia', 'Tom'].every((n) => faces.includes(n)), true);
+  expect('green friends are shown', ['Jack', 'Tom'].every((n) => faces.includes(n)), true);
   expect('a red friend is not shown', faces.includes('Zoe'), false);
 
   // Near me: this phone's position stays on the phone.
@@ -477,15 +483,17 @@ try {
   expect('no key: the tab bar is still there', await noKey.page.getByRole('tab', { name: 'Home' }).count(), 1);
   await noKey.ctx.close();
 
-  // Lock in the winner: lock_sesh.
+  // Lock in the winner: lock_sesh. Voting is under "Pick a spot" on the sesh card.
+  await nat.page.getByTestId('sesh-where').filter({ visible: true }).first().click();
   await tap(nat, 'Lock in ' + nameA);
   await has(nat, 'Locked in');
   await until(() => psql(`select coalesce(locked_venue::text, '') from public.seshes where id = '${seshId}'`) === venueA);
   expect('locked venue in the database', psql(`select locked_venue from public.seshes where id = '${seshId}'`), venueA);
+  await natJ.page.getByTestId('sesh-where').filter({ visible: true }).first().click();
   await has(natJ, 'Locked in', 10000);
   // Home shows the sesh as a card, with where it's going.
   await nat.page.getByRole('tab', { name: 'Home' }).click();
-  await has(nat, 'Your sesh');
+  await has(nat, 'You started it');
   await has(nat, nameA);
   await sshot(nat, '9b-home-night-card.png');
   await nat.page.getByRole('tab', { name: 'Home' }).click();
@@ -500,6 +508,8 @@ try {
   }, [fn, args]);
   console.log('crawl_add as Jack: ' + await rpcAs(natJ, 'crawl_add', { p_sesh: seshId, p_venue: venueA }));
   console.log('crawl_add as Ana: ' + await rpcAs(nat, 'crawl_add', { p_sesh: seshId, p_venue: venueB }));
+  await nat.page.getByTestId('sesh-crawl').filter({ visible: true }).first().click();
+  await natJ.page.getByTestId('sesh-crawl').filter({ visible: true }).first().click();
   await has(nat, '2 stops', 10000);
   await nat.page.getByRole('button', { name: 'Done with ' + nameA, exact: true }).click();
   await until(() => psql(`select done from public.crawl_stops where sesh_id = '${seshId}' and venue_id = '${venueA}'`) === 't');
@@ -518,7 +528,8 @@ try {
   await natT.page.getByRole('tab', { name: 'Home' }).click();
   await has(natT, "Ana's sesh");
   await tap(natT, 'Join');
-  await has(natT, 'Live now');
+  await has(natT, 'LIVE SESH');
+  await nat.page.getByTestId('sesh-chat').filter({ visible: true }).first().click();
   await natT.page.getByLabel('Message your mates').fill('Ugh not there');
   await natT.page.getByRole('button', { name: 'Send', exact: true }).click();
   await has(nat, 'Ugh not there', 10000);
@@ -556,27 +567,30 @@ try {
   await has(nat, 'Pres address saved.');
   expect('pres address stored', psql(`select address from private.sesh_pres p join public.seshes s on s.id = p.sesh_id where s.creator = '${anaId}' and s.created_at > now() + interval '20 hours'`), '12 Smith St, Northbridge');
   await sshot(nat, '12-planned-sesh.png');
-  await tap(nat, 'All seshes');
-  await has(nat, 'Live now');
-  await has(nat, 'Planned');
+  await tap(nat, 'Back to Home');
+  await has(nat, 'LIVE SESH');
+  await has(nat, 'Coming up');
   await sshot(nat, '13-back-to-tonight.png');
 
   // A private sesh from Jack's phone: start_private_sesh. He leaves Ana's first.
+  await natJ.page.getByTestId('sesh-more').filter({ visible: true }).first().click();
   await tap(natJ, 'Leave the sesh');
   await has(natJ, "Ana's sesh");
   await until(() => psql(`select count(*) from public.sesh_members where sesh_id = '${seshId}' and user_id = '${jackId}'`) === '0');   // the screen can move on a moment before the database answer is read
   expect('Jack left', psql(`select count(*) from public.sesh_members where sesh_id = '${seshId}' and user_id = '${jackId}'`), 0);
-  await tap(natJ, 'Start a private sesh');
+  await natJ.page.getByTestId('lobby-private').filter({ visible: true }).first().click();
   await has(natJ, "Who's invited?");
   await natJ.page.getByRole('button', { name: 'Ana', exact: true }).click();   // Jack's one friend
   await sshot(natJ, '14-private-picker.png');
   await tap(natJ, 'Start private sesh with 1');
   await has(natJ, 'Private sesh started.');
+  await natJ.page.getByTestId('sesh-more').filter({ visible: true }).first().click();
   await has(natJ, 'Only you and the 1 friend you picked can see it.');
   expect("Jack's private sesh", psql(`select count(*) from public.seshes where creator = '${jackId}' and private and ended_at is null`), 1);
   await sshot(natJ, '15-private-sesh.png');
 
-  // Ending: end_sesh.
+  // Ending: end_sesh, under More on the sesh card.
+  await nat.page.getByTestId('sesh-more').filter({ visible: true }).first().click();
   await tap(nat, 'End the sesh');
   await has(nat, 'Sesh ended.');
   // end_sesh deletes the sesh, with its members, votes, stops and chat.
@@ -588,6 +602,19 @@ try {
   await has(nat, 'Up for it now');
   await nat.page.getByRole('tab', { name: 'Home' }).click();
   await has(nat, 'Up for it now');
+
+  // Friends, from the people button in the header: a wall of round faces, green ones tagged, red ones plain.
+  await nat.page.getByTestId('open-friends').filter({ visible: true }).first().click();
+  await has(nat, 'Send invite link');
+  await has(nat, 'GREEN');
+  await sshot(nat, '17-friends.png');
+  await tap(nat, 'Back');
+  // Messages, from the chat button: green friends as chat heads, then the chats.
+  await nat.page.getByTestId('home-messages').filter({ visible: true }).first().click();
+  await has(nat, 'Start a chat');
+  await sshot(nat, '18-messages.png');
+  await tap(nat, 'Back');
+  await has(nat, "What's the move?");
 
   /* ---------- crews, besties and free time ---------- */
   // Ana makes a crew with Jack and Mia, shares exact times, ticks when she's free, and Home suggests a catch-up
@@ -606,7 +633,7 @@ try {
   const day3 = psql("select to_char(private.free_today() + 3, 'YYYY-MM-DD')");
   await tap(nat, 'You');
   await has(nat, 'Crews and besties');
-  await nat.page.getByTestId('open-crews').click();
+  await nat.page.getByTestId('open-crews').filter({ visible: true }).first().click();
   await has(nat, 'Your free time');
   await has(nat, 'Not shared with anyone yet');
   await cshot(nat, '1-crews-empty.png');
@@ -629,7 +656,8 @@ try {
   // Jack answers on his own phone: the invite shows on his Crews screen and Join puts him in.
   const natJ2 = await phone('Jack crews', `http://127.0.0.1:${NATIVE_PORT}/`, `localStorage.setItem('seshhon-session-v1', ${JSON.stringify(sessions.Jack)});`);
   await has(natJ2, "You're green.");
-  await tap(natJ2, 'Crews and besties');
+  await natJ2.page.getByTestId('open-friends').filter({ visible: true }).first().click();
+  await natJ2.page.getByTestId('open-crews').filter({ visible: true }).first().click();
   await has(natJ2, 'invited you to the crew');
   await cshot(natJ2, '3-jack-invite.png');
   await tap(natJ2, 'Join');
@@ -696,7 +724,7 @@ try {
   await until(() => psql(`select count(*) from public.seshes where creator = '${anaId}' and created_at > now() + interval '48 hours' and created_at < now() + interval '4 days' and private`) === '1');
   expect('Plan it made a private planned sesh', psql(`select count(*) from public.seshes where creator = '${anaId}' and created_at > now() + interval '48 hours' and created_at < now() + interval '4 days' and private`), 1);
   expect('invited to Jack and Mia only', psql(`select string_agg(p.name, ',' order by p.name) from public.sesh_invites i join public.profiles p on p.id = i.user_id join public.seshes s on s.id = i.sesh_id where s.creator = '${anaId}' and s.created_at > now() + interval '48 hours' and s.created_at < now() + interval '4 days'`), 'Jack,Mia');
-  await has(nat, "Tonight's sesh");
+  await has(nat, "What's the move?");
   await cshot(nat, '9-planned-from-catch-up.png');
 
   // Someone who is in no crew sees nothing of it, and no suggestions.
@@ -707,7 +735,7 @@ try {
 
   // Besties: Ana asks Jack from Crews and besties; Jack says yes.
   await tap(nat, 'You');
-  await nat.page.getByTestId('open-crews').click();
+  await nat.page.getByTestId('open-crews').filter({ visible: true }).first().click();
   await tap(nat, 'Add a bestie');
   await nat.page.getByRole('button', { name: 'Jack', exact: true }).click();
   await has(nat, 'Waiting for them to say yes');
@@ -902,7 +930,7 @@ try {
   await tap(natM, 'Skip');
   await natM.page.waitForTimeout(500);
   expect('tour closed', await natM.page.evaluate(() => document.body.innerText.includes('Tap a light to show')), false);
-  await openSet(natM, 'about');
+  await openSet(natM, 'info');
   await has(natM, 'Privacy Policy');
   await yshot(natM, '11-about.png');
   // The looks in You > Look: each one is kept on the phone and the screens change colour straight away.
@@ -948,9 +976,9 @@ try {
   await fillL(kid, 'Your first name', 'Kid'); await fillL(kid, 'Date of birth', '01/01/' + (new Date().getFullYear() - 10));
   await fillL(kid, 'Pick a username', 'kid_test'); await fillL(kid, 'Make a password', 'longenough1'); await fillL(kid, 'Your email', 'kid@example.com');
   await tap(kid, 'Get started');
-  await has(kid, 'Frendzy is for people aged 18 and over.');
+  await has(kid, 'Crewzy is for people aged 18 and over.');
   await kid.page.reload();
-  await has(kid, 'Frendzy is for people aged 18 and over.');
+  await has(kid, 'Crewzy is for people aged 18 and over.');
   expect('no account made for under 18', psql("select count(*) from public.profiles where name = 'Kid'"), 0);
   await kid.ctx.close();
 
@@ -1093,7 +1121,7 @@ try {
   await tap(reset, 'Forgot your password?');
   await fillL(reset, 'Email', 'Nina@Example.com');
   await tap(reset, 'Email me a code');
-  await has(reset, 'If nina@example.com has a Frendzy account');
+  await has(reset, 'If nina@example.com has a Crewzy account');
   const resetMail = await lastMail();
   expect('a reset code emailed to her confirmed email', resetMail.reset && resetMail.email === 'nina@example.com' && resetMail.username === 'nina_test', true);
   await fillL(reset, 'Code from the email', resetMail.code === '000000' ? '111111' : '000000'); await fillL(reset, 'New password', 'resetbyemail1');
