@@ -207,9 +207,22 @@ try {
   await has(nat, 'Start a party');
   await sshot(nat, '1-no-sesh.png');
 
-  // Start a sesh: start_sesh, the same function the web app calls.
+  // Go now opens "Where to?": a map and the popular spots around you. (Picking one is checked after this sesh ends.)
   await nat.page.getByTestId('lobby-now').filter({ visible: true }).first().click();
-  await has(nat, 'LIVE SESH');
+  await has(nat, 'Where to?');
+  await has(nat, 'Popular around here');
+  await has(nat, 'Pick a spot to start');
+  await sshot(nat, '1b-where-to.png');
+  await tap(nat, 'Back');
+  await has(nat, "What's the move?");
+  // An open sesh to vote in: start_sesh as Ana's phone calls it (a sesh started without a spot, as Invite only does).
+  const startAs = async (name, fn, args = {}) => {
+    const tok = JSON.parse(sessions[name] || await nat.page.evaluate(() => localStorage.getItem('seshhon-session-v1'))).access_token;
+    const r = await fetch(API + '/rest/v1/rpc/' + fn, { method: 'POST', headers: { apikey: 'test-anon-key', Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' }, body: JSON.stringify(args) });
+    if (!r.ok) throw new Error(name + ' ' + fn + ': ' + r.status + ' ' + (await r.text()));
+  };
+  await startAs('Ana', 'start_sesh');
+  await has(nat, 'LIVE SESH', 15000);
   await has(nat, 'Where to?');
   const seshId = psql(`select id from public.seshes where creator = '${anaId}' and ended_at is null`);
   expect('a live sesh started by Ana', psql(`select count(*) from public.seshes where creator = '${anaId}' and ended_at is null`), 1);
@@ -598,6 +611,26 @@ try {
   expect('its chat gone', psql(`select count(*) from public.messages where sesh_id = '${seshId}'`), 0);
   await sshot(nat, '16-ended.png');
   await natJ.ctx.close();
+
+  // Go now, properly: pick the top popular spot and the sesh starts there, locked in (start_sesh, cast_vote, lock_sesh).
+  // The seeded venues are examples, which Go now never offers, so reopen the app to load the real ones added above.
+  await nat.page.reload();
+  await has(nat, "What's the move?", 20000);
+  await nat.page.getByTestId('lobby-now').filter({ visible: true }).first().click();
+  await has(nat, 'Popular around here');
+  const firstSpot = nat.page.locator('[data-testid^="spot-"]:not([data-testid="spot-open"])').filter({ visible: true }).first();
+  const spotId = (await firstSpot.getAttribute('data-testid')).slice(5);
+  await firstSpot.click();
+  const spotName = psql(`select name from public.venues where id = '${spotId}'`);
+  await tap(nat, 'Start the sesh at ' + spotName);
+  await has(nat, 'LIVE SESH');
+  await has(nat, spotName);
+  await until(() => psql(`select count(*) from public.seshes where creator = '${anaId}' and locked_venue = '${spotId}'`) === '1');
+  expect('Go now sesh locked at the picked spot', psql(`select count(*) from public.seshes where creator = '${anaId}' and locked_venue = '${spotId}'`), 1);
+  await sshot(nat, '16b-go-now-spot.png');
+  await nat.page.getByTestId('sesh-more').filter({ visible: true }).first().click();
+  await tap(nat, 'End the sesh');
+  await has(nat, 'Sesh ended.');
   await nat.page.getByRole('tab', { name: 'Home' }).click();
   await has(nat, 'Up for it now');
   await nat.page.getByRole('tab', { name: 'Home' }).click();

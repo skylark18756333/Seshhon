@@ -20,6 +20,7 @@ import { openFriend } from './FriendProfile';
 import { CrawlBuilder, TreasureMap } from './Crawl';
 import Icon from './Icon';
 import MeetMiddle from './MeetMiddle';
+import SpotPicker from './SpotPicker';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Avatar, Button, Face, Toast, TopBar } from './Parts';
 import type { ApiError } from './session';
@@ -63,6 +64,8 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
   const [panel, setPanel] = useState<Panel | null>(null);
   const [lastMsg, setLastMsg] = useState<{ sesh: string; m: Message | null } | null>(null);
   const [making, setMaking] = useState(false);
+  // Go now: picking where to go before the sesh starts.
+  const [going, setGoing] = useState(false);
   const scroll = useRef<ScrollView>(null);
   const shownRef = useShownRef();
 
@@ -123,6 +126,35 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
                 f.say(target ? 'Trail saved. Your crew can see the stops in the sesh.' : "Crawl's on. Friends who are around can join and follow the trail.");
               }, (e: ApiError) => { f.say(e.message); }).then(() => f.refresh()).then(() => { setSeshId(id); setMake(null); top(); });
             }).finally(() => setMaking(false));
+          }}
+        />
+      </Frame>
+    );
+  }
+  if (going && !mine) {
+    const green = me.colour === 'on';
+    return (
+      <Frame f={f} onOpenWeb={onOpenWeb} scroll={scroll}>
+        <SpotPicker
+          v={v}
+          meName={me.name}
+          green={green}
+          busy={making}
+          onCancel={() => { setGoing(false); top(); }}
+          onGo={(venue) => {
+            if (making) return;
+            setMaking(true);
+            // Green first if needed (you asked to go out), then start the sesh, vote for the spot and lock it in.
+            const ready: Promise<unknown> = green ? Promise.resolve(true) : f.act('set_status', { new_colour: 'on' });
+            ready.then(() => f.act('start_sesh', {}))
+              .then((r: any) => {
+                if (!r || !r.id) return;
+                const id = r.id as string;
+                return f.act('cast_vote', { p_sesh: id, p_venue: venue })
+                  .then(() => f.act('lock_sesh', { p_sesh: id }, "Sesh started at " + (v.byId[venue] ? v.byId[venue].name : 'your spot') + '. Friends who are around can join.'))
+                  .then(() => { setSeshId(id); setPanel(null); setGoing(false); top(); });
+              })
+              .finally(() => setMaking(false));
           }}
         />
       </Frame>
@@ -204,8 +236,8 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
       f.act('set_status', { new_colour: 'on' }, "You're green.").then((r) => { then(); });
     };
     const tiles: LobbyTile[] = [
-      { key: 'now', emoji: '⚡', title: 'Go now', note: green ? 'Friends on green and amber can join' : 'Turns you green', colours: ['#FF7A45', '#E0407A'],
-        onPress: () => goGreen(() => { f.act('start_sesh', {}, 'Sesh started. Friends who are around can join.').then(top); }) },
+      { key: 'now', emoji: '⚡', title: 'Go now', note: 'Pick a popular spot near you', colours: ['#FF7A45', '#E0407A'],
+        onPress: () => { setGoing(true); top(); } },
       ...(crawl.off ? [] : [{ key: 'crawl', emoji: '📍', title: 'Crewzy crawl', note: 'A few spots a short walk apart', colours: ['#21C6A4', '#2A7FD4'] as [string, string],
         onPress: () => goGreen(() => { setMake({ target: null }); top(); }) }]),
       { key: 'plan', emoji: '🗓', title: 'Plan for later', note: 'Any day in the next 2 weeks', colours: ['#5B8CFF', '#9B5BFF'], onPress: startPlan },
