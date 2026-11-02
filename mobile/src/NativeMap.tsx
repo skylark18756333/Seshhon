@@ -231,6 +231,7 @@ function NativeMap(p: MapView) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [p.focus && p.focus.key]);
 
+  const padding = useMemo(() => (p.pad ? { top: p.pad.top, bottom: p.pad.bottom, left: 0, right: 0 } : undefined), [p.pad]);
   const onRegion = (r: Region) => {
     const near = r.latitudeDelta < NAMES_BELOW_DELTA;
     if (names.current !== near) { names.current = near; p.onZoom(near); }
@@ -251,6 +252,7 @@ function NativeMap(p: MapView) {
       initialRegion={{ latitude: p.centre[0], longitude: p.centre[1], latitudeDelta: 0.12, longitudeDelta: 0.12 }}
       onPress={(e) => { const c = e.nativeEvent.coordinate; p.onMapPress([c.latitude, c.longitude]); }}
       onRegionChangeComplete={onRegion}
+      mapPadding={padding}
       onRegionChange={radarOn ? onMove : undefined}
       rotateEnabled={false}
       pitchEnabled={false}

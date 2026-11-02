@@ -17,6 +17,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Linking, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import { loadBuzz, meetShare, meetStop, meetVenues, seshCrawl, type Buzz, type CrawlStop, type Meet, type Sesh as SeshT, type Venue } from './api';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from './Icon';
 import type { LatLng, MapMarker } from './mapShared';
 import NativeMap from './NativeMap';
@@ -25,7 +27,7 @@ import { useGoogleRating } from './google';
 import { Button, TopBar } from './Parts';
 import type { ApiError } from './session';
 import { useOnShow, useShownRef } from './Shown';
-import { C, F, themed } from './theme';
+import { C, F, fade, themed } from './theme';
 import type { Frendzy } from './useFrendzy';
 import { findMe, fmtKm, hoursLine, km, myPlace, openState, refreshVenues, useVenues, type Venues } from './venues';
 
@@ -72,6 +74,9 @@ export default function MapTab({ f, onVenue, onOpenWeb, onWebMap }: {
   const v = useVenues();
   const pins = v.pins;
   const { height: screenH } = useWindowDimensions();
+  const inset = useSafeAreaInsets();
+  const [headH, setHeadH] = useState(64);
+  const pad = useMemo(() => ({ top: headH + 96, bottom: TABS_H + inset.bottom + 96 }), [headH, inset.bottom]);
 
   const [geo, setGeo] = useState<Geo>(() => {
     const at = myPlace();
@@ -327,16 +332,22 @@ export default function MapTab({ f, onVenue, onOpenWeb, onWebMap }: {
 
   return (
     <View style={styles.fill}>
-      <TopBar f={f} onOpenWeb={onOpenWeb} />
       <View style={styles.mapBox}>
         <NativeMap
           centre={geo.centre} radiusKm={radius} chosen={geo.chosen && mode === 'me'} mine={geo.mine} meName={me.name}
           markers={markers} route={route} fit={fit} focus={focus} onPick={onPickPin}
           onMapPress={onMapPress} onZoom={noZoom} radar
+          pad={pad}
         />
 
+        {/* The map runs from the very top to the very bottom; the top bar floats over a soft fade so it stays readable. */}
+        <View style={styles.head} pointerEvents="box-none" onLayout={(e) => setHeadH(e.nativeEvent.layout.height)}>
+          <LinearGradient colors={[fade(C.bg, 0.92), fade(C.bg, 0.55), fade(C.bg, 0)]} style={StyleSheet.absoluteFill} pointerEvents="none" />
+          <View style={{ paddingTop: inset.top }}><TopBar f={f} onOpenWeb={onOpenWeb} /></View>
+        </View>
+
         {/* up top: Around me / Middle, search, km buttons and filters */}
-        <View style={styles.float} pointerEvents="box-none">
+        <View style={[styles.float, { top: headH - 6 }]} pointerEvents="box-none">
           <View style={styles.pill}>
             <View style={styles.row}>
               <View style={styles.seg} accessibilityRole="radiogroup" accessibilityLabel="Show">
@@ -408,12 +419,12 @@ export default function MapTab({ f, onVenue, onOpenWeb, onWebMap }: {
         </View>
 
         {pickVen ? null : <Pressable onPress={() => locate()} disabled={geo.busy} testID="map-near-me" accessibilityRole="button" accessibilityLabel={geo.busy ? 'Finding you' : 'Near me'}
-          accessibilityState={{ selected: geo.mine && mode === 'me', disabled: geo.busy }} style={[styles.fab, geo.mine && mode === 'me' && styles.fabOn]}>
+          accessibilityState={{ selected: geo.mine && mode === 'me', disabled: geo.busy }} style={[styles.fab, { bottom: TABS_H + inset.bottom + 150 }, geo.mine && mode === 'me' && styles.fabOn]}>
           <Icon name="arrow" size={18} colour={geo.mine && mode === 'me' ? C.accentInk : C.fg} />
         </Pressable>}
 
         {/* along the bottom: the picked venue, or the venues as swipe cards */}
-        <View style={styles.bottom} pointerEvents="box-none">
+        <View style={[styles.bottom, { bottom: TABS_H + inset.bottom }]} pointerEvents="box-none">
           {pickVen ? (
             <PickCard
               ven={pickVen} v={v} geo={geo} mine={mine} live={live} stop={stopOf(pickVen.id)} crawlOff={crawl.off} crawlFull={stops.length >= CRAWL_MAX}
@@ -463,6 +474,7 @@ export default function MapTab({ f, onVenue, onOpenWeb, onWebMap }: {
 
 /* ---------- pieces ---------- */
 const CARD_W = 228;
+const TABS_H = 80;   // the floating tab bar (App.tsx) sits over the bottom of the map
 // One venue in the cards along the bottom.
 function VenueCard({ s, mid, first, pinFrom, voted, canVote, onShow, onVote }: {
   s: Spot; mid: boolean; first: boolean; pinFrom: boolean; voted: boolean; canVote: boolean; onShow: (id: string) => void; onVote: (id: string) => void;
@@ -561,7 +573,8 @@ function PickCard({ ven, v, geo, mine, live, stop, crawlOff, crawlFull, onClose,
 const styles = themed(() => StyleSheet.create({
   fill: { flex: 1 },
   mapBox: { flex: 1, backgroundColor: C.dark ? '#14161c' : '#E9E6E0' },
-  float: { position: 'absolute', top: 6, left: 10, right: 10, gap: 6 },
+  head: { position: 'absolute', top: 0, left: 0, right: 0, paddingBottom: 14 },
+  float: { position: 'absolute', left: 10, right: 10, gap: 6 },
   pill: { backgroundColor: C.tabBg, borderRadius: 18, borderWidth: 1, borderColor: C.line, padding: 8, gap: 7 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
   seg: { flexDirection: 'row', padding: 3, borderRadius: 18, backgroundColor: C.surface, borderWidth: 1, borderColor: C.line },
@@ -584,7 +597,7 @@ const styles = themed(() => StyleSheet.create({
   kmOnText: { color: '#06210f' },
   results: { flexGrow: 0, backgroundColor: C.bg, borderRadius: 16, borderWidth: 1, borderColor: C.line },
   resultsBody: { gap: 8, padding: 10 },
-  fab: { position: 'absolute', right: 12, bottom: 150, width: 46, height: 46, borderRadius: 23, backgroundColor: C.tabBg, borderWidth: 1, borderColor: C.line, alignItems: 'center', justifyContent: 'center' },
+  fab: { position: 'absolute', right: 12, width: 46, height: 46, borderRadius: 23, backgroundColor: C.tabBg, borderWidth: 1, borderColor: C.line, alignItems: 'center', justifyContent: 'center' },
   fabOn: { backgroundColor: C.accent },
   bottom: { position: 'absolute', left: 0, right: 0, bottom: 0, gap: 6, paddingBottom: 2 },
   countRow: { flexDirection: 'row', paddingHorizontal: 12 },
