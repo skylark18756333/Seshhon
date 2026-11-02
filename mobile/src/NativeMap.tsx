@@ -9,6 +9,7 @@ import Icon from './Icon';
 import type { LatLng, MapMarker, MapView } from './mapShared';
 import { useShown } from './Shown';
 import { C, F, fade, themed, useLook } from './theme';
+import { useWalkRoute } from './walkRoute';
 
 const BLUE = '#1F7BFF', GOAL = '#FF4757', FAR = '#8A90A0', HEAT = '#FF7A1A', RADAR = '#3DDC84', GOLD = '#FFC53D';
 const GLOW_SIZE = [0, 62, 80, 104];   // busy 0..3: the glow behind a bubble grows with how many are heading there
@@ -169,6 +170,7 @@ function NativeMap(p: MapView) {
   const onPick = useCallback((id: string) => onPickRef.current(id), []);
   const names = useRef<boolean | null>(null);
   const first = useRef(true);
+  const walk = useWalkRoute(p.route);   // the stops joined along footpaths, not through buildings
   const look = useLook();   // markers are drawn once and frozen, so a new look draws them again
 
   // The radar layer: where the circle and the venues are on the screen, read when the map stops moving.
@@ -273,8 +275,8 @@ function NativeMap(p: MapView) {
         <Circle key={'r2-' + p.radiusKm + '-' + p.centre.join(',')} center={{ latitude: p.centre[0], longitude: p.centre[1] }} radius={p.radiusKm * 667} strokeColor={fade(RADAR, 0.35)} strokeWidth={1} fillColor={fade(RADAR, 0.04)} />,
         <Circle key={'r1-' + p.radiusKm + '-' + p.centre.join(',')} center={{ latitude: p.centre[0], longitude: p.centre[1] }} radius={p.radiusKm * 333} strokeColor={fade(RADAR, 0.35)} strokeWidth={1} fillColor={fade(RADAR, 0.05)} />
       ] : null}
-      {p.route.length >= 2 ? (
-        <Polyline coordinates={p.route.map((c) => ({ latitude: c[0], longitude: c[1] }))} strokeColor={BLUE} strokeWidth={4} lineDashPattern={[1, 10]} lineCap="round" />
+      {walk.length >= 2 ? (
+        <Polyline coordinates={walk.map((c) => ({ latitude: c[0], longitude: c[1] }))} strokeColor={BLUE} strokeWidth={4} lineDashPattern={[1, 10]} lineCap="round" />
       ) : null}
       {p.chosen ? (
         <Pin key={'spot-' + look + p.mine} coordinate={{ latitude: p.centre[0], longitude: p.centre[1] }} anchor={{ x: 0.5, y: 0.5 }} tappable={false} zIndex={1}>
