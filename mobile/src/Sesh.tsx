@@ -4,8 +4,9 @@
 // (pickerHtml, planHtml, plannedHtml, presHtml, votePicks, crawlHtml, chatHtml), and taps call the same
 // database functions as the ACT list there.
 // The two small street maps of the web Sesh tab (the route to the locked-in venue, and the crawl's map) are
-// not drawn here: "See venue" opens the web venue page, which has the map, and the crawl is drawn as a plain
-// sketch of its stops in order.
+// not drawn here: "See venue" opens the web venue page, which has the map, and the crawl is drawn as a
+// treasure-map trail of its stops in order (TreasureMap in Crawl.tsx). A Crewzy crawl is picked when you start
+// or plan a sesh (CrawlBuilder), and its stops are the same Sesh Map stops.
 import { HomeBottom, HomeTop } from './Home';
 import { useOnShow, useShownRef } from './Shown';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -13,10 +14,10 @@ import {
   AppState, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
   type NativeScrollEvent, type NativeSyntheticEvent
 } from 'react-native';
-import Svg, { Circle, Path, Polyline, Text as SvgText } from 'react-native-svg';
-import { getMessages, reportMessage, seshCrawl, sendMessage, type CrawlStop, type Friend, type Member, type Message, type Sesh as SeshT } from './api';
+import { addCrawlStops, getMessages, reportMessage, seshCrawl, sendMessage, type CrawlStop, type Friend, type Member, type Message, type Sesh as SeshT } from './api';
 import { CHAT_POLL_MS, RADIUS_KM } from './config';
 import { openFriend } from './FriendProfile';
+import { CrawlBuilder, CrawlCard, TreasureMap } from './Crawl';
 import Icon from './Icon';
 import MeetMiddle from './MeetMiddle';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -31,7 +32,7 @@ const DAY = 86400000;
 
 type Picked = Record<string, true>;
 type Picker = { mode: 'start' | 'invite'; picked: Picked };
-export type Plan = { at: number; pick: boolean; picked: Picked };
+export type Plan = { at: number; pick: boolean; picked: Picked; crawl?: boolean };
 type Crawl = { sesh: string | null; stops: CrawlStop[]; key: string; off: boolean };
 
 // Planned seshes (migration 0025) start later. Until then they only show under "Planned", never as tonight's.
@@ -54,6 +55,9 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
   const [presMin, setPresMin] = useState<number | null>(null);
   const [confirm, setConfirm] = useState<string | null>(null);
   const [crawl, setCrawl] = useState<Crawl>({ sesh: null, stops: [], key: '', off: false });
+  // Building a Crewzy crawl: target is the planned sesh it's for, or null to start one now with the stops.
+  const [make, setMake] = useState<{ target: string | null } | null>(null);
+  const [making, setMaking] = useState(false);
   const scroll = useRef<ScrollView>(null);
   const shownRef = useShownRef();
 
@@ -91,6 +95,34 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
   };
 
   if (!me) return null;
+  if (make) {
+    const target = make.target;
+    return (
+      <Frame f={f} onOpenWeb={onOpenWeb} scroll={scroll}>
+        <CrawlBuilder
+          v={v}
+          eyebrow={target ? 'Crewzy crawl, planned' : 'Crewzy crawl'}
+          goLabel={target ? 'Save the trail' : 'Start the crawl'}
+          busy={making}
+          onCancel={() => { setMake(null); top(); }}
+          onGo={(ids) => {
+            if (making) return;
+            setMaking(true);
+            // Start the sesh (or use the planned one), then add the stops in order.
+            const got: Promise<string | null> = target ? Promise.resolve(target)
+              : f.act('start_sesh', {}).then((r: any) => (r && r.id ? r.id : null));
+            got.then((id) => {
+              if (!id) return;
+              return addCrawlStops(id, ids).then((list) => {
+                setCrawl({ sesh: id, stops: list, key: id + JSON.stringify(list), off: false });
+                f.say(target ? 'Trail saved. Your crew can see the stops in the sesh.' : "Crawl's on. Friends who are around can join and follow the trail.");
+              }, (e: ApiError) => { f.say(e.message); }).then(() => f.refresh()).then(() => { setSeshId(id); setMake(null); top(); });
+            }).finally(() => setMaking(false));
+          }}
+        />
+      </Frame>
+    );
+  }
   if (picker) {
     return (
       <Frame f={f} onOpenWeb={onOpenWeb} scroll={scroll}>
@@ -119,6 +151,7 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
           plan={plan}
           friends={friends}
           photos={f.photos}
+          crawlOption
           onChange={setPlan}
           onCancel={() => { setPlan(null); top(); }}
           onGo={() => {
@@ -126,7 +159,10 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
             if (plan.pick && !ids.length) return;
             f.act('plan_sesh', { p_at: new Date(plan.at).toISOString(), p_friends: plan.pick ? ids : null },
               plan.pick ? 'Planned. Only the friends you picked can see it.' : "Planned. Your friends can see it and say they're in.").then((r) => {
-              if (r) { setPlan(null); setSeshId(r.id); top(); }
+              if (!r) return;
+              setPlan(null); setSeshId(r.id);
+              if (plan.crawl && !crawl.off) setMake({ target: r.id });
+              top();
             });
           }}
         />
@@ -181,6 +217,7 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
           <>
             <Text style={styles.muted}>{others.length ? 'Or start your own.' : 'Nobody has started one yet. Start a sesh and your friends on green or amber can join and vote on where to go.'}</Text>
             <Button label="Start a sesh" ghost={!!others.length} onPress={() => f.act('start_sesh', {}, 'Sesh started. Friends who are around can join.').then(top)} />
+            {crawl.off ? null : <CrawlCard onPress={() => { setMake({ target: null }); top(); }} />}
             <Button label="Start a private sesh" icon="lock" ghost onPress={() => { setPicker({ mode: 'start', picked: {} }); top(); }} />
           </>
         ) : me.colour === 'thinking' ? (
@@ -210,6 +247,7 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
         later={later}
         startMs={startMs}
         creator={creator}
+        isCrawl={stops.length > 1}
         onBack={() => { setSeshId(null); top(); }}
         onStarted={f.refresh}
       />
@@ -343,9 +381,10 @@ function toggle(picked: Picked, id: string): Picked {
 /* ---------- the top of the Sesh tab, and who's in ----------
    Kept as their own pieces so the header can later carry more about the sesh, and each member row can later
    carry more about that person, without touching the rest of the screen. */
-function SeshHeader({ s, later, startMs, creator, onBack, onStarted }: {
-  s: SeshT | null; later: boolean; startMs: number; creator: string; onBack: () => void; onStarted: () => void;
+function SeshHeader({ s, later, startMs, creator, isCrawl, onBack, onStarted }: {
+  s: SeshT | null; later: boolean; startMs: number; creator: string; isCrawl?: boolean; onBack: () => void; onStarted: () => void;
 }) {
+  const kind = isCrawl ? 'Crewzy crawl' : 'sesh';
   if (s && later) {
     return (
       <>
@@ -360,7 +399,7 @@ function SeshHeader({ s, later, startMs, creator, onBack, onStarted }: {
             </Text>
           </View>
           <Text style={styles.h1}>{fmtWhen(s.starts_at)}</Text>
-          <Text style={[styles.muted, styles.small]}>{s.mine ? 'Your sesh' : creator + "'s sesh"}. It goes live at this time and is deleted 8 hours after, with the votes and chat.</Text>
+          <Text style={[styles.muted, styles.small]}>{s.mine ? 'Your ' + kind : creator + "'s " + kind}. It goes live at this time and is deleted 8 hours after, with the votes and chat.</Text>
         </View>
       </>
     );
@@ -368,7 +407,7 @@ function SeshHeader({ s, later, startMs, creator, onBack, onStarted }: {
   return (
     <View style={styles.head}>
       <Text style={[styles.eyebrow, { color: C.on }]}>{s ? 'Live now' : 'Tonight'}</Text>
-      <Text style={styles.h1}>Tonight's sesh</Text>
+      <Text style={styles.h1}>{isCrawl ? "Tonight's crawl" : "Tonight's sesh"}</Text>
     </View>
   );
 }
@@ -498,8 +537,8 @@ function PickerView({ picker, friends, mine, photos, onPick, onCancel, onGo }: {
 
 /* ---------- planning a sesh for later (planHtml) ---------- */
 // A phone has no date-and-time box like the web page's, so the day and the time each step back and forward.
-export function PlanView({ plan, friends, photos, onChange, onCancel, onGo }: {
-  plan: Plan; friends: Friend[]; photos: Record<string, string>;
+export function PlanView({ plan, friends, photos, crawlOption, onChange, onCancel, onGo }: {
+  plan: Plan; friends: Friend[]; photos: Record<string, string>; crawlOption?: boolean;
   onChange: (p: Plan) => void; onCancel: () => void; onGo: () => void;
 }) {
   const n = Object.keys(plan.picked).length;
@@ -543,7 +582,17 @@ export function PlanView({ plan, friends, photos, onChange, onCancel, onGo }: {
           ) : <Text style={[styles.muted, styles.small]}>Add some friends first, then you can pick who comes.</Text>
         ) : <Text style={[styles.muted, styles.small]}>Your friends on green or amber can see it and join.</Text>}
       </View>
-      <Button label={plan.pick ? (n ? 'Plan it with ' + n : 'Pick at least one friend') : 'Plan it'} disabled={plan.pick && !n} onPress={onGo} />
+      {crawlOption ? (
+        <View style={[styles.stack, { gap: 8 }]}>
+          <Text style={styles.h2}>What kind of sesh?</Text>
+          <View style={styles.row}>
+            <Button small ghost={!!plan.crawl} label="A sesh" pressed={!plan.crawl} onPress={() => onChange({ ...plan, crawl: false })} />
+            <Button small ghost={!plan.crawl} label="Crewzy crawl" colour={plan.crawl ? C.thinking : undefined} ink={!!plan.crawl} pressed={!!plan.crawl} onPress={() => onChange({ ...plan, crawl: true })} />
+          </View>
+          <Text style={[styles.muted, styles.small]}>{plan.crawl ? 'Next you pick the stops, a short walk apart. Your crew sees the trail map.' : 'Your friends vote on where to go.'}</Text>
+        </View>
+      ) : null}
+      <Button label={plan.pick ? (n ? (plan.crawl ? 'Next: pick the stops' : 'Plan it with ' + n) : 'Pick at least one friend') : (plan.crawl ? 'Next: pick the stops' : 'Plan it')} disabled={plan.pick && !n} onPress={onGo} />
       <Button label="Cancel" ghost onPress={onCancel} />
     </>
   );
@@ -819,7 +868,7 @@ function CrawlSection({ s, stops, v, onMap, onVenue, onRun }: {
     return (
       <View style={[styles.stack, { gap: 12 }]}>
         <View style={[styles.row, styles.between]}><Text style={styles.h2}>Sesh Map</Text><Text style={[styles.muted, styles.small]}>Plan a crawl</Text></View>
-        <Text style={[styles.muted, styles.small]}>Doing a pub crawl? Add the places you want to hit from the map. Everyone in the sesh sees the stops here, in order.</Text>
+        <Text style={[styles.muted, styles.small]}>Making it a Crewzy crawl? Add a few stops a short walk apart from the map. Everyone in the sesh sees the trail here, in order.</Text>
         <Button ghost label="Add stops from the map" onPress={onMap} />
       </View>
     );
@@ -839,7 +888,7 @@ function CrawlSection({ s, stops, v, onMap, onVenue, onRun }: {
         <Text style={styles.h2}>Sesh Map</Text>
         <Text style={[styles.muted, styles.small]}>{stops.length} stop{stops.length === 1 ? '' : 's'}</Text>
       </View>
-      <CrawlSketch stops={stops} v={v} />
+      <TreasureMap stops={stops.map((c) => ({ id: c.venue_id, n: c.position, name: v.byId[c.venue_id] ? v.byId[c.venue_id].name : 'A venue', done: !!c.done }))} v={v} />
       <View style={styles.stack}>
         {stops.map((c, i) => {
           const ven = v.byId[c.venue_id], name = ven ? ven.name : 'A venue', isNext = started && c.venue_id === next;
@@ -881,45 +930,6 @@ function StopNum({ n, done }: { n: number; done: boolean }) {
   return (
     <View style={[styles.stopNum, done && styles.stopNumDone]} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
       {done ? <Icon name="tick" size={16} colour={C.muted} /> : <Text style={styles.stopNumText}>{n}</Text>}
-    </View>
-  );
-}
-
-// The crawl's stops drawn where they are relative to each other, joined in order by a dotted line, as the
-// web app draws them on its map (without the streets underneath).
-function CrawlSketch({ stops, v }: { stops: CrawlStop[]; v: Venues }) {
-  const [width, setWidth] = useState(0);
-  const spots = stops.map((c) => ({ c, at: v.pins && v.pins[c.venue_id], ven: v.byId[c.venue_id] }))
-    .filter((x): x is { c: CrawlStop; at: [number, number]; ven: typeof x.ven } => !!x.at);
-  if (spots.length < 2) return null;
-  const H = 200, pad = 28;
-  // Flatten lat/lng to a plane (fine across a city), then fit it into the box keeping its shape.
-  const lat0 = spots[0].at[0] * Math.PI / 180;
-  const pts = spots.map((x) => ({ x: x.at[1] * Math.cos(lat0), y: -x.at[0] }));
-  const minX = Math.min(...pts.map((p) => p.x)), maxX = Math.max(...pts.map((p) => p.x));
-  const minY = Math.min(...pts.map((p) => p.y)), maxY = Math.max(...pts.map((p) => p.y));
-  const W = width || 320;
-  const scale = Math.min((W - pad * 2) / Math.max(maxX - minX, 1e-6), (H - pad * 2) / Math.max(maxY - minY, 1e-6));
-  const ox = (W - (maxX - minX) * scale) / 2, oy = (H - (maxY - minY) * scale) / 2;
-  const xy = pts.map((p) => [ox + (p.x - minX) * scale, oy + (p.y - minY) * scale]);
-  return (
-    <View
-      style={styles.sketch}
-      onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
-      accessible
-      accessibilityLabel={'Sesh Map: ' + spots.map((x) => x.c.position + '. ' + (x.ven ? x.ven.name : 'A venue')).join(', ')}
-    >
-      <Svg width={W} height={H}>
-        <Polyline points={xy.map((p) => p.join(',')).join(' ')} fill="none" stroke={C.accent} strokeWidth={5} strokeOpacity={0.9} strokeDasharray="0.1 11" strokeLinecap="round" />
-        {spots.map((x, i) => (
-          <React.Fragment key={x.c.venue_id}>
-            <Circle cx={xy[i][0]} cy={xy[i][1]} r={15} fill={x.c.done ? '#2A2C33' : C.accent} stroke={x.c.done ? '#3A3C44' : '#0B0B0D'} strokeWidth={3} />
-            {x.c.done
-              ? <Path d="M4.5 12.5l5 5L19.5 7" transform={`translate(${xy[i][0] - 8} ${xy[i][1] - 8}) scale(0.667)`} stroke={C.muted} strokeWidth={3} fill="none" strokeLinecap="round" strokeLinejoin="round" />
-              : <SvgText x={xy[i][0]} y={xy[i][1] + 5.5} fontSize={15} fontFamily={F.display} fill={C.accentInk} textAnchor="middle">{String(x.c.position)}</SvgText>}
-          </React.Fragment>
-        ))}
-      </Svg>
     </View>
   );
 }
@@ -1138,7 +1148,6 @@ const styles = themed(() => StyleSheet.create({
   stopNumDone: { backgroundColor: C.surface2, borderColor: C.line, shadowOpacity: 0 },
   stopNumText: { fontFamily: F.display, fontSize: 16, color: C.accentInk },
   doneTitle: { color: C.muted, textDecorationLine: 'line-through' },
-  sketch: { height: 200, borderRadius: 18, overflow: 'hidden', borderWidth: 1, borderColor: C.line, backgroundColor: '#141B2A' },
 
   chat: { maxHeight: 440, minHeight: 80 },
   chatInner: { gap: 14, paddingVertical: 4 },

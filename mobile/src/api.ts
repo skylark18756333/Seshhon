@@ -130,6 +130,20 @@ export function reportMessage(message: string): Promise<unknown> {
 export function seshCrawl(sesh: string): Promise<CrawlStop[]> {
   return rpc('sesh_crawl', { p_sesh: sesh }).then((l: any) => (Array.isArray(l) ? l : []));
 }
+// A Crewzy crawl's stops, added in order once its sesh exists (crawl_add, migration 0027). Sends back the
+// stops as they end up; stops already on the sesh are skipped rather than stopping the rest.
+export async function addCrawlStops(sesh: string, venues: string[]): Promise<CrawlStop[]> {
+  let list: CrawlStop[] = [];
+  for (const venue of venues) {
+    try {
+      const got = await rpc('crawl_add', { p_sesh: sesh, p_venue: venue });
+      if (Array.isArray(got)) list = got;
+    } catch (e: any) {
+      if (!/already on the Sesh Map/.test(String(e && e.message))) throw e;
+    }
+  }
+  return list.length ? list : seshCrawl(sesh);
+}
 // Meet in the middle (migration 0037): how many in the sesh have shared where they are, whether you have, and
 // the venues fairest for everyone once 2 or more have. Venues only, never anyone's position or distance.
 export type Meet = { shared: number; mine: boolean; venues: string[] };
