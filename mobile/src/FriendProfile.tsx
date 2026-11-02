@@ -4,11 +4,13 @@
 // hidden-from-you and amber you aren't allowed to see all come back as 'off'.
 import { LinearGradient } from 'expo-linear-gradient';
 import React, { useEffect, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
+import { Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { Colour } from './api';
 import Icon from './Icon';
 import { Button, Face, Toast } from './Parts';
+import { shrinkCover, shrinkPhoto } from './photos';
 import { rpc, type ApiError } from './session';
 import type { Frendzy } from './useFrendzy';
 import { C, COLOURS, F, fade, first, fmtWhen, hue, themed } from './theme';
@@ -28,6 +30,20 @@ const BADGES: { key: string; name: string; icon: string; colour: string; how: st
   { key: 'planner', name: 'Planner', icon: 'events', colour: '#8B5CFF', how: 'Friends said they\'re in to 3 of your plans' },
   { key: 'social', name: 'Social', icon: 'you', colour: '#3DC8FF', how: '10 friends on Crewzy' }
 ];
+
+// Your page's own colours (migration 0041). Friends see your page in your theme, on top of their own app look.
+type Theme = { name: string; a: string; b: string };
+const THEMES: Record<string, Theme> = {
+  neon: { name: 'Neon', a: '#8B5CFF', b: '#FFC83D' },
+  sunset: { name: 'Sunset', a: '#FF7A45', b: '#E0407A' },
+  ocean: { name: 'Ocean', a: '#1FB6FF', b: '#2EE6C5' },
+  pop: { name: 'Pop', a: '#FF4FA3', b: '#8B5CFF' },
+  lime: { name: 'Lime', a: '#3DDC84', b: '#E6FF3D' },
+  mono: { name: 'Mono', a: '#9B9EA8', b: '#F5F6F8' }
+};
+const FRAMES: [string, string][] = [['glow', 'Status glow'], ['neon', 'Theme'], ['gold', 'Gold'], ['rainbow', 'Rainbow'], ['none', 'None']];
+const RAINBOW = ['#F0524B', '#F5C542', '#3DDC84', '#1FB6FF', '#8B5CFF'] as const;
+type Style = { theme: string; frame: string; cover?: string | null; badges: string[] };
 
 // Opening a profile from any screen: the host below, mounted once in App, listens for this.
 let show: ((id: string | null) => void) | null = null;
@@ -53,6 +69,9 @@ function FriendProfile({ f, id, onClose, onMessages }: { f: Frendzy; id: string;
   const [sheet, setSheet] = useState(false);
   const [menu, setMenu] = useState<null | 'menu' | 'remove' | 'block'>(null);
   const [hidden, setHidden] = useState<boolean | null>(null);
+  const [style, setStyle] = useState<Style | null>(null);   // null: migration 0041 isn't run yet, so no customising
+  const [custom, setCustom] = useState(false);
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     let gone = false;
@@ -61,6 +80,9 @@ function FriendProfile({ f, id, onClose, onMessages }: { f: Frendzy; id: string;
       if (e.missing) setGame(false);
       else f.say(e.message);
     });
+    rpc('profile_style', { p_friend: id }).then((d: any) => {
+      if (!gone && d) setStyle({ theme: d.theme || 'neon', frame: d.frame || 'glow', cover: d.cover || null, badges: Array.isArray(d.badges) ? d.badges : [] });
+    }, () => {});
     rpc('my_status_hides').then((l: any) => { if (!gone) setHidden(Array.isArray(l) && l.includes(id)); }, () => {});
     return () => { gone = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -86,6 +108,9 @@ function FriendProfile({ f, id, onClose, onMessages }: { f: Frendzy; id: string;
   const level = view.level || 1, xp = view.xp || 0, from = view.from || 0, next = view.next || 50;
   const part = Math.max(0, Math.min(1, (xp - from) / Math.max(1, next - from)));
   const together = view.together || [], crews = view.crews || [];
+  const theme = THEMES[(style && style.theme) || 'neon'] || THEMES.neon;
+  const frame = (style && style.frame) || 'glow';
+  const shown = style && style.badges.length ? BADGES.filter((b) => style.badges.includes(b.key) && earned.includes(b.key)) : BADGES;
   const line = colour === 'on' ? 'Green, up for it' : colour === 'thinking' ? 'Amber, maybe later' : 'Not out right now';
 
   const mySesh = f.state ? f.state.seshes.filter((s) => s.mine && !s.planned)[0] : undefined;
@@ -101,9 +126,10 @@ function FriendProfile({ f, id, onClose, onMessages }: { f: Frendzy; id: string;
   return (
     <View style={styles.page}>
       <ScrollView contentContainerStyle={{ paddingBottom: 110 + insets.bottom }}>
-        {/* No cover photos yet: a glow in their colour, or their own hue when they're not out. */}
+        {/* Their cover photo if they added one, otherwise a glow in their page's theme colours. */}
+        {style && style.cover ? <Image source={{ uri: style.cover }} style={styles.coverPic} resizeMode="cover" /> : null}
         <LinearGradient
-          colors={out ? [fade(ring, 0.55), fade(ring, 0.08), C.bg] : [`hsla(${h}, 60%, 45%, 0.45)`, `hsla(${(h + 40) % 360}, 60%, 30%, 0.15)`, C.bg]}
+          colors={style && style.cover ? ['rgba(0, 0, 0, 0.35)', 'rgba(0, 0, 0, 0)', fade(C.bg, 0.9)] : style ? [fade(theme.a, 0.6), fade(theme.b, 0.18), C.bg] : out ? [fade(ring, 0.55), fade(ring, 0.08), C.bg] : [`hsla(${h}, 60%, 45%, 0.45)`, `hsla(${(h + 40) % 360}, 60%, 30%, 0.15)`, C.bg]}
           start={{ x: 0, y: 0 }} end={{ x: 0.4, y: 1 }}
           style={[styles.cover, { paddingTop: insets.top + 10 }]}
         >
@@ -113,9 +139,9 @@ function FriendProfile({ f, id, onClose, onMessages }: { f: Frendzy; id: string;
 
         <View style={styles.body}>
           <View style={styles.who}>
-            <View style={[styles.photoRing, { borderColor: ring, shadowColor: ring }]}>
+            <PhotoFrame kind={frame} ring={ring} theme={theme}>
               <Face id={id} name={view.name} photos={photos} size={92} font={30} />
-            </View>
+            </PhotoFrame>
             <View style={styles.grow}>
               <Text style={[styles.state, { color: out ? ring : C.muted }]}>{line}</Text>
               <Text style={styles.name} numberOfLines={1}>{view.name}</Text>
@@ -125,13 +151,13 @@ function FriendProfile({ f, id, onClose, onMessages }: { f: Frendzy; id: string;
 
           {game ? (
             <View style={styles.level}>
-              <View style={styles.lvl}><Text style={styles.lvlSmall}>LVL</Text><Text style={styles.lvlNum}>{level}</Text></View>
+              <View style={[styles.lvl, style ? { borderColor: theme.b, backgroundColor: fade(theme.b, 0.14) } : null]}><Text style={styles.lvlSmall}>LVL</Text><Text style={styles.lvlNum}>{level}</Text></View>
               <View style={styles.grow}>
                 <View style={styles.between}>
                   <Text style={styles.xp}>{xp.toLocaleString()} XP</Text>
                   <Text style={styles.small}>{(next - xp).toLocaleString()} to level {level + 1}</Text>
                 </View>
-                <View style={styles.bar}><LinearGradient colors={['#8B5CFF', '#FFC83D']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={[styles.barFill, { width: `${Math.round(part * 100)}%` }]} /></View>
+                <View style={styles.bar}><LinearGradient colors={[theme.a, theme.b]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={[styles.barFill, { width: `${Math.round(part * 100)}%` }]} /></View>
               </View>
             </View>
           ) : null}
@@ -149,9 +175,9 @@ function FriendProfile({ f, id, onClose, onMessages }: { f: Frendzy; id: string;
 
           {game ? (
             <View style={styles.stack}>
-              <Text style={styles.eyebrow}>Badges</Text>
-              <View style={styles.badges}>
-                {BADGES.map((b) => {
+              <Text style={styles.eyebrow}>{shown === BADGES ? 'Badges' : 'Showing off'}</Text>
+              <View style={[styles.badges, shown !== BADGES && styles.badgesPicked]}>
+                {shown.map((b) => {
                   const lit = earned.includes(b.key);
                   return (
                     <View key={b.key} style={styles.badge} accessibilityLabel={b.name + (lit ? ', earned. ' : ', not yet. ') + b.how}>
@@ -188,7 +214,11 @@ function FriendProfile({ f, id, onClose, onMessages }: { f: Frendzy; id: string;
         </View>
       </ScrollView>
 
-      {self ? null : (
+      {self && style ? (
+        <View style={[styles.actions, { paddingBottom: 14 + insets.bottom }]}>
+          <View style={styles.grow}><Button label="Customise your page" onPress={() => setCustom(true)} testID="profile-customise" /></View>
+        </View>
+      ) : self ? null : (
         <View style={[styles.actions, { paddingBottom: 14 + insets.bottom }]}>
           <View style={styles.grow}><Button label="Sesh request" onPress={() => setSheet(true)} testID="profile-sesh" /></View>
           <Button label="Message" ghost onPress={onMessages} />
@@ -213,6 +243,38 @@ function FriendProfile({ f, id, onClose, onMessages }: { f: Frendzy; id: string;
             ))}
           </View>
           <Text style={styles.small}>{name} gets an invite and taps "I'm in". Only the two of you can see it.</Text>
+        </Sheet>
+      ) : null}
+
+      {custom && style ? (
+        <Sheet onClose={() => setCustom(false)} insets={insets.bottom}>
+          <Customise
+            style={style}
+            earned={earned}
+            hasPhoto={!!photos[id]}
+            busy={busy}
+            onStyle={(change) => {
+              const before = style;
+              setStyle({ ...style, ...change });
+              rpc('set_profile_style', { p_theme: change.theme || null, p_frame: change.frame || null, p_badges: change.badges || null })
+                .catch((e: ApiError) => { setStyle(before); f.say(e.message); });
+            }}
+            onCover={async (remove) => {
+              const url = remove ? null : await pick(true, f.say);
+              if (url === undefined) return;
+              setBusy(true);
+              rpc('set_cover', { p_cover: url }).then(() => { setStyle((s0) => (s0 ? { ...s0, cover: url } : s0)); f.say(url ? 'Cover saved.' : 'Cover removed.'); },
+                (e: ApiError) => f.say(e.message)).then(() => setBusy(false));
+            }}
+            onPhoto={async () => {
+              const url = await pick(false, f.say);
+              if (!url) return;
+              setBusy(true);
+              rpc('set_photo', { p_photo: url }).then(() => { setP((p0) => (p0 ? { ...p0, photo: url } : p0)); f.refresh(); f.say('Photo saved.'); },
+                (e: ApiError) => f.say(e.message)).then(() => setBusy(false));
+            }}
+            onDone={() => setCustom(false)}
+          />
         </Sheet>
       ) : null}
 
@@ -246,6 +308,103 @@ function FriendProfile({ f, id, onClose, onMessages }: { f: Frendzy; id: string;
       ) : null}
       <Toast text={f.toast} />
     </View>
+  );
+}
+
+// The round frame round a photo: your status colour (the default), your theme, gold, a rainbow, or nothing.
+function PhotoFrame({ kind, ring, theme, children }: { kind: string; ring: string; theme: Theme; children: React.ReactNode }) {
+  if (kind === 'rainbow') {
+    return (
+      <LinearGradient colors={RAINBOW} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.rainbow}>
+        <View style={styles.rainbowInner}>{children}</View>
+      </LinearGradient>
+    );
+  }
+  if (kind === 'none') return <View style={styles.noFrame}>{children}</View>;
+  const colour = kind === 'neon' ? theme.a : kind === 'gold' ? '#FFC83D' : ring;
+  return (
+    <View style={[styles.photoRing, { borderColor: colour, shadowColor: colour }, kind === 'gold' && styles.goldRing]}>
+      {children}
+    </View>
+  );
+}
+
+// Picks a photo from the phone and shrinks it. undefined: nothing picked or it couldn't be used.
+async function pick(wide: boolean, say: (m: string) => void): Promise<string | undefined> {
+  let picked: ImagePicker.ImagePickerResult;
+  try { picked = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 1 }); } catch (e) { say('That photo could not be opened. Try a different one.'); return undefined; }
+  if (picked.canceled || !picked.assets || !picked.assets[0]) return undefined;
+  try { return await (wide ? shrinkCover : shrinkPhoto)(picked.assets[0]); } catch (e) { say('That photo could not be used. Try a different one.'); return undefined; }
+}
+
+// Customise your page: every change shows on the page behind straight away and is saved as you tap.
+function Customise({ style, earned, hasPhoto, busy, onStyle, onCover, onPhoto, onDone }: {
+  style: Style; earned: string[]; hasPhoto: boolean; busy: boolean;
+  onStyle: (change: Partial<Style>) => void; onCover: (remove: boolean) => void; onPhoto: () => void; onDone: () => void;
+}) {
+  const mine = BADGES.filter((b) => earned.includes(b.key));
+  return (
+    <ScrollView style={styles.customScroll} contentContainerStyle={styles.customBody}>
+      <Text style={styles.sheetTitle}>Customise your page</Text>
+
+      <Text style={styles.eyebrow}>Cover photo</Text>
+      <View style={styles.wrap}>
+        <Button small label={busy ? 'Saving...' : style.cover ? 'Change cover' : 'Add a cover'} disabled={busy} onPress={() => onCover(false)} />
+        {style.cover && !busy ? <Button small ghost label="Remove" onPress={() => onCover(true)} /> : null}
+      </View>
+
+      <Text style={styles.eyebrow}>Profile photo</Text>
+      <View style={styles.wrap}><Button small ghost label={hasPhoto ? 'Change photo' : 'Add a photo'} disabled={busy} onPress={onPhoto} /></View>
+
+      <Text style={styles.eyebrow}>Colour theme</Text>
+      <View style={styles.wrap}>
+        {Object.keys(THEMES).map((k) => {
+          const t = THEMES[k], on = style.theme === k;
+          return (
+            <Pressable key={k} onPress={() => onStyle({ theme: k })} style={styles.swatchBox} accessibilityRole="button" accessibilityState={{ selected: on }} accessibilityLabel={t.name + ' theme'}>
+              <LinearGradient colors={[t.a, t.b]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[styles.swatch, on && { borderColor: C.fg }]} />
+              <Text style={[styles.pickText, !on && { color: C.muted }]}>{t.name}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
+      <Text style={styles.eyebrow}>Photo frame</Text>
+      <View style={styles.wrap}>
+        {FRAMES.map(([k, label]) => {
+          const on = style.frame === k;
+          return (
+            <Pressable key={k} onPress={() => onStyle({ frame: k })} style={[styles.pick, on && styles.pickOn]} accessibilityRole="button" accessibilityState={{ selected: on }}>
+              <Text style={[styles.pickText, !on && { color: C.muted }]}>{label}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
+      <Text style={styles.eyebrow}>Badges to show</Text>
+      {mine.length ? (
+        <>
+          <View style={styles.wrap}>
+            {mine.map((b) => {
+              const on = style.badges.includes(b.key);
+              return (
+                <Pressable key={b.key} style={[styles.pick, on && { borderColor: b.colour, backgroundColor: fade(b.colour, 0.16) }]} accessibilityRole="button" accessibilityState={{ selected: on }}
+                  onPress={() => {
+                    const next = on ? style.badges.filter((x) => x !== b.key) : style.badges.concat(b.key);
+                    if (next.length > 3) return;
+                    onStyle({ badges: next });
+                  }}>
+                  <Text style={[styles.pickText, !on && { color: C.muted }]}>{b.name}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          <Text style={styles.small}>Pick up to 3. With none picked, all badges show.</Text>
+        </>
+      ) : <Text style={styles.small}>Go out with friends to earn your first badge, then pick which ones show here.</Text>}
+
+      <Button label="Done" onPress={onDone} />
+    </ScrollView>
   );
 }
 
@@ -286,11 +445,16 @@ const styles = themed(() => StyleSheet.create({
   grow: { flex: 1, minWidth: 0 },
   stack: { gap: 8 },
   between: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 },
+  coverPic: { position: 'absolute', top: 0, left: 0, right: 0, height: 170, width: '100%' },
   cover: { height: 170, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', paddingHorizontal: 14 },
   round: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0, 0, 0, 0.4)', borderWidth: 1, borderColor: 'rgba(255, 255, 255, 0.2)' },
   dots: { fontFamily: F.bodyBold, fontSize: 20, lineHeight: 22, color: '#fff' },
   body: { marginTop: -64, paddingHorizontal: 18, gap: 18, maxWidth: 440, width: '100%', alignSelf: 'center' },
   who: { flexDirection: 'row', alignItems: 'flex-end', gap: 14 },
+  goldRing: { borderWidth: 5, padding: 2 },
+  rainbow: { borderRadius: 56, padding: 4 },
+  rainbowInner: { borderRadius: 52, padding: 3, backgroundColor: C.bg },
+  noFrame: { padding: 7 },
   photoRing: { borderWidth: 4, borderRadius: 54, padding: 3, backgroundColor: C.bg, shadowOpacity: C.dark ? 0.7 : 0.3, shadowRadius: 18, shadowOffset: { width: 0, height: 0 }, elevation: 6 },
   state: { fontFamily: F.bodyBold, fontSize: 12, letterSpacing: 1, textTransform: 'uppercase' },
   name: { fontFamily: F.display, fontSize: 28, lineHeight: 34, letterSpacing: -0.6, color: C.fg },
@@ -314,6 +478,7 @@ const styles = themed(() => StyleSheet.create({
   statLabel: { fontFamily: F.bodyBold, fontSize: 10, letterSpacing: 0.8, textTransform: 'uppercase', color: C.muted },
 
   badges: { flexDirection: 'row', justifyContent: 'space-between' },
+  badgesPicked: { justifyContent: 'flex-start', gap: 14 },
   badge: { width: '19%', alignItems: 'center', gap: 6 },
   badgeIcon: { width: 48, height: 48, borderRadius: 16, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
   badgeName: { fontFamily: F.bodyBold, fontSize: 11, textAlign: 'center', color: C.fg },
@@ -331,5 +496,13 @@ const styles = themed(() => StyleSheet.create({
   choice: { padding: 14, borderRadius: 18, borderWidth: 2, borderColor: C.on, backgroundColor: fade(C.on, 0.1), gap: 4 },
   when: { flexDirection: 'row', gap: 8 },
   whenBtn: { flex: 1, alignItems: 'center', paddingVertical: 12, borderRadius: 14, borderWidth: 1.5, borderColor: C.line, backgroundColor: C.surface },
+  customScroll: { maxHeight: 520 },
+  customBody: { gap: 12, paddingBottom: 6 },
+  wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  swatchBox: { alignItems: 'center', gap: 4, width: 52 },
+  swatch: { width: 40, height: 40, borderRadius: 20, borderWidth: 3, borderColor: 'transparent' },
+  pick: { paddingVertical: 9, paddingHorizontal: 14, borderRadius: 999, borderWidth: 1.5, borderColor: C.line, backgroundColor: C.surface },
+  pickOn: { borderColor: C.fg },
+  pickText: { fontFamily: F.bodyBold, fontSize: 13, color: C.fg },
   whenText: { fontFamily: F.bodyBold, fontSize: 14, color: C.fg }
 }));

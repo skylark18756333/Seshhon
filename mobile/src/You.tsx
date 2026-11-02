@@ -8,7 +8,6 @@
 // staff deal-code card (deals are switched off in docs/config.js).
 import Constants from 'expo-constants';
 import * as ImagePicker from 'expo-image-picker';
-import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import React, { useEffect, useState } from 'react';
 import { KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, Share, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import {
@@ -16,6 +15,7 @@ import {
   type Account, type PushSettings, type Safety
 } from './api';
 import { openFriend } from './FriendProfile';
+import { shrinkPhoto } from './photos';
 import Icon from './Icon';
 import { Avatar, Button, Face, Toast, TopBar } from './Parts';
 import {
@@ -34,25 +34,6 @@ const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[A-Za-z]{2,}$/;
 const openSets: Record<string, boolean> = {};
 
 type EmailStep = { email: string; hint: string; renew: boolean };
-
-// Crops the middle square of a photo and shrinks it to 160 x 160 on this phone before it is sent, as
-// shrinkPhoto in docs/app.js does: a JPEG at 82% quality, or 60% if that is still too big for the database.
-async function shrinkPhoto(asset: ImagePicker.ImagePickerAsset): Promise<string> {
-  const w = asset.width, h = asset.height, side = Math.min(w, h);
-  if (!side) throw new Error('empty');
-  const ref = await ImageManipulator.manipulate(asset.uri)
-    .crop({ originX: Math.floor((w - side) / 2), originY: Math.floor((h - side) / 2), width: side, height: side })
-    .resize({ width: 160, height: 160 })
-    .renderAsync();
-  let out = await ref.saveAsync({ format: SaveFormat.JPEG, compress: 0.82, base64: true });
-  let url = 'data:image/jpeg;base64,' + (out.base64 || '');
-  if (url.length > 60000) {
-    out = await ref.saveAsync({ format: SaveFormat.JPEG, compress: 0.6, base64: true });
-    url = 'data:image/jpeg;base64,' + (out.base64 || '');
-  }
-  if (!out.base64) throw new Error('empty');
-  return url;
-}
 
 export default function You({ f, onOpenWeb, onSignedOut }: { f: Frendzy; onOpenWeb: (tab: string) => void; onSignedOut: (note: string) => void }) {
   const me = f.state && f.state.me;
@@ -313,7 +294,7 @@ export default function You({ f, onOpenWeb, onSignedOut }: { f: Frendzy; onOpenW
             <View style={styles.grow}>
               <Text style={styles.h1} accessibilityRole="header">{me.name}</Text>
               <Text style={[styles.muted, styles.small]}>Status: {LABELS[me.colour]}</Text>
-              <Text style={[styles.muted, styles.small, styles.link]} onPress={() => openFriend(me.id)} accessibilityRole="button">See your profile</Text>
+              <Text style={[styles.muted, styles.small, styles.link]} onPress={() => openFriend(me.id)} accessibilityRole="button">See and customise your profile</Text>
             </View>
           </View>
 
