@@ -25,13 +25,13 @@ type Profile = {
 
 // Every badge there is, in the order they show. Earned ones shine; locked ones show how close you are (counts from
 // migration 0041). Names are about meeting up, never drinking: WA's rules on promoting liquor (Sarah, 2026-11-02).
-type Badge = { key: string; name: string; icon: string; colour: string; dark: string; how: string; count: 'joined' | 'hosted' | 'planned' | 'friends'; need: number };
+type Badge = { key: string; name: string; icon: string; colour: string; dark: string; how: string; tip: string; count: 'joined' | 'hosted' | 'planned' | 'friends'; need: number };
 const BADGES: Badge[] = [
-  { key: 'first_round', name: 'First meetup', icon: 'tick', colour: '#FFC83D', dark: '#E08A00', how: 'Joined a friend\'s sesh', count: 'joined', need: 1 },
-  { key: 'regular', name: 'Regular', icon: 'clock', colour: '#FF4FA3', dark: '#A0177A', how: 'Joined 10 seshes', count: 'joined', need: 10 },
-  { key: 'ringleader', name: 'Ringleader', icon: 'sesh', colour: '#3DDC84', dark: '#0F8A52', how: 'Friends joined 5 of your seshes', count: 'hosted', need: 5 },
-  { key: 'planner', name: 'Planner', icon: 'events', colour: '#8B5CFF', dark: '#4B25C9', how: 'Friends said they\'re in to 3 of your plans', count: 'planned', need: 3 },
-  { key: 'social', name: 'Social', icon: 'you', colour: '#3DC8FF', dark: '#1460C8', how: '10 friends on Crewzy', count: 'friends', need: 10 }
+  { key: 'first_round', name: 'First meetup', icon: 'tick', colour: '#FFC83D', dark: '#E08A00', how: 'Joined a friend\'s sesh', tip: 'Join a friend\'s sesh, or say "I\'m in" to a friend\'s plan.', count: 'joined', need: 1 },
+  { key: 'regular', name: 'Regular', icon: 'clock', colour: '#FF4FA3', dark: '#A0177A', how: 'Joined 10 seshes', tip: 'Join 10 of your friends\' seshes. Every one you join counts.', count: 'joined', need: 10 },
+  { key: 'ringleader', name: 'Ringleader', icon: 'sesh', colour: '#3DDC84', dark: '#0F8A52', how: 'Friends joined 5 of your seshes', tip: 'Start a sesh and get friends to join it. Each friend who joins counts.', count: 'hosted', need: 5 },
+  { key: 'planner', name: 'Planner', icon: 'events', colour: '#8B5CFF', dark: '#4B25C9', how: 'Friends said they\'re in to 3 of your plans', tip: 'Plan a sesh ahead with Sesh request, then get friends to say they\'re in.', count: 'planned', need: 3 },
+  { key: 'social', name: 'Social', icon: 'you', colour: '#3DC8FF', dark: '#1460C8', how: '10 friends on Crewzy', tip: 'Add friends by their username. Once 10 of them accept, it\'s yours.', count: 'friends', need: 10 }
 ];
 // A title on the cover that grows with your level.
 function rankOf(level: number): string {
@@ -79,6 +79,7 @@ function FriendProfile({ f, id, onClose, onMessages }: { f: Frendzy; id: string;
   const [hidden, setHidden] = useState<boolean | null>(null);
   const [style, setStyle] = useState<Style | null>(null);   // null: migration 0041 isn't run yet, so no customising
   const [custom, setCustom] = useState(false);
+  const [badge, setBadge] = useState<Badge | null>(null);   // the badge sheet: how to earn it and how close you are
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -200,13 +201,13 @@ function FriendProfile({ f, id, onClose, onMessages }: { f: Frendzy; id: string;
             <View style={styles.stack}>
               <View style={styles.between}>
                 <Text style={styles.eyebrow}>{shown === BADGES ? (earned.length ? 'Badges' : 'Badges to unlock') : 'Showing off'}</Text>
-                <Text style={styles.small}>{earned.length} of {BADGES.length} earned</Text>
+                <Text style={styles.small}>{earned.length} of {BADGES.length} earned · tap one</Text>
               </View>
               <View style={[styles.badges, shown !== BADGES && styles.badgesPicked]}>
                 {shown.map((b, i) => {
                   const lit = earned.includes(b.key);
                   return (
-                    <View key={b.key} style={styles.badge} accessibilityLabel={b.name + (lit ? ', earned. ' : ', not yet. ') + b.how}>
+                    <Pressable key={b.key} style={styles.badge} onPress={() => setBadge(b)} accessibilityRole="button" accessibilityLabel={b.name + (lit ? ', earned. ' : ', not yet. ') + b.how + '. Tap to see how to earn it.'}>
                       {lit ? (
                         <Bob delay={i * 300}>
                           <LinearGradient colors={[b.colour, b.dark]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[styles.badgeIcon, { shadowColor: b.colour }]}>
@@ -218,7 +219,7 @@ function FriendProfile({ f, id, onClose, onMessages }: { f: Frendzy; id: string;
                       )}
                       <Text style={[styles.badgeName, !lit && { color: C.muted }]} numberOfLines={2}>{b.name}</Text>
                       {!lit && view.counts ? <Text style={styles.badgeProg}>{have(b)}/{b.need}</Text> : null}
-                    </View>
+                    </Pressable>
                   );
                 })}
               </View>
@@ -302,6 +303,41 @@ function FriendProfile({ f, id, onClose, onMessages }: { f: Frendzy; id: string;
           <Text style={styles.small}>{name} gets an invite and taps "I'm in". Only the two of you can see it.</Text>
         </Sheet>
       ) : null}
+
+      {badge ? (() => {
+        const lit = earned.includes(badge.key);
+        const got = have(badge);
+        return (
+          <Sheet onClose={() => setBadge(null)} insets={insets.bottom}>
+            <View style={styles.badgeTop}>
+              {lit ? (
+                <LinearGradient colors={[badge.colour, badge.dark]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[styles.badgeBig, { shadowColor: badge.colour }]}>
+                  <Icon name={badge.icon} size={34} colour="#fff" />
+                </LinearGradient>
+              ) : (
+                <View style={[styles.badgeBig, styles.badgeLocked]}><Icon name={badge.icon} size={30} colour={C.muted} /></View>
+              )}
+              <View style={styles.grow}>
+                <Text style={styles.sheetTitle}>{badge.name}</Text>
+                <Text style={[styles.state, { color: lit ? badge.colour : C.muted }]}>{lit ? (self ? 'You earned this' : name + ' earned this') : 'Not earned yet'}</Text>
+              </View>
+            </View>
+            <Text style={styles.eyebrow}>How to earn it</Text>
+            <Text style={styles.text}>{badge.tip}</Text>
+            {view.counts ? (
+              <View style={styles.stack}>
+                <View style={styles.between}>
+                  <Text style={styles.rowTitle}>{badge.how}</Text>
+                  <Text style={styles.small}>{got}/{badge.need}</Text>
+                </View>
+                <View style={styles.questBar}><View style={[styles.barFill, { width: `${(100 * got) / badge.need}%`, backgroundColor: badge.colour }]} /></View>
+                {!lit ? <Text style={styles.small}>{(self ? 'You\'re ' : name + ' is ') + (badge.need - got) + ' away.'}</Text> : null}
+              </View>
+            ) : null}
+            <Text style={styles.small}>Badges only count meeting up with friends on Crewzy.</Text>
+          </Sheet>
+        );
+      })() : null}
 
       {custom && style ? (
         <Sheet onClose={() => setCustom(false)} insets={insets.bottom}>
@@ -593,6 +629,8 @@ const styles = themed(() => StyleSheet.create({
   badgesPicked: { justifyContent: 'flex-start', gap: 14 },
   badge: { width: '19%', alignItems: 'center', gap: 6 },
   badgeIcon: { width: 52, height: 52, borderRadius: 18, borderWidth: 0, alignItems: 'center', justifyContent: 'center', shadowOpacity: 0.7, shadowRadius: 10, shadowOffset: { width: 0, height: 0 }, elevation: 4 },
+  badgeTop: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  badgeBig: { width: 72, height: 72, borderRadius: 24, alignItems: 'center', justifyContent: 'center', shadowOpacity: 0.7, shadowRadius: 14, shadowOffset: { width: 0, height: 0 }, elevation: 5 },
   badgeName: { fontFamily: F.bodyBold, fontSize: 11, textAlign: 'center', color: C.fg },
 
   row: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, borderRadius: 16, backgroundColor: C.surface, borderWidth: 1, borderColor: C.line },
