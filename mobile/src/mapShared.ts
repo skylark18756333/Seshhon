@@ -13,7 +13,8 @@ export type MapMarker = {
 export type MapView = {
   centre: LatLng;             // the chosen spot, or the city centre
   radiusKm: number;
-  radar?: boolean;            // draw the radius as the glowing green radar circle (the Map tab)
+  radar?: boolean;
+  pad?: { top: number; bottom: number };   // room taken by controls floating over the map (keeps Google's logo and fits clear of them)            // draw the radius as the glowing green radar circle (the Map tab)
   chosen: boolean;            // false until someone taps the map or "Near me": no circle, no spot mark
   mine: boolean;              // the spot is the person's own location ("Near me"): drawn as "Me"
   meName: string;
