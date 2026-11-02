@@ -460,7 +460,7 @@ function Shell() {
         </View>
       ) : null}
       {homeSeen || onHome ? (
-        <View style={onHome ? styles.fill : styles.hidden}>
+        <View style={onHome ? styles.clearFill : styles.hidden /* see-through: the status glow fades down behind the header */}>
           <Shown.Provider value={onHome}>
             <Sesh f={f} onOpenWeb={pickTab} onVenue={openVenue} />
           </Shown.Provider>
