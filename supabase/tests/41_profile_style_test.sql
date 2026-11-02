@@ -34,4 +34,6 @@ select set_config('request.jwt.claim.sub', :q1, false) \g /dev/null
 select public.set_cover(null) \g /dev/null
 select public.expect(public.profile_style(:q1) ->> 'cover' is null, 'Rae removes her cover');
 
+select public.expect((public.friend_profile(:q1) -> 'counts' ->> 'joined')::int = 1 and (public.friend_profile(:q1) -> 'counts' ->> 'friends')::int = 1, 'the page gets badge progress counts');
+
 select 'ALL PROFILE STYLE CHECKS PASSED';
