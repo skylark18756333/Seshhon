@@ -2,7 +2,7 @@
 // Views (a round icon, the venue's name, a tag like "Top pick", a glow where it is busy), with no shadows and no
 // gradients, so they draw the same on every Android phone. Markers stop tracking view changes once drawn; a bubble
 // that changes (busy, open, picked) gets a new key and is drawn again.
-import React, { useEffect, useRef, useState } from 'react';
+import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { Platform, StyleSheet, Text, View } from 'react-native';
 import RNMapView, { Circle, Marker, Polyline, PROVIDER_GOOGLE, type Region } from 'react-native-maps';
 import Icon from './Icon';
@@ -82,10 +82,34 @@ function Pin({ children, ...rest }: React.ComponentProps<typeof Marker>) {
   return <Marker {...rest} tracksViewChanges={track}>{children}</Marker>;
 }
 
+// One venue on the map. Drawn again only when its own bubble changes, so the rest of the screen redrawing (a friend
+// going green, the five-second refresh) never makes the map update all 60 markers at once.
+const VenuePin = memo(function VenuePin({ m, onPick }: { m: MapMarker; onPick: (id: string) => void }) {
+  const press = useCallback((e: { stopPropagation: () => void }) => { e.stopPropagation(); onPick(m.id); }, [m.id, onPick]);
+  const coordinate = { latitude: m.at[0], longitude: m.at[1] };
+  return (
+    <Pin
+      coordinate={coordinate}
+      anchor={CENTRE}
+      title={m.name}
+      zIndex={m.kind === 'goal' ? 1000 : m.stop ? 500 - m.stop.n : m.busy * 100 + (m.tag ? 50 : 0)}
+      onPress={press}
+    >
+      <Bubble m={m} />
+    </Pin>
+  );
+}, (a, b) => a.onPick === b.onPick && a.m.id === b.m.id && a.m.at[0] === b.m.at[0] && a.m.at[1] === b.m.at[1] && a.m.name === b.m.name);
+// (Everything else a bubble shows is in its key below, so a change there draws a new marker anyway.)
+
+const CENTRE = { x: 0.5, y: 0.5 };
 const edge = { top: 60, right: 40, bottom: 60, left: 40 };
 
-export default function NativeMap(p: MapView) {
+// Memoised: the map is only touched when what it shows changes.
+export default memo(NativeMap);
+function NativeMap(p: MapView) {
   const map = useRef<RNMapView>(null);
+  const onPickRef = useRef(p.onPick); onPickRef.current = p.onPick;
+  const onPick = useCallback((id: string) => onPickRef.current(id), []);
   const names = useRef<boolean | null>(null);
   const first = useRef(true);
   const look = useLook();   // markers are drawn once and frozen, so a new look draws them again
@@ -148,16 +172,11 @@ export default function NativeMap(p: MapView) {
         </Pin>
       ) : null}
       {p.markers.map((m) => (
-        <Pin
+        <VenuePin
           key={[look, m.id, m.kind, m.tag, m.busy, m.open, m.names, m.stop ? m.stop.n + (m.stop.done ? 'd' : '') : ''].join(':')}
-          coordinate={{ latitude: m.at[0], longitude: m.at[1] }}
-          anchor={{ x: 0.5, y: 0.5 }}
-          title={m.name}
-          zIndex={m.kind === 'goal' ? 1000 : m.stop ? 500 - m.stop.n : m.busy * 100 + (m.tag ? 50 : 0)}
-          onPress={(e) => { e.stopPropagation(); p.onPick(m.id); }}
-        >
-          <Bubble m={m} />
-        </Pin>
+          m={m}
+          onPick={onPick}
+        />
       ))}
     </RNMapView>
   );

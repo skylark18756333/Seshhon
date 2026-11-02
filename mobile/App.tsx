@@ -21,12 +21,15 @@ import { MapGuard } from './src/MapGuard';
 import AgeCheck from './src/AgeCheck';
 import Auth, { type AuthDone, type AuthStart } from './src/Auth';
 import Crews from './src/Crews';
+import { FriendProfileHost } from './src/FriendProfile';
 import Messages from './src/Messages';
 import { Glow, Toast } from './src/Parts';
 import { askAfterTour, registerPushToken, watchNotificationTaps } from './src/push';
 import Sesh from './src/Sesh';
+import { Shown } from './src/Shown';
 import Swipe from './src/Swipe';
 import Tabs from './src/Tabs';
+import EventsTab from './src/EventsTab';
 import Tour from './src/Tour';
 import TwoStep from './src/TwoStep';
 import You from './src/You';
@@ -43,7 +46,7 @@ const AGE_CHECK_HOSTS = ['https://verify.didit.me/', 'https://age.yoti.com'];
 // Runs in the page before its own script: the page's "share" button uses the phone's share sheet, the page
 // starts on the tab the app asked for, and it starts signed in as whoever the app is signed in as.
 const PAGE_TABS = ['home', 'sesh', 'map', 'venues', 'events', 'you'];
-const BASE_TABS = ['home', 'sesh', 'you', 'crews', 'messages'];   // the tabs with a native screen ('crews' is opened from You or Home, and shows You in the tab bar)
+const BASE_TABS = ['home', 'sesh', 'you', 'crews', 'messages', 'events'];   // 'events' is the native Events screen (EventsTab), themed by You > Look   // the tabs with a native screen ('crews' is opened from You or Home, and shows You in the tab bar)
 // venue: open the page on that venue's page (from the native Sesh tab); closing it goes back to the Sesh tab.
 function bridge(tab: string | null, venue: string | null): string {
   const saved = sessionForPage();
@@ -146,7 +149,16 @@ function Shell() {
   const sessionKey = session ? session.user_id || 'in' : 'out';
   useEffect(() => { setWebLive(false); }, [sessionKey]);   // a different sign-in needs a fresh page
   const onWeb = !NATIVE_TABS.includes(tab);
-  const f = useFrendzy(signedIn && !authOwns, onWeb);
+  // Home and the native Map stay loaded once opened (hidden while another tab is on show), so switching back is
+  // instant: Home keeps its place and the map isn't built from scratch, re-zoomed and re-fetched every time.
+  const onMap = tab === 'map' && nativeMap;
+  const onHome = !onWeb && !onMap && tab !== 'you' && tab !== 'messages' && tab !== 'crews';
+  const [mapSeen, setMapSeen] = useState(false);
+  const [homeSeen, setHomeSeen] = useState(false);
+  if (onMap && !mapSeen) setMapSeen(true);
+  if (onHome && !homeSeen) setHomeSeen(true);
+  useEffect(() => { setMapSeen(false); setHomeSeen(false); }, [sessionKey]);   // a different sign-in starts fresh
+  const f = useFrendzy(signedIn && !authOwns, onWeb, sessionKey);
   const me = f.state && f.state.me;
   const native = signedIn && !authOwns && f.phase === 'ready' && !!me;
   // Signed out, in the middle of signing up, or signed in as someone who never finished making an account.
@@ -272,6 +284,11 @@ function Shell() {
     setPage(WEB_URL); setOpens((n) => n + 1);
   }, []);
 
+  const openMapVenue = useCallback((id: string) => openVenue(id, 'map'), [openVenue]);
+  const goHome = useCallback(() => setTab('home'), []);
+  const goBefore = useCallback(() => setTab(before), [before]);
+  const openPlanned = useCallback(() => pickTab('sesh'), [pickTab]);
+
   // Tapping a notification opens the screen it is about (Home, Sesh or Crews), once the native screens are up.
   const [tapTab, setTapTab] = useState<string | null>(null);
   useEffect(() => watchNotificationTaps(setTapTab), []);
@@ -332,8 +349,8 @@ function Shell() {
   if (failed) {
     return (
       <Layer><View style={styles.offline}>
-        <Text style={styles.title}>No connection</Text>
-        <Text style={styles.body}>Crewzy needs the internet to see who's out. Check your signal and try again.</Text>
+        <Text style={styles.title}>{f.offline ? "No connection" : "Could not load Crewzy"}</Text>
+        <Text style={styles.body}>{f.error || "Please try again."}</Text>
         <Pressable style={styles.button} onPress={() => { setFailed(false); f.retry(); web.current?.reload(); }} accessibilityRole="button">
           <Text style={styles.buttonText}>Try again</Text>
         </Pressable>
@@ -344,8 +361,8 @@ function Shell() {
   if (signedIn && f.phase === 'failed') {
     return (
       <Layer><View style={styles.offline}>
-        <Text style={styles.title}>No connection</Text>
-        <Text style={styles.body}>Crewzy needs the internet to see who's out. Check your signal and try again.</Text>
+        <Text style={styles.title}>{f.offline ? "No connection" : "Could not load Crewzy"}</Text>
+        <Text style={styles.body}>{f.error || "Please try again."}</Text>
         <Pressable style={styles.button} onPress={f.retry} accessibilityRole="button">
           <Text style={styles.buttonText}>Try again</Text>
         </Pressable>
@@ -427,14 +444,28 @@ function Shell() {
     <Layer glow={me ? me.colour : undefined}>
       <Swipe tab={tab === 'venue' ? 'home' : tab} onPick={pickTab}>
       {webLive || onWeb ? <View style={onWeb ? styles.fill : styles.hidden}>{webView}</View> : null}
-      {onWeb ? null
-        : tab === 'map' ? <MapGuard onFail={webMap}><MapTab f={f} onOpenWeb={pickTab} onVenue={(id) => openVenue(id, 'map')} onWebMap={webMap} /></MapGuard>
-        : tab === 'you' ? <You f={f} onOpenWeb={pickTab} onSignedOut={signedOut} />
-        : tab === 'messages' ? <Messages f={f} onBack={() => setTab('home')} />
-        : tab === 'crews' ? <Crews f={f} onBack={() => setTab(before)} onPlanned={() => pickTab('sesh')} />
-        : <Sesh f={f} onOpenWeb={pickTab} onVenue={openVenue} />}
+      {nativeMap && (mapSeen || onMap) ? (
+        <View style={onMap ? styles.fill : styles.hidden}>
+          <Shown.Provider value={onMap}>
+            <MapGuard onFail={webMap}><MapTab f={f} onOpenWeb={pickTab} onVenue={openMapVenue} onWebMap={webMap} /></MapGuard>
+          </Shown.Provider>
+        </View>
+      ) : null}
+      {homeSeen || onHome ? (
+        <View style={onHome ? styles.fill : styles.hidden}>
+          <Shown.Provider value={onHome}>
+            <Sesh f={f} onOpenWeb={pickTab} onVenue={openVenue} />
+          </Shown.Provider>
+        </View>
+      ) : null}
+      {tab === 'events' ? <EventsTab /> : null}
+      {tab === 'you' ? <You f={f} onOpenWeb={pickTab} onSignedOut={signedOut} />
+        : tab === 'messages' ? <Messages f={f} onBack={goHome} />
+        : tab === 'crews' ? <Crews f={f} onBack={goBefore} onPlanned={openPlanned} />
+        : null}
       </Swipe>
       <Tabs tab={tab === 'venue' ? 'home' : tab === 'crews' ? 'you' : tab === 'messages' ? 'home' : tab} requests={f.state ? f.state.requests_in.length : 0} onPick={pickTab} />
+      <FriendProfileHost f={f} onMessages={() => setTab('messages')} />
       {tour && me ? <Tour name={first(me.name)} onClose={() => { clearTour(); setTour(false); askAfterTour().catch(() => {}); }} /> : null}
     </Layer>
   );

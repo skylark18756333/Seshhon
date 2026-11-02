@@ -7,6 +7,7 @@
 // not drawn here: "See venue" opens the web venue page, which has the map, and the crawl is drawn as a plain
 // sketch of its stops in order.
 import { HomeBottom, HomeTop } from './Home';
+import { useOnShow, useShownRef } from './Shown';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AppState, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
@@ -15,6 +16,7 @@ import {
 import Svg, { Circle, Path, Polyline, Text as SvgText } from 'react-native-svg';
 import { getMessages, reportMessage, seshCrawl, sendMessage, type CrawlStop, type Friend, type Member, type Message, type Sesh as SeshT } from './api';
 import { CHAT_POLL_MS, RADIUS_KM } from './config';
+import { openFriend } from './FriendProfile';
 import Icon from './Icon';
 import MeetMiddle from './MeetMiddle';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -53,6 +55,7 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
   const [confirm, setConfirm] = useState<string | null>(null);
   const [crawl, setCrawl] = useState<Crawl>({ sesh: null, stops: [], key: '', off: false });
   const scroll = useRef<ScrollView>(null);
+  const shownRef = useShownRef();
 
   // The sesh this tab shows: one opened from the Planned list, or else the one you're in tonight.
   const live = seshes.filter((s) => s.am_member && !isPlanned(s))[0] || null;
@@ -67,15 +70,17 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
       return;
     }
     let gone = false;
-    seshCrawl(mineId).then((list) => {
+    const load = () => seshCrawl(mineId).then((list) => {
       if (gone) return;
       const key = mineId + JSON.stringify(list);
       setCrawl((c) => (c.key === key ? c : { sesh: mineId, stops: list, key, off: false }));
     }, (e: ApiError) => { if (!gone && e.missing) setCrawl({ sesh: null, stops: [], key: '', off: true }); });
-    return () => { gone = true; };
-    // f.state is a new object after every read, so this follows the five-second refresh.
+    load();
+    // Read again after every refresh of the database (every five seconds), as the web app does, while Home is on show.
+    const stop = f.everyRead(() => { if (shownRef.current) load(); });
+    return () => { gone = true; stop(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mineId, f.state, crawl.off]);
+  }, [mineId, crawl.off, f.everyRead]);
   const stops = mine && crawl.sesh === mine.id ? crawl.stops : [];
   const crawlRun = (fn: string, venue: string, extra: Record<string, unknown>, okMsg?: string) => {
     if (!mine) return;
@@ -146,7 +151,6 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
       onPlan={startPlan}
     />
   );
-  const goGreen = () => { f.setColour('on'); onOpenWeb('home'); };
 
   /* ---------- not in a sesh: join one or start one ---------- */
   if (!mine) {
@@ -181,13 +185,11 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
           </>
         ) : me.colour === 'thinking' ? (
           <>
-            <Text style={styles.muted}>{others.length ? 'Go green to start your own now, or plan one for later on any colour.' : 'No sesh yet. Go green to start one now, or plan one for later on any colour.'}</Text>
-            <Button label="Go green" colour={C.on} ink onPress={goGreen} />
+            <Text style={styles.muted}>{others.length ? 'Slide the switch up top to green to start your own now, or plan one for later on any colour.' : 'No sesh yet. Slide the switch up top to green to start one now, or plan one for later on any colour.'}</Text>
           </>
         ) : (
           <>
-            <Text style={styles.muted}>You're red, so tonight's seshes are hidden. You can still plan one for later and see your friends' plans below.</Text>
-            <Button label="Go green" colour={C.on} ink onPress={goGreen} />
+            <Text style={styles.muted}>You're red, so tonight's seshes are hidden. Slide the switch up top to green, or plan one for later and see your friends' plans below.</Text>
           </>
         )}
         {planned}
@@ -703,27 +705,30 @@ function LockedCard({ id, v, onVenue }: { id: string; v: Venues; onVenue: (id: s
   );
 }
 
+// What each shown friend's status reads as when they are not in a sesh. Red friends are never listed.
+const STATUS_LINE: Record<string, string> = { on: 'Green, up for it', thinking: 'Amber, thinking about it' };
+
 // Your friends, keenest first, each with where they are tonight: in a sesh (and where), or their status.
 function People({ friends, seshes, v, photos }: { friends: Friend[]; seshes: SeshT[]; v: Venues; photos: Record<string, string> }) {
-  const sorted = friends.slice().sort((x, y) => STOPS.indexOf(x.colour) - STOPS.indexOf(y.colour));
+  // Red friends are never shown, not even greyed out.
+  const sorted = friends.filter((fr) => fr.colour !== 'off').sort((x, y) => STOPS.indexOf(x.colour) - STOPS.indexOf(y.colour));
   return (
     <View style={styles.stack}>
       <Text style={styles.h2}>Your people</Text>
       {sorted.map((fr) => {
-        const away = fr.colour === 'off';
         const out = seshes.filter((s) => !isPlanned(s) && s.members.some((m) => m.id === fr.id))[0];
         const where = out && out.locked_venue && v.byId[out.locked_venue] ? v.byId[out.locked_venue].name : null;
-        const line = out ? 'In a sesh' + (where ? ', ' + where : '') : { on: 'Green, up for it', thinking: 'Amber, thinking about it', off: 'Red' }[fr.colour];
+        const line = out ? 'In a sesh' + (where ? ', ' + where : '') : STATUS_LINE[fr.colour];
         return (
-          <View key={fr.id} style={[styles.card, styles.person, away && { opacity: 0.5 }, !away && { borderColor: COLOURS[fr.colour] + '66' }]}>
-            <View style={[styles.personRing, { borderColor: away ? C.line : COLOURS[fr.colour] }]}>
-              <Face id={fr.id} name={fr.name} photos={photos} size={44} font={16} away={away} />
+          <Pressable key={fr.id} style={[styles.card, styles.person, { borderColor: COLOURS[fr.colour] + '66' }]} onPress={() => openFriend(fr.id)} accessibilityRole="button" accessibilityLabel={'Open ' + fr.name + "'s profile"}>
+            <View style={[styles.personRing, { borderColor: COLOURS[fr.colour] }]}>
+              <Face id={fr.id} name={fr.name} photos={photos} size={44} font={16} />
             </View>
             <View style={styles.grow}>
               <Text style={styles.title}>{first(fr.name)}</Text>
-              <Text style={[styles.small, { color: away ? C.muted : COLOURS[fr.colour] }]}>{line}</Text>
+              <Text style={[styles.small, { color: COLOURS[fr.colour] }]}>{line}</Text>
             </View>
-          </View>
+          </Pressable>
         );
       })}
     </View>
@@ -945,12 +950,15 @@ function Chat({ f, seshId, myId, confirm, setConfirm }: { f: Frendzy; seshId: st
     }, () => {});
   }, [seshId]);
 
-  // The chat is asked again every couple of seconds while it's open, and waits while a tap is still running.
+  // The chat is asked again every couple of seconds while it's open, and waits while a tap is still running
+  // or while Home is hidden behind another tab (it is read straight away when you come back).
+  const shown = useShownRef();
+  useOnShow(() => { refresh(false); });
   useEffect(() => {
     key.current = ''; setMessages([]); nearEnd.current = true;
     refresh(false);
     const t = setInterval(() => {
-      if (AppState.currentState === 'active' && !f.acting()) refresh(false);
+      if (AppState.currentState === 'active' && shown.current && !f.acting()) refresh(false);
     }, CHAT_POLL_MS);
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
