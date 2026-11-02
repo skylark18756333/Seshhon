@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Animated, PanResponder, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { Colour, Friend } from './api';
 import { CatchUpCards } from './Crews';
+import { openFriend } from './FriendProfile';
 import { Button, Face } from './Parts';
 import type { Frendzy } from './useFrendzy';
 import { C, COLOURS, F, LABELS, STATUS_COPY, fade, first, fmtLeft, initials, themed } from './theme';
@@ -151,7 +152,7 @@ function FriendFace({ friend, photos }: { friend: Friend; photos: Record<string,
   const away = friend.colour === 'off';
   const glow = away ? C.line : COLOURS[friend.colour];
   return (
-    <View style={styles.friend}>
+    <Pressable style={styles.friend} onPress={() => openFriend(friend.id)} accessibilityRole="button" accessibilityLabel={'Open ' + friend.name + "'s profile"}>
       <View style={styles.facePad}>
         {!away ? (
           <>
@@ -166,7 +167,7 @@ function FriendFace({ friend, photos }: { friend: Friend; photos: Record<string,
       </View>
       <Text numberOfLines={1} style={styles.faceName}>{first(friend.name)}</Text>
       <Text style={[styles.faceState, { color: away ? C.muted : COLOURS[friend.colour] }]}>{LABELS[friend.colour]}</Text>
-    </View>
+    </Pressable>
   );
 }
 

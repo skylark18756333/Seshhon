@@ -16,6 +16,7 @@ import {
 import Svg, { Circle, Path, Polyline, Text as SvgText } from 'react-native-svg';
 import { getMessages, reportMessage, seshCrawl, sendMessage, type CrawlStop, type Friend, type Member, type Message, type Sesh as SeshT } from './api';
 import { CHAT_POLL_MS, RADIUS_KM } from './config';
+import { openFriend } from './FriendProfile';
 import Icon from './Icon';
 import MeetMiddle from './MeetMiddle';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -719,7 +720,7 @@ function People({ friends, seshes, v, photos }: { friends: Friend[]; seshes: Ses
         const where = out && out.locked_venue && v.byId[out.locked_venue] ? v.byId[out.locked_venue].name : null;
         const line = out ? 'In a sesh' + (where ? ', ' + where : '') : STATUS_LINE[fr.colour];
         return (
-          <View key={fr.id} style={[styles.card, styles.person, { borderColor: COLOURS[fr.colour] + '66' }]}>
+          <Pressable key={fr.id} style={[styles.card, styles.person, { borderColor: COLOURS[fr.colour] + '66' }]} onPress={() => openFriend(fr.id)} accessibilityRole="button" accessibilityLabel={'Open ' + fr.name + "'s profile"}>
             <View style={[styles.personRing, { borderColor: COLOURS[fr.colour] }]}>
               <Face id={fr.id} name={fr.name} photos={photos} size={44} font={16} />
             </View>
@@ -727,7 +728,7 @@ function People({ friends, seshes, v, photos }: { friends: Friend[]; seshes: Ses
               <Text style={styles.title}>{first(fr.name)}</Text>
               <Text style={[styles.small, { color: COLOURS[fr.colour] }]}>{line}</Text>
             </View>
-          </View>
+          </Pressable>
         );
       })}
     </View>
