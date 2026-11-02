@@ -223,6 +223,10 @@ try {
   };
   await startAs('Ana', 'start_sesh');
   await has(nat, 'LIVE SESH', 15000);
+  // The lobby's options stay under the sesh card while you're in one.
+  await has(nat, 'Keep it going');
+  await has(nat, 'Find venues');
+  expect('Crewzy crawl and Plan for later still on hand', await nat.page.getByTestId('more-crawl').count() + await nat.page.getByTestId('more-plan').count() >= 2, true);
   await has(nat, 'Where to?');
   const seshId = psql(`select id from public.seshes where creator = '${anaId}' and ended_at is null`);
   expect('a live sesh started by Ana', psql(`select count(*) from public.seshes where creator = '${anaId}' and ended_at is null`), 1);

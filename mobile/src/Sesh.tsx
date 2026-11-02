@@ -327,6 +327,18 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
         onStarted={f.refresh}
       />
 
+      {later ? null : (
+        // The lobby's options stay on hand in a sesh: find somewhere, build a crawl, plan the next one.
+        <TileRow tiles={[
+          { key: 'find', emoji: '🔎', title: 'Find venues', note: 'Map of spots near you', colours: ['#FF7A45', '#E0407A'], onPress: () => onOpenWeb('map') },
+          ...(crawl.off ? [] : [{ key: 'crawl', emoji: '📍', title: 'Crewzy crawl', note: isCrawl ? 'See your trail' : 'Add stops a short walk apart', colours: ['#21C6A4', '#2A7FD4'] as [string, string],
+            onPress: () => setPanel('crawl') }]),
+          { key: 'plan', emoji: '🗓', title: 'Plan for later', note: 'Any day in the next 2 weeks', colours: ['#5B8CFF', '#9B5BFF'], onPress: startPlan },
+          { key: 'events', emoji: '🎶', title: "What's on", note: 'Gigs and events near you', colours: ['#F5A623', '#D4572A'], onPress: () => onOpenWeb('events') },
+          { key: 'crews', emoji: '🤝', title: 'Crew catch-up', note: 'See when your crews are free', colours: ['#7AA52F', '#2E8F6A'], onPress: () => onOpenWeb('crews') }
+        ]} />
+      )}
+
       {open === 'where' ? (
         <>
           {picking ? (
@@ -802,6 +814,29 @@ function Lobby({ f, tiles, note, onSeat }: { f: Frendzy; tiles: LobbyTile[]; not
   );
 }
 
+// The same tiles, smaller and in one row you swipe along, under the sesh card.
+function TileRow({ tiles }: { tiles: LobbyTile[] }) {
+  return (
+    <View style={{ gap: 8 }}>
+      <Text style={styles.h2}>Keep it going</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tileRow}>
+        {tiles.map((t) => (
+          <Pressable key={t.key} style={({ pressed }) => [styles.tileSmallWrap, pressed && { transform: [{ scale: 0.97 }] }]} onPress={t.onPress}
+            accessibilityRole="button" accessibilityLabel={t.title + '. ' + t.note} testID={'more-' + t.key}>
+            <LinearGradient colors={t.colours} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.tileSmall}>
+              <Text style={styles.tileEmojiSmall}>{t.emoji}</Text>
+              <View>
+                <Text style={styles.tileTitle} numberOfLines={1}>{t.title}</Text>
+                <Text style={styles.tileNote} numberOfLines={2}>{t.note}</Text>
+              </View>
+            </LinearGradient>
+          </Pressable>
+        ))}
+      </ScrollView>
+    </View>
+  );
+}
+
 /* ---------- the private pres address (presHtml) ---------- */
 function PresCard({ s, editing, address, minute, onAddress, onMinute, onEdit, onCancel, onRemove, onSave }: {
   s: SeshT; editing: boolean; address: string; minute: number | null;
@@ -1273,6 +1308,10 @@ const styles = themed(() => StyleSheet.create({
   tileWrap: { width: '48%', flexGrow: 1 },
   tile: { borderRadius: 20, padding: 14, minHeight: 116, justifyContent: 'space-between' },
   tileEmoji: { fontSize: 26 },
+  tileRow: { gap: 10, paddingRight: 4 },
+  tileSmallWrap: { width: 148 },
+  tileSmall: { borderRadius: 18, padding: 12, height: 104, justifyContent: 'space-between' },
+  tileEmojiSmall: { fontSize: 22 },
   tileTitle: { fontFamily: F.displayBold, fontSize: 16, color: '#fff' },
   tileNote: { fontFamily: F.body, fontSize: 12, lineHeight: 16, color: 'rgba(255, 255, 255, 0.9)' },
 
