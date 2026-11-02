@@ -32,7 +32,7 @@ function whenLine(e: Event): string {
 export default function EventsTab() {
   const [list, setList] = useState<Event[] | null>(null);
   const [failed, setFailed] = useState(false);
-  const here = useMyPlace(false);
+  const here = useMyPlace(true);   // asks for location once, the same as the Map; the position stays on the phone
 
   useEffect(() => {
     let live = true;
@@ -95,8 +95,8 @@ const styles = themed(() => StyleSheet.create({
   sub: { fontFamily: F.body, fontSize: 13, color: C.muted, marginBottom: 6 },
   card: { backgroundColor: C.surface, borderWidth: 1, borderColor: C.line, borderRadius: 22, padding: 16, gap: 12 },
   top: { flexDirection: 'row', gap: 14, alignItems: 'center' },
-  badge: { width: 58, height: 58, borderRadius: 29, alignItems: 'center', justifyContent: 'center' },
-  glyph: { fontSize: 26, color: '#fff' },
+  badge: { width: 66, height: 66, borderRadius: 33, alignItems: 'center', justifyContent: 'center' },
+  glyph: { fontSize: 38, lineHeight: 44, color: '#fff' },
   main: { flex: 1, minWidth: 0, gap: 2 },
   kind: { fontFamily: F.bodyBold, fontSize: 11, letterSpacing: 1, color: C.muted, textTransform: 'uppercase' },
   title: { fontFamily: F.displayBold, fontSize: 17, color: C.fg },
