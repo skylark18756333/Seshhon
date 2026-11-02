@@ -15,6 +15,7 @@ import {
   addFriendByUsername, loadAccount, loadEmailsOn, loadPushSettings, loadSafety, setPushSetting,
   type Account, type PushSettings, type Safety
 } from './api';
+import { openFriend } from './FriendProfile';
 import Icon from './Icon';
 import { Avatar, Button, Face, Toast, TopBar } from './Parts';
 import {
@@ -64,6 +65,17 @@ export default function You({ f, onOpenWeb, onSignedOut }: { f: Frendzy; onOpenW
   const [safety, setSafety] = useState<Safety | 'off' | undefined>(undefined);
   const [emailsOn, setEmailsOn] = useState(false);
   const [amber, setAmber] = useState<string[] | 'off' | undefined>(undefined);   // friends who can see me on amber; 'off': no migration 0036 yet
+  // Your about line on your profile (migration 0040). 'off' until that update is run.
+  const [about, setAbout] = useState<string | 'off' | null>(null);
+  const meId = me ? me.id : null;
+  useEffect(() => {
+    if (!meId) return;
+    rpc('friend_profile', { p_friend: meId }).then((p: any) => setAbout((p && p.about) || ''), () => setAbout('off'));
+  }, [meId]);
+  const saveAbout = () => {
+    if (typeof about !== 'string') return;
+    f.act('set_about', { p_about: about }, 'Saved. Friends see it on your profile.');
+  };
   useEffect(() => {
     rpc('my_amber_allows').then((v: any) => setAmber(Array.isArray(v) ? v : []), () => setAmber('off'));
   }, []);
@@ -301,6 +313,7 @@ export default function You({ f, onOpenWeb, onSignedOut }: { f: Frendzy; onOpenW
             <View style={styles.grow}>
               <Text style={styles.h1} accessibilityRole="header">{me.name}</Text>
               <Text style={[styles.muted, styles.small]}>Status: {LABELS[me.colour]}</Text>
+              <Text style={[styles.muted, styles.small, styles.link]} onPress={() => openFriend(me.id)} accessibilityRole="button">See your profile</Text>
             </View>
           </View>
 
@@ -326,6 +339,22 @@ export default function You({ f, onOpenWeb, onSignedOut }: { f: Frendzy; onOpenW
               {myPhoto && !photoBusy ? <Button small ghost label="Remove" onPress={() => savePhoto(null)} /> : null}
             </View>
           </Section>
+
+          {typeof about === 'string' ? (
+            <Section k="about" title="About you" hint={about ? 'Added' : 'None yet'} onToggle={toggle}>
+              <Text style={[styles.muted, styles.small]}>A line friends see on your profile.</Text>
+              <TextInput
+                style={styles.input}
+                value={about}
+                onChangeText={setAbout}
+                onSubmitEditing={saveAbout}
+                placeholder="Good vibes only"
+                placeholderTextColor={C.muted}
+                maxLength={80}
+              />
+              <Button small label="Save" onPress={saveAbout} />
+            </Section>
+          ) : null}
 
           <Section k="add" title="Add a friend" force={!friends.length} onToggle={toggle}>
             {account !== 'off' ? (
@@ -372,7 +401,7 @@ export default function You({ f, onOpenWeb, onSignedOut }: { f: Frendzy; onOpenW
                 return (
                   <View key={fr.friendship} style={[styles.row, styles.wrapRow]} testID={'friend-' + fr.id}>
                     <View style={styles.grow}>
-                      <Text style={styles.body}>{fr.name}</Text>
+                      <Text style={styles.body} onPress={() => openFriend(fr.id)} accessibilityRole="button">{fr.name}</Text>
                       {blocking ? <Text style={[styles.muted, styles.small]}>They won't see you or be able to add you again.</Text> : null}
                       {Array.isArray(amber) && !asking && !blocking ? (
                         <View style={styles.row}>

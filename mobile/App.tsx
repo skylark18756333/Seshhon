@@ -21,6 +21,7 @@ import { MapGuard } from './src/MapGuard';
 import AgeCheck from './src/AgeCheck';
 import Auth, { type AuthDone, type AuthStart } from './src/Auth';
 import Crews from './src/Crews';
+import { FriendProfileHost } from './src/FriendProfile';
 import Messages from './src/Messages';
 import { Glow, Toast } from './src/Parts';
 import { askAfterTour, registerPushToken, watchNotificationTaps } from './src/push';
@@ -435,6 +436,7 @@ function Shell() {
         : <Sesh f={f} onOpenWeb={pickTab} onVenue={openVenue} />}
       </Swipe>
       <Tabs tab={tab === 'venue' ? 'home' : tab === 'crews' ? 'you' : tab === 'messages' ? 'home' : tab} requests={f.state ? f.state.requests_in.length : 0} onPick={pickTab} />
+      <FriendProfileHost f={f} onMessages={() => setTab('messages')} />
       {tour && me ? <Tour name={first(me.name)} onClose={() => { clearTour(); setTour(false); askAfterTour().catch(() => {}); }} /> : null}
     </Layer>
   );
