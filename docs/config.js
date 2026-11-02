@@ -10,5 +10,5 @@ window.SESHHON_CONFIG = {
   // BEFORE switching on CAPTCHA protection in Supabase, or sign-up stops working.
   captchaSiteKey: '0x4AAAAAAFNfIIGCx_1GPNVc',
   deals: false,   // deals are hidden for now; set to true to show the Deals tab and staff code checking
-  googleRatings: false   // set to true once the google-rating Edge Function and its Google key are set up (see README)
+  googleRatings: true    // shows nothing until the google-rating Edge Function has its GOOGLE_PLACES_KEY (see README)
 };
