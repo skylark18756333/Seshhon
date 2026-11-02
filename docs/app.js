@@ -851,6 +851,9 @@
   function loadStandalone() {
     return rpc('api_events').then(function (list) { STANDALONE = list || []; }, function () { STANDALONE = STANDALONE || []; });
   }
+  function dayLine(iso) {
+    try { return new Date(iso).toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'Australia/Perth' }); } catch (e) { return ''; }
+  }
   function whenLine(iso) {
     try { return new Date(iso).toLocaleString('en-AU', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', timeZone: 'Australia/Perth' }); } catch (e) { return ''; }
   }
@@ -1549,7 +1552,7 @@
     var h = '<div class="stack" style="gap:6px"><h1>Events</h1><p class="muted small">What\'s on at venues, festivals and concerts.</p></div>';
     var extra = (STANDALONE || []).map(function (s) {
       return '<div class="deal-banner"><div class="row between"><span class="sub">' + esc(s.kind) + '</span><span class="small muted">' + esc(s.place) + '</span></div>' +
-        '<div class="big">' + esc(s.title) + '</div><div class="small muted">' + esc(whenLine(s.starts_at)) + '</div>' +
+        '<div class="big">' + esc(s.title) + '</div><div class="small muted">' + esc(s.time_to_confirm ? dayLine(s.starts_at) + ', time to confirm' : whenLine(s.starts_at)) + '</div>' +
         (s.source_url ? '<div class="row"><a class="btn small-btn ghost" href="' + esc(s.source_url) + '" target="_blank" rel="noopener">More info</a></div>' : '') + '</div>';
     }).join('');
     if (!list.length && !extra) return h + (STANDALONE == null ? '<p class="muted small">Loading events...</p>' : '<div class="card"><h2>Nothing listed yet</h2><p class="muted small">Gigs, festivals and live music show up here when they are added.</p></div>');
