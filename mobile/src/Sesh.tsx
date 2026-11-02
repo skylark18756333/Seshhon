@@ -5,7 +5,7 @@
 // database functions as the ACT list there.
 // The two small street maps of the web Sesh tab (the route to the locked-in venue, and the crawl's map) are
 // not drawn here: "See venue" opens the web venue page, which has the map, and the crawl is drawn as a
-// treasure-map trail of its stops in order (TreasureMap in Crawl.tsx). A Crewzy crawl is picked when you start
+// live map of its stops in order (CrawlMap.tsx), where more stops can be added. A Crewzy crawl is picked when you start
 // or plan a sesh (CrawlBuilder), and its stops are the same Sesh Map stops.
 import { GreenRow, HomeBottom, HomeTop } from './Home';
 import { useOnShow, useShownRef } from './Shown';
@@ -17,7 +17,8 @@ import {
 import { addCrawlStops, getMessages, reportMessage, seshCrawl, sendMessage, type CrawlStop, type Friend, type Member, type Message, type Sesh as SeshT } from './api';
 import { CHAT_POLL_MS, RADIUS_KM } from './config';
 import { openFriend } from './FriendProfile';
-import { CrawlBuilder, TreasureMap } from './Crawl';
+import { CrawlBuilder } from './Crawl';
+import CrawlMap from './CrawlMap';
 import Icon from './Icon';
 import MeetMiddle from './MeetMiddle';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -970,7 +971,7 @@ function CrawlSection({ s, stops, v, onMap, onVenue, onRun }: {
         <Text style={styles.h2}>Sesh Map</Text>
         <Text style={[styles.muted, styles.small]}>{stops.length} stop{stops.length === 1 ? '' : 's'}</Text>
       </View>
-      <TreasureMap stops={stops.map((c) => ({ id: c.venue_id, n: c.position, name: v.byId[c.venue_id] ? v.byId[c.venue_id].name : 'A venue', done: !!c.done }))} v={v} />
+      <CrawlMap stops={stops} v={v} meName="" canAdd={stops.length < CRAWL_MAX} onVenue={onVenue} onAdd={(id) => onRun('crawl_add', id, {}, 'Added to the Sesh Map.')} />
       <View style={styles.stack}>
         {stops.map((c, i) => {
           const ven = v.byId[c.venue_id], name = ven ? ven.name : 'A venue', isNext = started && c.venue_id === next;
