@@ -1,8 +1,30 @@
 -- Customise your profile page: a cover photo, a colour theme, a frame round your photo, and which of your
 -- badges show. Only your friends see it, through profile_style(), with the same rules as friend_profile() (0040):
 -- strangers and blocked people get nothing, and women-only mode hides the cover just as it hides your photo.
--- Shown badges must be ones you've earned; anything else is dropped when the page is read.
+-- Shown badges must be ones you've earned; anything else is dropped when the page is read. It also adds the
+-- badge progress counts the page shows.
 -- Needs 0013 and 0040. Safe to run more than once.
+
+-- The badge progress shown on the page ("8/10"): the same totals that earn the badges. Counts only, never where.
+create or replace function private.level_json(u uuid) returns jsonb
+language sql stable security definer set search_path = public, private as $$
+  with x as (select coalesce(points, 0) pts, coalesce(seshes, 0) seshes, coalesce(hosted, 0) hosted, coalesce(planned, 0) planned
+             from (select 1) one left join private.xp on user_id = u),
+       f as (select count(*) friends from public.friendships where state = 'accepted' and (requester = u or addressee = u)),
+       l as (select floor(sqrt(pts / 50.0))::integer + 1 lvl, pts, seshes, hosted, planned from x)
+  select jsonb_build_object(
+    'level', l.lvl, 'xp', l.pts, 'next', 50 * l.lvl * l.lvl, 'from', 50 * (l.lvl - 1) * (l.lvl - 1),
+    'seshes', l.seshes + l.hosted + l.planned, 'friends', f.friends,
+    'counts', jsonb_build_object('joined', l.seshes, 'hosted', l.hosted, 'planned', l.planned, 'friends', f.friends),
+    'badges', to_jsonb(array_remove(array[
+      case when l.seshes >= 1 then 'first_round' end,
+      case when l.seshes >= 10 then 'regular' end,
+      case when l.hosted >= 5 then 'ringleader' end,
+      case when l.planned >= 3 then 'planner' end,
+      case when f.friends >= 10 then 'social' end], null)))
+  from l, f;
+$$;
+revoke all on function private.level_json(uuid) from public, anon, authenticated;
 
 create table if not exists private.profile_style (
   user_id uuid primary key references public.profiles (id) on delete cascade,

@@ -3,9 +3,9 @@
 // anyone is or has been. friend_profile() (migration 0040) applies the same colour rules as everywhere else: red,
 // hidden-from-you and amber you aren't allowed to see all come back as 'off'.
 import { LinearGradient } from 'expo-linear-gradient';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import * as ImagePicker from 'expo-image-picker';
-import { Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Animated, Easing, Image, Modal, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { Colour } from './api';
 import Icon from './Icon';
@@ -19,17 +19,25 @@ type Profile = {
   id: string; name: string; about?: string | null; colour: Colour; photo?: string | null;
   level?: number; xp?: number; next?: number; from?: number;
   seshes?: number; friends?: number; mutual?: number; badges?: string[];
+  counts?: { joined?: number; hosted?: number; planned?: number; friends?: number };
   crews?: string[]; together?: { id: string; at: string; host: string }[];
 };
 
-// Every badge there is, in the order they show. Earned ones are lit; the rest stay faint so friends see what's next.
-const BADGES: { key: string; name: string; icon: string; colour: string; how: string }[] = [
-  { key: 'first_round', name: 'First round', icon: 'tick', colour: '#FFC83D', how: 'Joined a friend\'s sesh' },
-  { key: 'regular', name: 'Regular', icon: 'clock', colour: '#FF4FA3', how: 'Joined 10 seshes' },
-  { key: 'ringleader', name: 'Ringleader', icon: 'sesh', colour: '#3DDC84', how: 'Friends joined 5 of your seshes' },
-  { key: 'planner', name: 'Planner', icon: 'events', colour: '#8B5CFF', how: 'Friends said they\'re in to 3 of your plans' },
-  { key: 'social', name: 'Social', icon: 'you', colour: '#3DC8FF', how: '10 friends on Crewzy' }
+// Every badge there is, in the order they show. Earned ones shine; locked ones show how close you are (counts from
+// migration 0041). Names are about meeting up, never drinking: WA's rules on promoting liquor (Sarah, 2026-11-02).
+type Badge = { key: string; name: string; icon: string; colour: string; dark: string; how: string; count: 'joined' | 'hosted' | 'planned' | 'friends'; need: number };
+const BADGES: Badge[] = [
+  { key: 'first_round', name: 'First meetup', icon: 'tick', colour: '#FFC83D', dark: '#E08A00', how: 'Joined a friend\'s sesh', count: 'joined', need: 1 },
+  { key: 'regular', name: 'Regular', icon: 'clock', colour: '#FF4FA3', dark: '#A0177A', how: 'Joined 10 seshes', count: 'joined', need: 10 },
+  { key: 'ringleader', name: 'Ringleader', icon: 'sesh', colour: '#3DDC84', dark: '#0F8A52', how: 'Friends joined 5 of your seshes', count: 'hosted', need: 5 },
+  { key: 'planner', name: 'Planner', icon: 'events', colour: '#8B5CFF', dark: '#4B25C9', how: 'Friends said they\'re in to 3 of your plans', count: 'planned', need: 3 },
+  { key: 'social', name: 'Social', icon: 'you', colour: '#3DC8FF', dark: '#1460C8', how: '10 friends on Crewzy', count: 'friends', need: 10 }
 ];
+// A title on the cover that grows with your level.
+function rankOf(level: number): string {
+  return level >= 10 ? 'Legend' : level >= 6 ? 'Night Owl' : level >= 3 ? 'Regular' : 'Fresh Face';
+}
+const TILES: [string, string, string][] = [['Friends', '#FF4FA3', '#C2186B'], ['Mutual', '#1FB6FF', '#1460C8'], ['Seshes', '#3DDC84', '#13955A'], ['Badges', '#FFC83D', '#C98A00']];
 
 // Your page's own colours (migration 0041). Friends see your page in your theme, on top of their own app look.
 type Theme = { name: string; a: string; b: string };
@@ -111,6 +119,9 @@ function FriendProfile({ f, id, onClose, onMessages }: { f: Frendzy; id: string;
   const theme = THEMES[(style && style.theme) || 'neon'] || THEMES.neon;
   const frame = (style && style.frame) || 'glow';
   const shown = style && style.badges.length ? BADGES.filter((b) => style.badges.includes(b.key) && earned.includes(b.key)) : BADGES;
+  const counts = view.counts || {};
+  const have = (b: Badge) => Math.min(b.need, b.count === 'friends' ? (counts.friends ?? view.friends ?? 0) : (counts[b.count] ?? 0));
+  const segs = Math.round(part * 10);
   const line = colour === 'on' ? 'Green, up for it' : colour === 'thinking' ? 'Amber, maybe later' : 'Not out right now';
 
   const mySesh = f.state ? f.state.seshes.filter((s) => s.mine && !s.planned)[0] : undefined;
@@ -133,6 +144,11 @@ function FriendProfile({ f, id, onClose, onMessages }: { f: Frendzy; id: string;
           start={{ x: 0, y: 0 }} end={{ x: 0.4, y: 1 }}
           style={[styles.cover, { paddingTop: insets.top + 10 }]}
         >
+          {style && !style.cover ? <><Blob colour="rgba(255, 255, 255, 0.28)" size={190} x={-40} y={-30} /><Blob colour="rgba(0, 0, 0, 0.18)" size={220} x={170} y={40} slow /></> : null}
+          <Sparkle x="22%" y={70} />
+          <Sparkle x="62%" y={50} delay={800} />
+          <Sparkle x="84%" y={100} delay={1400} />
+          {game ? <View style={styles.rank}><Text style={styles.rankText}>★ {rankOf(level)}</Text></View> : null}
           <Pressable style={styles.round} onPress={onClose} accessibilityRole="button" accessibilityLabel="Back"><Icon name="back" size={20} colour="#fff" /></Pressable>
           {self ? null : <Pressable style={styles.round} onPress={() => setMenu('menu')} accessibilityRole="button" accessibilityLabel="More"><Text style={styles.dots}>⋯</Text></Pressable>}
         </LinearGradient>
@@ -150,45 +166,83 @@ function FriendProfile({ f, id, onClose, onMessages }: { f: Frendzy; id: string;
           {view.about ? <View style={styles.card}><Text style={styles.eyebrow}>About</Text><Text style={styles.text}>{view.about}</Text></View> : null}
 
           {game ? (
-            <View style={styles.level}>
-              <View style={[styles.lvl, style ? { borderColor: theme.b, backgroundColor: fade(theme.b, 0.14) } : null]}><Text style={styles.lvlSmall}>LVL</Text><Text style={styles.lvlNum}>{level}</Text></View>
+            <LinearGradient colors={[fade(theme.a, 0.22), fade(theme.b, 0.16)]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[styles.level, { borderColor: fade(theme.a, 0.5) }]}>
+              <LinearGradient colors={[theme.b, theme.a]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.lvl}>
+                <Text style={styles.lvlSmall}>LVL</Text><Text style={styles.lvlNum}>{level}</Text>
+              </LinearGradient>
               <View style={styles.grow}>
                 <View style={styles.between}>
                   <Text style={styles.xp}>{xp.toLocaleString()} XP</Text>
                   <Text style={styles.small}>{(next - xp).toLocaleString()} to level {level + 1}</Text>
                 </View>
-                <View style={styles.bar}><LinearGradient colors={[theme.a, theme.b]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={[styles.barFill, { width: `${Math.round(part * 100)}%` }]} /></View>
+                <View style={styles.segs}>
+                  {Array.from({ length: 10 }, (_, i) => i < segs
+                    ? <LinearGradient key={i} colors={[theme.a, theme.b]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={[styles.seg, { shadowColor: theme.b }]} />
+                    : i === segs ? <Blink key={i}><View style={[styles.seg, { backgroundColor: fade(theme.a, 0.4) }]} /></Blink>
+                    : <View key={i} style={[styles.seg, styles.segOff]} />)}
+                </View>
               </View>
-            </View>
+            </LinearGradient>
           ) : null}
 
           {game ? (
             <View style={styles.stats}>
-              {[['Friends', view.friends], ['Mutual', view.mutual], ['Seshes', view.seshes], ['Badges', earned.length]].map(([label, n]) => (
-                <View key={label as string} style={styles.stat}>
+              {[view.friends, self ? null : view.mutual, view.seshes, earned.length].map((n, i) => (self && i === 1 ? null : (
+                <LinearGradient key={TILES[i][0]} colors={[TILES[i][1], TILES[i][2]]} start={{ x: 0, y: 0 }} end={{ x: 0.6, y: 1 }} style={[styles.stat, { shadowColor: TILES[i][2] }]}>
                   <Text style={styles.statNum}>{n == null ? '–' : String(n)}</Text>
-                  <Text style={styles.statLabel}>{label as string}</Text>
-                </View>
-              ))}
+                  <Text style={styles.statLabel}>{TILES[i][0]}</Text>
+                </LinearGradient>
+              )))}
             </View>
           ) : null}
 
           {game ? (
             <View style={styles.stack}>
-              <Text style={styles.eyebrow}>{shown === BADGES ? 'Badges' : 'Showing off'}</Text>
+              <View style={styles.between}>
+                <Text style={styles.eyebrow}>{shown === BADGES ? (earned.length ? 'Badges' : 'Badges to unlock') : 'Showing off'}</Text>
+                <Text style={styles.small}>{earned.length} of {BADGES.length} earned</Text>
+              </View>
               <View style={[styles.badges, shown !== BADGES && styles.badgesPicked]}>
-                {shown.map((b) => {
+                {shown.map((b, i) => {
                   const lit = earned.includes(b.key);
                   return (
                     <View key={b.key} style={styles.badge} accessibilityLabel={b.name + (lit ? ', earned. ' : ', not yet. ') + b.how}>
-                      <View style={[styles.badgeIcon, { backgroundColor: fade(b.colour, lit ? 0.22 : 0.06), borderColor: lit ? b.colour : C.line }]}>
-                        <Icon name={b.icon} size={20} colour={lit ? b.colour : C.muted} />
-                      </View>
+                      {lit ? (
+                        <Bob delay={i * 300}>
+                          <LinearGradient colors={[b.colour, b.dark]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[styles.badgeIcon, { shadowColor: b.colour }]}>
+                            <Icon name={b.icon} size={22} colour="#fff" />
+                          </LinearGradient>
+                        </Bob>
+                      ) : (
+                        <View style={[styles.badgeIcon, styles.badgeLocked]}><Icon name={b.icon} size={20} colour={C.muted} /></View>
+                      )}
                       <Text style={[styles.badgeName, !lit && { color: C.muted }]} numberOfLines={2}>{b.name}</Text>
+                      {!lit && view.counts ? <Text style={styles.badgeProg}>{have(b)}/{b.need}</Text> : null}
                     </View>
                   );
                 })}
               </View>
+            </View>
+          ) : null}
+
+          {self && game && view.counts ? (
+            <View style={styles.stack}>
+              <View style={styles.between}><Text style={styles.eyebrow}>Quests</Text><Text style={styles.small}>Earn XP and badges</Text></View>
+              {[
+                { icon: 'tick', title: "Join a friend's sesh", done: (counts.joined || 0) > 0, part: Math.min(1, counts.joined || 0), prize: '+50 XP', c: ['#3DDC84', '#0F8A52'] },
+                { icon: 'sesh', title: 'Get a friend to join your sesh', done: (counts.hosted || 0) > 0, part: Math.min(1, counts.hosted || 0), prize: '+20 XP', c: ['#8B5CFF', '#4B25C9'] },
+                { icon: 'events', title: 'Plan a sesh a friend says yes to · ' + Math.min(3, counts.planned || 0) + '/3', done: (counts.planned || 0) >= 3, part: Math.min(1, (counts.planned || 0) / 3), prize: 'Badge', c: ['#FF4FA3', '#A0177A'] },
+                { icon: 'you', title: 'Add 10 friends · ' + Math.min(10, counts.friends || 0) + '/10', done: (counts.friends || 0) >= 10, part: Math.min(1, (counts.friends || 0) / 10), prize: 'Badge', c: ['#1FB6FF', '#1460C8'] }
+              ].map((q) => (
+                <View key={q.title} style={[styles.quest, q.done && { opacity: 0.6 }]}>
+                  <LinearGradient colors={[q.c[0], q.c[1]]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.questIcon}><Icon name={q.done ? 'tick' : q.icon} size={18} colour="#fff" /></LinearGradient>
+                  <View style={styles.grow}>
+                    <Text style={styles.rowTitle}>{q.title}</Text>
+                    <View style={styles.questBar}><LinearGradient colors={[q.c[0], q.c[1]]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={[styles.barFill, { width: `${Math.round(q.part * 100)}%` }]} /></View>
+                  </View>
+                  <LinearGradient colors={[theme.a, theme.b]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.prize}><Text style={styles.prizeText}>{q.done ? 'Done' : q.prize}</Text></LinearGradient>
+                </View>
+              ))}
             </View>
           ) : null}
 
@@ -214,13 +268,16 @@ function FriendProfile({ f, id, onClose, onMessages }: { f: Frendzy; id: string;
         </View>
       </ScrollView>
 
-      {self && style ? (
+      {self ? (
         <View style={[styles.actions, { paddingBottom: 14 + insets.bottom }]}>
-          <View style={styles.grow}><Button label="Customise your page" onPress={() => setCustom(true)} testID="profile-customise" /></View>
+          {style ? <View style={styles.grow}><Button label="Customise your page" onPress={() => setCustom(true)} testID="profile-customise" /></View> : null}
+          {me ? <View style={style ? null : styles.grow}><Button label="Share" ghost onPress={() => {
+            Share.share({ title: 'Crewzy', message: "Add me on Crewzy so we can see when we're both up for a sesh. https://frendzy.au/?invite=" + me.invite_code }).catch(() => {});
+          }} /></View> : null}
         </View>
-      ) : self ? null : (
+      ) : (
         <View style={[styles.actions, { paddingBottom: 14 + insets.bottom }]}>
-          <View style={styles.grow}><Button label="Sesh request" onPress={() => setSheet(true)} testID="profile-sesh" /></View>
+          <View style={styles.grow}><Pulse colour={theme.a}><Button label="Sesh request" onPress={() => setSheet(true)} testID="profile-sesh" /></Pulse></View>
           <Button label="Message" ghost onPress={onMessages} />
         </View>
       )}
@@ -307,6 +364,47 @@ function FriendProfile({ f, id, onClose, onMessages }: { f: Frendzy; id: string;
         </Sheet>
       ) : null}
       <Toast text={f.toast} />
+    </View>
+  );
+}
+
+// Little moving parts that make the page feel alive. All of them run on the native thread.
+function useLoop(ms: number, delay = 0) {
+  const v = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const loop = Animated.loop(Animated.sequence([
+      Animated.delay(delay),
+      Animated.timing(v, { toValue: 1, duration: ms / 2, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+      Animated.timing(v, { toValue: 0, duration: ms / 2, easing: Easing.inOut(Easing.quad), useNativeDriver: true })
+    ]));
+    loop.start();
+    return () => loop.stop();
+  }, [v, ms, delay]);
+  return v;
+}
+function Sparkle({ x, y, delay = 0 }: { x: `${number}%`; y: number; delay?: number }) {
+  const v = useLoop(2400, delay);
+  return <Animated.View pointerEvents="none" style={[styles.spark, { left: x, top: y, opacity: v.interpolate({ inputRange: [0, 1], outputRange: [1, 0.2] }), transform: [{ scale: v.interpolate({ inputRange: [0, 1], outputRange: [1, 0.5] }) }] }]} />;
+}
+function Blob({ colour, size, x, y, slow }: { colour: string; size: number; x: number; y: number; slow?: boolean }) {
+  const v = useLoop(slow ? 11000 : 8000);
+  return <Animated.View pointerEvents="none" style={{ position: 'absolute', left: x, top: y, width: size, height: size, borderRadius: size / 2, backgroundColor: colour,
+    transform: [{ translateX: v.interpolate({ inputRange: [0, 1], outputRange: [0, slow ? -24 : 30] }) }, { translateY: v.interpolate({ inputRange: [0, 1], outputRange: [0, 14] }) }] }} />;
+}
+function Bob({ children, delay = 0 }: { children: React.ReactNode; delay?: number }) {
+  const v = useLoop(2600, delay);
+  return <Animated.View style={{ transform: [{ translateY: v.interpolate({ inputRange: [0, 1], outputRange: [0, -4] }) }] }}>{children}</Animated.View>;
+}
+function Blink({ children }: { children: React.ReactNode }) {
+  const v = useLoop(1200);
+  return <Animated.View style={{ flex: 1, opacity: v.interpolate({ inputRange: [0, 1], outputRange: [1, 0.35] }) }}>{children}</Animated.View>;
+}
+function Pulse({ children, colour }: { children: React.ReactNode; colour: string }) {
+  const v = useLoop(2000);
+  return (
+    <View>
+      <Animated.View pointerEvents="none" style={[styles.pulse, { backgroundColor: fade(colour, 0.35), opacity: v, transform: [{ scaleX: v.interpolate({ inputRange: [0, 1], outputRange: [1, 1.04] }) }, { scaleY: v.interpolate({ inputRange: [0, 1], outputRange: [1, 1.18] }) }] }]} />
+      {children}
     </View>
   );
 }
@@ -464,23 +562,37 @@ const styles = themed(() => StyleSheet.create({
   muted: { fontFamily: F.body, fontSize: 16, color: C.muted },
   small: { fontFamily: F.body, fontSize: 13, lineHeight: 18, color: C.muted },
 
-  level: { flexDirection: 'row', alignItems: 'center', gap: 14 },
-  lvl: { width: 54, height: 54, borderRadius: 16, borderWidth: 2, borderColor: '#FFC83D', backgroundColor: fade('#FFC83D', 0.14), alignItems: 'center', justifyContent: 'center', transform: [{ rotate: '-6deg' }] },
-  lvlSmall: { fontFamily: F.bodyBold, fontSize: 9, letterSpacing: 1, color: C.dark ? '#FFC83D' : '#9A6B00' },
-  lvlNum: { fontFamily: F.displayBold, fontSize: 20, lineHeight: 22, color: C.dark ? '#FFC83D' : '#9A6B00' },
+  level: { flexDirection: 'row', alignItems: 'center', gap: 14, padding: 12, borderRadius: 22, borderWidth: 2 },
+  segs: { flexDirection: 'row', gap: 3, marginTop: 8 },
+  seg: { flex: 1, height: 12, borderRadius: 4, shadowOpacity: 0.6, shadowRadius: 6, shadowOffset: { width: 0, height: 0 } },
+  segOff: { backgroundColor: C.surface2, shadowOpacity: 0 },
+  rank: { position: 'absolute', right: 14, bottom: 30, paddingVertical: 6, paddingHorizontal: 11, borderRadius: 999, backgroundColor: 'rgba(0, 0, 0, 0.38)' },
+  rankText: { fontFamily: F.bodyBold, fontSize: 11, letterSpacing: 1.2, textTransform: 'uppercase', color: '#fff' },
+  spark: { position: 'absolute', width: 6, height: 6, borderRadius: 3, backgroundColor: '#fff', shadowColor: '#fff', shadowOpacity: 1, shadowRadius: 6, shadowOffset: { width: 0, height: 0 } },
+  pulse: { position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, borderRadius: 999 },
+  quest: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 11, borderRadius: 18, backgroundColor: C.surface, borderWidth: 1.5, borderColor: C.line },
+  questIcon: { width: 38, height: 38, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
+  questBar: { height: 7, borderRadius: 4, backgroundColor: C.surface2, overflow: 'hidden', marginTop: 6 },
+  prize: { paddingVertical: 5, paddingHorizontal: 9, borderRadius: 999 },
+  prizeText: { fontFamily: F.bodyBold, fontSize: 11, color: '#fff' },
+  badgeLocked: { backgroundColor: C.surface2, borderWidth: 1.5, borderColor: C.line, shadowOpacity: 0, elevation: 0 },
+  badgeProg: { fontFamily: F.bodyBold, fontSize: 10, color: C.muted },
+  lvl: { width: 58, height: 58, borderRadius: 18, alignItems: 'center', justifyContent: 'center', transform: [{ rotate: '-6deg' }] },
+  lvlSmall: { fontFamily: F.bodyBold, fontSize: 9, letterSpacing: 1, color: '#fff' },
+  lvlNum: { fontFamily: F.displayBold, fontSize: 24, lineHeight: 26, color: '#fff' },
   xp: { fontFamily: F.displayBold, fontSize: 16, color: C.fg },
   bar: { height: 10, borderRadius: 6, backgroundColor: C.surface2, overflow: 'hidden', marginTop: 6 },
   barFill: { height: '100%', borderRadius: 6 },
 
   stats: { flexDirection: 'row', gap: 8 },
-  stat: { flex: 1, alignItems: 'center', paddingVertical: 10, borderRadius: 16, backgroundColor: C.surface, borderWidth: 1, borderColor: C.line },
-  statNum: { fontFamily: F.displayBold, fontSize: 19, color: C.fg },
-  statLabel: { fontFamily: F.bodyBold, fontSize: 10, letterSpacing: 0.8, textTransform: 'uppercase', color: C.muted },
+  stat: { flex: 1, alignItems: 'center', paddingVertical: 11, borderRadius: 18, shadowOpacity: 0.5, shadowRadius: 8, shadowOffset: { width: 0, height: 4 }, elevation: 3 },
+  statNum: { fontFamily: F.displayBold, fontSize: 21, color: '#fff' },
+  statLabel: { fontFamily: F.bodyBold, fontSize: 10, letterSpacing: 0.8, textTransform: 'uppercase', color: 'rgba(255, 255, 255, 0.9)' },
 
   badges: { flexDirection: 'row', justifyContent: 'space-between' },
   badgesPicked: { justifyContent: 'flex-start', gap: 14 },
   badge: { width: '19%', alignItems: 'center', gap: 6 },
-  badgeIcon: { width: 48, height: 48, borderRadius: 16, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
+  badgeIcon: { width: 52, height: 52, borderRadius: 18, borderWidth: 0, alignItems: 'center', justifyContent: 'center', shadowOpacity: 0.7, shadowRadius: 10, shadowOffset: { width: 0, height: 0 }, elevation: 4 },
   badgeName: { fontFamily: F.bodyBold, fontSize: 11, textAlign: 'center', color: C.fg },
 
   row: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, borderRadius: 16, backgroundColor: C.surface, borderWidth: 1, borderColor: C.line },
