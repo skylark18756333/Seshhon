@@ -29,6 +29,7 @@ import Sesh from './src/Sesh';
 import { Shown } from './src/Shown';
 import Swipe from './src/Swipe';
 import Tabs from './src/Tabs';
+import EventsTab from './src/EventsTab';
 import Tour from './src/Tour';
 import TwoStep from './src/TwoStep';
 import You from './src/You';
@@ -45,7 +46,7 @@ const AGE_CHECK_HOSTS = ['https://verify.didit.me/', 'https://age.yoti.com'];
 // Runs in the page before its own script: the page's "share" button uses the phone's share sheet, the page
 // starts on the tab the app asked for, and it starts signed in as whoever the app is signed in as.
 const PAGE_TABS = ['home', 'sesh', 'map', 'venues', 'events', 'you'];
-const BASE_TABS = ['home', 'sesh', 'you', 'crews', 'messages'];   // the tabs with a native screen ('crews' is opened from You or Home, and shows You in the tab bar)
+const BASE_TABS = ['home', 'sesh', 'you', 'crews', 'messages', 'events'];   // 'events' is the native Events screen (EventsTab), themed by You > Look   // the tabs with a native screen ('crews' is opened from You or Home, and shows You in the tab bar)
 // venue: open the page on that venue's page (from the native Sesh tab); closing it goes back to the Sesh tab.
 function bridge(tab: string | null, venue: string | null): string {
   const saved = sessionForPage();
@@ -457,6 +458,7 @@ function Shell() {
           </Shown.Provider>
         </View>
       ) : null}
+      {tab === 'events' ? <EventsTab /> : null}
       {tab === 'you' ? <You f={f} onOpenWeb={pickTab} onSignedOut={signedOut} />
         : tab === 'messages' ? <Messages f={f} onBack={goHome} />
         : tab === 'crews' ? <Crews f={f} onBack={goBefore} onPlanned={openPlanned} />
