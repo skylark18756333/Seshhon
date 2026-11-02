@@ -6,8 +6,8 @@
 //
 // Deploy WITHOUT the sign-in check, because the caller is the database, not a signed-in person:
 //   supabase functions deploy push --no-verify-jwt
-// Secrets (Edge Functions > Secrets):
-//   PUSH_SECRET        a long random text; the same one you give private.set_push_config() in the SQL editor
+// Secrets: none needed. Migration 0042 has the database make its own secret; the function checks it with
+// push_secret_ok(). (PUSH_SECRET in Edge Functions > Secrets still works too, if one is ever set.)
 //   EXPO_ACCESS_TOKEN  optional: an Expo access token, only needed if "Enhanced Security for Push Notifications" is on
 // SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are provided by Supabase itself.
 
@@ -41,9 +41,16 @@ type Item = { id: number; title: string; body: string; data: Record<string, unkn
 
 Deno.serve(async (req) => {
   if (req.method !== 'POST') return reply(405, { message: 'Use POST.' });
+  // The caller must send the secret the database keeps in private.push_config (migration 0042 makes it), or, if one
+  // was ever saved, the PUSH_SECRET from Edge Function secrets.
+  const given = req.headers.get('x-push-secret') || '';
+  if (given.length < 16) return reply(401, { message: 'Not allowed.' });
   const secret = env('PUSH_SECRET') || '';
-  if (secret.length < 16) return reply(503, { message: 'Push notifications are not set up yet.' });
-  if (!same(req.headers.get('x-push-secret') || '', secret)) return reply(401, { message: 'Not allowed.' });
+  let allowed = secret.length >= 16 && same(given, secret);
+  if (!allowed) {
+    try { allowed = (await db('push_secret_ok', { p_secret: given })) === true; } catch (e) { allowed = false; }
+  }
+  if (!allowed) return reply(401, { message: 'Not allowed.' });
   let sent = 0;
   const dead: string[] = [];
   try {
