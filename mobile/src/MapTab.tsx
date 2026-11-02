@@ -28,7 +28,9 @@ import { findMe, fmtKm, hoursLine, km, myPlace, openState, refreshVenues, useVen
 
 const CRAWL_MAX = 12;
 const SEARCH_MAX = 30, SEARCH_LIST = 6;   // pins on the map for a search, cards under the search box
-const NEAR_MAX = 60;                      // the most bubbles drawn at once from a circle (the nearest, busiest and tagged first)
+const NEAR_MAX = 30;                      // the most bubbles drawn at once from a circle (the nearest, busiest and tagged first)
+const NAMED = 8;                          // the first few bubbles always carry their name (no redraw of every marker on zoom)
+const noZoom = () => {};
 const BUZZ_MS = 60000;                    // api_buzz is asked again after a minute, like the web map
 const FILTERS: [string, string][] = [['popular', 'Popular'], ['trending', 'Trending'], ['open', 'Open now']];   // 'Deals' joins when deals are switched on (they are off in docs/config.js)
 
@@ -68,11 +70,14 @@ export default function MapTab({ f, onVenue, onOpenWeb, onWebMap }: {
     return at ? { centre: at, mine: true, busy: false, chosen: true } : { centre: MAP_CENTRE, mine: false, busy: false, chosen: false };
   });
   const [radius, setRadius] = useState(savedRadius);
+  // The bubbles on the map follow the slider only when it is let go: redrawing dozens of markers on every km step
+  // is what made the slider and the buttons around it feel stuck on Android. The circle and the count follow live.
+  const [mapRadius, setMapRadius] = useState(savedRadius);
+  const panel = useRef<ScrollView>(null);
   const [filter, setFilter] = useState('');
   const [query, setQuery] = useState('');
   const [pick, setPick] = useState<string | null>(null);
   const [list, setList] = useState(false);
-  const [names, setNames] = useState(false);
   const [note, setNote] = useState('');
   const [fit, setFit] = useState<{ key: number; coords: LatLng[] }>({ key: 0, coords: [] });
   const [focus, setFocus] = useState<{ key: number; at: LatLng } | null>(null);
@@ -164,7 +169,7 @@ export default function MapTab({ f, onVenue, onOpenWeb, onWebMap }: {
       const at = pins[x.id];
       if (!at) return;
       const d = geo.chosen ? km(geo.centre, at) : null;
-      const inside = d !== null && d <= radius;
+      const inside = d !== null && d <= mapRadius;
       if (pick === x.id) out.push({ ven: x, at, d, inside });
       else if (inside && filterOk(x)) near.push({ ven: x, at, d, inside });
     });
@@ -172,30 +177,32 @@ export default function MapTab({ f, onVenue, onOpenWeb, onWebMap }: {
     near.sort((a, b) => busyOf(b.ven) - busyOf(a.ven) || (tagOf(b.ven) ? 1 : 0) - (tagOf(a.ven) ? 1 : 0) || (a.d as number) - (b.d as number));
     return out.concat(near.slice(0, NEAR_MAX));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [v.list, pins, geo, radius, filter, query, pick, buzz]);
+  }, [v.list, pins, geo, mapRadius, filter, query, pick, buzz]);
 
   // Stops are always on the map (even outside the circle), drawn as numbered circles. Worked out again only when
   // something on the map changed (not on every redraw of the screen), and the open/closed dots once a minute.
   const minute = Math.floor(Date.now() / 60000);
   const markers: MapMarker[] = useMemo(() => {
-    const list: MapMarker[] = shown.map(({ ven, at, inside }) => {
+    const list: MapMarker[] = shown.map(({ ven, at, inside }, i) => {
       const c = stopOf(ven.id), st = openState(ven);
       return {
         id: ven.id, at, name: ven.name, kind: pick === ven.id ? 'goal' : inside ? 'near' : 'far', glyph: kindGlyph(ven),
-        tag: tagOf(ven), busy: busyOf(ven), open: st ? st.open : null, names, stop: c ? { n: c.position, done: c.done } : null
+        tag: tagOf(ven), busy: busyOf(ven), open: st ? st.open : null, names: i < NAMED, stop: c ? { n: c.position, done: c.done } : null
       } as MapMarker;
     });
     const have: Record<string, boolean> = {};
     list.forEach((m) => { have[m.id] = true; });
     stops.forEach((c) => {
       const at = pins && pins[c.venue_id], ven = v.byId[c.venue_id];
-      if (at && ven && !have[c.venue_id]) list.push({ id: ven.id, at, name: ven.name, kind: pick === ven.id ? 'goal' : 'near', glyph: kindGlyph(ven), tag: '', busy: 0, open: null, names, stop: { n: c.position, done: c.done } });
+      if (at && ven && !have[c.venue_id]) list.push({ id: ven.id, at, name: ven.name, kind: pick === ven.id ? 'goal' : 'near', glyph: kindGlyph(ven), tag: '', busy: 0, open: null, names: true, stop: { n: c.position, done: c.done } });
     });
     return list;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shown, stops, pick, names, buzz, pins, v.byId, minute]);
+  }, [shown, stops, pick, buzz, pins, v.byId, minute]);
   const route: LatLng[] = useMemo(() => stops.map((c) => pins && pins[c.venue_id]).filter((x): x is [number, number] => !!x), [stops, pins]);
   const onPickPin = useCallback((id: string) => setPick(id), []);
+  // A picked venue's card is the first thing in the panel under the map, scrolled into view.
+  useEffect(() => { if (pick && panel.current) panel.current.scrollTo({ y: 0, animated: true }); }, [pick]);
 
   const pickVen = pick ? v.byId[pick] : null;
 
@@ -275,7 +282,7 @@ export default function MapTab({ f, onVenue, onOpenWeb, onWebMap }: {
   }
   const out = me.colour === 'off' ? [] : friends.filter((x) => x.colour === 'on' || x.colour === 'thinking')
     .sort((x, y) => STOPS.indexOf(x.colour) - STOPS.indexOf(y.colour));
-  const count = shown.filter((x) => x.inside).length;
+  const count = !pins || !geo.chosen ? 0 : v.list.reduce((n, x) => (pins[x.id] && km(geo.centre, pins[x.id]) <= radius && filterOk(x) ? n + 1 : n), 0);
   const lines = geo.busy ? 'Finding you...' : geo.mine ? 'Searching around you. Your location stays on this phone and is never saved or shown to friends.'
     : geo.chosen ? 'Tap the map to search somewhere else, or the arrow to search near you.' : 'Tap the map to pick a spot, or the arrow to search near you.';
 
@@ -333,7 +340,7 @@ export default function MapTab({ f, onVenue, onOpenWeb, onWebMap }: {
             <NativeMap
               centre={geo.centre} radiusKm={radius} chosen={geo.chosen} mine={geo.mine} meName={me.name}
               markers={markers} route={route} fit={fit} focus={focus} onPick={onPickPin}
-              onMapPress={onMapPress} onZoom={setNames}
+              onMapPress={onMapPress} onZoom={noZoom}
             />
             {out.length ? (
               <View style={styles.friends} accessibilityLabel="Friends out tonight" pointerEvents="none">
@@ -353,7 +360,15 @@ export default function MapTab({ f, onVenue, onOpenWeb, onWebMap }: {
         </Pressable>
       </View>
 
-      <ScrollView style={[styles.panel, { maxHeight: Math.round(screenH * 0.36) }]} contentContainerStyle={styles.panelBody} keyboardShouldPersistTaps="handled">
+      <ScrollView ref={panel} style={[styles.panel, { maxHeight: Math.round(screenH * 0.36) }]} contentContainerStyle={styles.panelBody} keyboardShouldPersistTaps="handled">
+        {pickVen ? (
+          <PickCard
+            ven={pickVen} v={v} geo={geo} mine={mine} stop={stopOf(pickVen.id)} crawlOff={crawl.off} crawlFull={stops.length >= CRAWL_MAX}
+            onClose={() => setPick(null)} onOpen={() => onVenue(pickVen.id)} onRate={(n) => rate(pickVen, n)}
+            onVote={() => mine && f.act('cast_vote', { p_sesh: mine.id, p_venue: pickVen.id }, 'Your vote is in.')}
+            onAdd={() => crawlRun('crawl_add', pickVen.id, 'Added to the Sesh Map.')} onStop={() => onOpenWeb('sesh')}
+          />
+        ) : null}
         <View style={styles.radius} testID="map-night">
           <Text style={styles.eyebrow}>Night out</Text>
           {targets.length ? (
@@ -374,24 +389,16 @@ export default function MapTab({ f, onVenue, onOpenWeb, onWebMap }: {
             setPlan({ at: t.getTime(), pick: false, picked: {} });
           }} />
         </View>
-        {pickVen ? (
-          <PickCard
-            ven={pickVen} v={v} geo={geo} mine={mine} stop={stopOf(pickVen.id)} crawlOff={crawl.off} crawlFull={stops.length >= CRAWL_MAX}
-            onClose={() => setPick(null)} onOpen={() => onVenue(pickVen.id)} onRate={(n) => rate(pickVen, n)}
-            onVote={() => mine && f.act('cast_vote', { p_sesh: mine.id, p_venue: pickVen.id }, 'Your vote is in.')}
-            onAdd={() => crawlRun('crawl_add', pickVen.id, 'Added to the Sesh Map.')} onStop={() => onOpenWeb('sesh')}
-          />
-        ) : null}
         <View style={styles.radius}>
           <View style={styles.between}>
             <Text style={styles.eyebrow}>How far</Text>
             <Text style={styles.num} testID="radius-label">{radius}<Text style={styles.numUnit}> km</Text></Text>
           </View>
-          <Slider value={radius} min={1} max={25} onChange={(n) => { savedRadius = n; setRadius(n); }} onDone={() => { if (geo.chosen) refit(circleCoords(geo.centre, radius)); }} />
+          <Slider value={radius} min={1} max={25} onChange={(n) => { savedRadius = n; setRadius(n); }} onDone={(n) => { setMapRadius(n); if (geo.chosen) refit(circleCoords(geo.centre, n)); }} />
           <View style={styles.between}><Text style={styles.scale}>1 km</Text><Text style={styles.scale}>25 km</Text></View>
         </View>
         <Text style={styles.small} testID="map-note">{note || lines}</Text>
-        {geo.chosen && !hits ? <Text style={styles.small} testID="venue-count">{count} venue{count === 1 ? '' : 's'}{filter ? ' ' + filterName.toLowerCase() : ''} within {radius} km{geo.mine ? ' of you' : ' of the pin'}{count >= NEAR_MAX ? '. Showing the busiest and nearest ' + NEAR_MAX + '.' : ''}</Text> : null}
+        {geo.chosen && !hits ? <Text style={styles.small} testID="venue-count">{count} venue{count === 1 ? '' : 's'}{filter ? ' ' + filterName.toLowerCase() : ''} within {radius} km{geo.mine ? ' of you' : ' of the pin'}{count > NEAR_MAX ? '. The busiest and nearest ' + NEAR_MAX + ' are on the map.' : ''}</Text> : null}
         <Pressable onPress={onWebMap} accessibilityRole="button" accessibilityLabel="Map not loading? Use the simple map" testID="map-simple" style={styles.simple}>
           <Text style={styles.simpleText}>Map not loading? Use the simple map</Text>
         </Pressable>
@@ -470,7 +477,7 @@ function PickCard({ ven, v, geo, mine, stop, crawlOff, crawlFull, onClose, onOpe
 // The "How far" slider, 1 to 25 km. Touch or drag anywhere on the bar. The finger is read against the bar's place
 // on the screen (pageX), not locationX: on Android locationX jumps about mid-drag, which made the radius skip back.
 // The bar also grabs the touch before the scrolling panel around it, so a drag that wobbles up or down still slides.
-function Slider({ value, min, max, onChange, onDone }: { value: number; min: number; max: number; onChange: (n: number) => void; onDone: () => void }) {
+function Slider({ value, min, max, onChange, onDone }: { value: number; min: number; max: number; onChange: (n: number) => void; onDone: (n: number) => void }) {
   const box = useRef<View>(null);
   const left = useRef(0);
   const width = useRef(1);
@@ -492,8 +499,8 @@ function Slider({ value, min, max, onChange, onDone }: { value: number; min: num
       else move(x);
     },
     onPanResponderMove: (e) => move(e.nativeEvent.pageX),
-    onPanResponderRelease: () => done.current(),
-    onPanResponderTerminate: () => done.current()
+    onPanResponderRelease: () => done.current(last.current),
+    onPanResponderTerminate: () => done.current(last.current)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }), []);
   const part = (value - min) / (max - min);
@@ -502,7 +509,7 @@ function Slider({ value, min, max, onChange, onDone }: { value: number; min: num
       ref={box} style={styles.sliderHit} onLayout={measure} {...pan.panHandlers}
       testID="radius" accessible accessibilityRole="adjustable" accessibilityLabel="How far" accessibilityValue={{ min, max, now: value, text: value + ' km' }}
       accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]}
-      onAccessibilityAction={(e) => { onChange(Math.min(max, Math.max(min, value + (e.nativeEvent.actionName === 'increment' ? 1 : -1)))); done.current(); }}
+      onAccessibilityAction={(e) => { const n = Math.min(max, Math.max(min, value + (e.nativeEvent.actionName === 'increment' ? 1 : -1))); onChange(n); done.current(n); }}
     >
       <View style={styles.track} pointerEvents="none">
         <View style={[styles.trackFill, { width: `${part * 100}%` }]} />
