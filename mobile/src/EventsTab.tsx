@@ -18,12 +18,13 @@ type Event = {
 // comedy (green), a fork for food and drink (the accent). Paths are filled shapes so they read at a glance.
 const NOTE = 'M19 3v11.3a3.5 3.5 0 1 1-2-3.16V6.2L9 8.1V18a3.5 3.5 0 1 1-2-3.16V6l12-3z';
 const MIC = 'M12 2a3.5 3.5 0 0 0-3.5 3.5v5a3.5 3.5 0 0 0 7 0v-5A3.5 3.5 0 0 0 12 2z M5 10.5a1 1 0 0 1 2 0 5 5 0 0 0 10 0 1 1 0 0 1 2 0 7 7 0 0 1-6 6.93V21h3a1 1 0 0 1 0 2H8a1 1 0 0 1 0-2h3v-3.57A7 7 0 0 1 5 10.5z';
-const FORK = 'M6 2h2v6a2 2 0 0 1-4 0V2h2v5h0V2zM9 2h2v5h1V2h2v5a4 4 0 0 1-3 3.87V22H9V10.87A4 4 0 0 1 6 7V2h3z M18 2c-2.2 0-3.5 2.4-3.5 5.5 0 2 .9 3.3 2.5 3.8V22h2V2z';
 
-const badgeFor = (kind: string): { colours: [string, string]; glow: string; path: string } => {
+// Badges copied from the icon mock-up Sarah picked: the solid note in blue for music, the solid mic in green for
+// comedy, and the fork emoji on the purple-to-pink gradient for food and drink.
+const badgeFor = (kind: string): { colours: [string, string]; glow: string; path?: string; emoji?: string } => {
   if (kind === 'Comedy') return { colours: ['#22C55E', '#86EFAC'], glow: '#22C55E', path: MIC };
   if (kind === 'Concert' || kind === 'Gig' || kind === 'Festival') return { colours: ['#2F7BFF', '#5AA8FF'], glow: '#2F7BFF', path: NOTE };
-  return { colours: [C.accent, C.accent], glow: C.accent, path: FORK };   // food and drink, and anything else
+  return { colours: ['#7C4DFF', '#FF4FA3'], glow: '#FF4FA3', emoji: '\u{1F374}' };   // food and drink, and anything else
 };
 
 function whenLine(e: Event): string {
@@ -39,9 +40,9 @@ function Badge({ kind }: { kind: string }) {
   return (
     <View style={[styles.glow, { shadowColor: b.glow }]}>
       <LinearGradient colors={b.colours} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.badge}>
-        <Svg width={34} height={34} viewBox="0 0 24 24">
-          <Path d={b.path} fill="#FFFFFF" />
-        </Svg>
+        {b.emoji
+          ? <Text style={styles.emoji}>{b.emoji}</Text>
+          : <Svg width={34} height={34} viewBox="0 0 24 24"><Path d={b.path as string} fill="#FFFFFF" /></Svg>}
       </LinearGradient>
     </View>
   );
@@ -119,5 +120,6 @@ const styles = themed(() => StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' },
   dist: { backgroundColor: C.surface2, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6 },
   distText: { fontFamily: F.bodyMid, fontSize: 13, color: C.fg },
-  more: { fontFamily: F.bodyBold, fontSize: 13, color: C.accent }
+  more: { fontFamily: F.bodyBold, fontSize: 13, color: C.accent },
+  emoji: { fontSize: 32, lineHeight: 38 }
 }));
