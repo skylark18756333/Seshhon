@@ -17,6 +17,7 @@ import Icon from './Icon';
 import { Button, Face, Toast, setWaiting } from './Parts';
 import { ReactBar, ReactChips } from './Reactions';
 import KeyboardSafe from './KeyboardSafe';
+import Notifications, { seshInvites, useHiddenSeshes, type NewChat } from './Notifications';
 import { rpc, type ApiError } from './session';
 import type { Frendzy } from './useFrendzy';
 import { C, COLOURS, F, LABELS, fade, first, fmtTime, themed } from './theme';
@@ -208,6 +209,9 @@ export default function Messages({ f, onBack, onSesh }: { f: Frendzy; onBack: ()
 
   // Emoji reactions: hold a message to pick one; the same one again takes it off.
   const [reacting, setReacting] = useState<string | null>(null);
+  // The switch at the top of Chats: your messages, or everything waiting on you (Notifications.tsx).
+  const [side, setSide] = useState<'messages' | 'alerts'>('messages');
+  const [hiddenSeshes, hideSesh] = useHiddenSeshes();
   const react = (m: Msg, e: string) => {
     if (!open) return;
     setReacting(null);
@@ -228,6 +232,8 @@ export default function Messages({ f, onBack, onSesh }: { f: Frendzy; onBack: ()
   // Red friends are never shown as red: only green and amber friends get a chat head.
   const heads = friends.filter((fr) => fr.colour === 'on').concat(friends.filter((fr) => fr.colour === 'thinking'));
   const seshes = (f.state && f.state.seshes) || [];
+  const newChats: NewChat[] = ordered.filter((fr) => unread(fr.id)).map((fr) => { const m = last(fr.id)!; return { id: fr.id, name: fr.name, text: m.text, at: m.at }; });
+  const alerts = ((f.state && f.state.requests_in) || []).length + seshInvites(f, hiddenSeshes).length + newChats.length;
   const liveSesh = seshes.filter((x) => x.am_member && !(x.planned && x.starts_at && new Date(x.starts_at).getTime() > Date.now()))[0] || null;
   const row = (fr: Friend) => {
     const m = last(fr.id), un = unread(fr.id);
@@ -257,6 +263,17 @@ export default function Messages({ f, onBack, onSesh }: { f: Frendzy; onBack: ()
         </Pressable>
         <Text style={[styles.h1, styles.grow]} numberOfLines={1} accessibilityRole="header">{friend ? friend.name : 'Messages'}</Text>
       </View>
+      {!friend ? (
+        <View style={styles.switch} accessibilityRole="tablist">
+          {(['messages', 'alerts'] as const).map((k) => (
+            <Pressable key={k} style={[styles.switchBtn, side === k && styles.switchOn]} onPress={() => setSide(k)}
+              accessibilityRole="tab" accessibilityState={{ selected: side === k }} testID={'chats-' + k}>
+              <Text style={[styles.switchText, side === k && styles.switchTextOn]}>{k === 'messages' ? 'Messages' : 'Notifications'}</Text>
+              {k === 'alerts' && alerts ? <View style={styles.count}><Text style={styles.countText}>{alerts > 9 ? '9+' : alerts}</Text></View> : null}
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
       <KeyboardSafe style={styles.fill}>
         {friend ? (
           <>
@@ -301,6 +318,10 @@ export default function Messages({ f, onBack, onSesh }: { f: Frendzy; onBack: ()
               </Pressable>
             </View>
           </>
+        ) : side === 'alerts' ? (
+          <ScrollView style={styles.fill} contentContainerStyle={styles.view}>
+            <Notifications f={f} chats={newChats} hidden={hiddenSeshes} hide={hideSesh} onChat={openChat} onSesh={onSesh} />
+          </ScrollView>
         ) : (
           <ScrollView style={styles.fill} contentContainerStyle={styles.view}>
             {/* Chat heads: friends who are green (or amber and letting you see), one tap to chat. */}
@@ -387,5 +408,12 @@ const styles = themed(() => StyleSheet.create({
   compose: { flexDirection: 'row', alignItems: 'flex-end', gap: 10, paddingHorizontal: 14, paddingTop: 8, paddingBottom: 10, maxWidth: 440, width: '100%', alignSelf: 'center' },
   input: { minHeight: 48, maxHeight: 120, borderRadius: 16, borderWidth: 1, borderColor: C.line, backgroundColor: C.surface, paddingHorizontal: 14, paddingTop: 12, color: C.fg, fontFamily: F.body, fontSize: 16 },
   send: { width: 46, height: 46, borderRadius: 23, backgroundColor: C.accent, alignItems: 'center', justifyContent: 'center' },
-  sendOff: { opacity: 0.45 }
+  sendOff: { opacity: 0.45 },
+  switch: { flexDirection: 'row', gap: 4, padding: 4, marginHorizontal: 18, borderRadius: 22, backgroundColor: C.surface, borderWidth: 1, borderColor: C.line, maxWidth: 404, width: '100%', alignSelf: 'center' },
+  switchBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, height: 38, borderRadius: 18 },
+  switchOn: { backgroundColor: C.accent },
+  switchText: { fontFamily: F.bodyBold, fontSize: 14, color: C.muted },
+  switchTextOn: { color: C.accentInk },
+  count: { minWidth: 20, height: 20, borderRadius: 10, paddingHorizontal: 5, backgroundColor: C.off, alignItems: 'center', justifyContent: 'center' },
+  countText: { fontFamily: F.bodyBold, fontSize: 11, color: '#fff' }
 }));
