@@ -451,6 +451,9 @@ try {
   // Near me: this phone's position stays on the phone.
   await natMap.ctx.grantPermissions(['geolocation']);
   await natMap.ctx.setGeolocation({ latitude: -31.9871, longitude: 115.8412 });
+  // A venue card left open from the stops above hides Near me, so close it first.
+  const closeCard = natMap.page.getByRole('button', { name: 'Close', exact: true }).filter({ visible: true });
+  if (await closeCard.count()) await closeCard.first().click();
   await natMap.page.getByTestId('map-near-me').click();
   await has(natMap, 'Your location stays on this phone and is never saved or shown to friends.');
   await has(natMap, 'within 5 km of you');
@@ -479,7 +482,9 @@ try {
   await natMap.page.getByTestId('map-stub').waitFor();
   console.log('back on the native map after a venue: yes');
 
-  // "Map not loading? Use the simple map": the Map tab becomes the packed web map.
+  // "Map not loading? Use the simple map": the Map tab becomes the packed web map. (Close the venue card first.)
+  const closeCard2 = natMap.page.getByRole('button', { name: 'Close', exact: true }).filter({ visible: true });
+  if (await closeCard2.count()) await closeCard2.first().click();
   await natMap.page.getByTestId('map-simple').click();
   await until(async () => (await natMap.page.getByTestId('map-stub').count()) === 0);
   expect('the simple map link switches to the web map', await natMap.page.getByTestId('map-stub').count(), 0);
@@ -560,8 +565,23 @@ try {
   // Plan a sesh for later, for all friends: plan_sesh.
   await tap(nat, 'Plan a sesh for later');
   await has(nat, "When's it on?");
-  await tap(nat, 'A day later');
+  await tap(nat, 'Tomorrow');
+  await tap(nat, 'Night, 8:00 pm');   // the time-of-day chips; 8 pm keeps the pres below (6:45 pm) before the sesh
+  await has(nat, 'Tomorrow, 8:00 pm');
   await sshot(nat, '10-plan.png');
+  // The plan screen in each look: switch in You > Look, then back to Home where the plan is still open.
+  for (const id of ['day', 'pop', 'neon']) {
+    await nat.page.getByRole('tab', { name: 'You' }).click().catch(() => tap(nat, 'You'));
+    const sec = nat.page.getByTestId('set-look').filter({ visible: true }).first();
+    await sec.waitFor({ timeout: 8000 });
+    if ((await sec.getAttribute('aria-expanded')) !== 'true') await sec.click();
+    await nat.page.locator('[data-testid="look-' + id + '"]').filter({ visible: true }).first().click();
+    await nat.page.getByRole('tab', { name: 'Home' }).click();
+    await has(nat, "When's it on?");
+    await sshot(nat, '10-plan-' + id + '.png');
+    await nat.page.getByText('YOUR PLAN', { exact: true }).scrollIntoViewIfNeeded();
+    await sshot(nat, '10-plan-' + id + '-ticket.png');
+  }
   await tap(nat, 'Pick friends');
   await has(nat, 'Pick at least one friend');
   await nat.page.getByRole('button', { name: 'Jack', exact: true }).click();
