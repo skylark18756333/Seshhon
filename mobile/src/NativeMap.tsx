@@ -270,9 +270,13 @@ function NativeMap(p: MapView) {
       provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
       customMapStyle={Platform.OS === 'android' ? (C.dark ? DARK_STYLE : LIGHT_STYLE) : undefined}
       initialRegion={{ latitude: p.centre[0], longitude: p.centre[1], latitudeDelta: 0.12, longitudeDelta: 0.12 }}
-      onPress={(e) => { const c = e.nativeEvent.coordinate; p.onMapPress([c.latitude, c.longitude]); }}
-      // A long press drops the pin too, even on top of a venue bubble.
+      // Sarah: a single tap shouldn't move your spot (too easy to do by accident). A double tap moves the pin there
+      // (instead of zooming in), and so does a long press, even on top of a venue bubble. A single tap just closes
+      // whatever card is open.
+      onPress={() => { if (p.onMapTap) p.onMapTap(); }}
+      onDoublePress={(e) => { const c = e.nativeEvent.coordinate; if (c) p.onMapPress([c.latitude, c.longitude]); }}
       onLongPress={(e) => { const c = e.nativeEvent.coordinate; p.onMapPress([c.latitude, c.longitude]); }}
+      zoomTapEnabled={false}
       onRegionChangeComplete={onRegion}
       mapPadding={padding}
       onRegionChange={radarOn ? onMove : undefined}

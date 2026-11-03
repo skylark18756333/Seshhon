@@ -336,7 +336,7 @@ try {
   // This phone hasn't shared its location, so nothing is shown until a spot is chosen.
   expect('no venues until a spot is chosen', (await markerIds(natMap)).length, 0);
   expect('no circle yet', await natMap.page.getByTestId('map-circle').innerText(), 'no circle');
-  await has(natMap, 'Tap the map to pick a spot');
+  await has(natMap, 'Double tap the map to pick a spot');
   await mshot(natMap, '1-map-start.png');
 
   // "How far" is a row of km buttons (1, 2, 3, 5, 10, 25) over the map.
