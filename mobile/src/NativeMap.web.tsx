@@ -34,7 +34,7 @@ export default function NativeMap(p: MapView) {
 const styles = themed(() => StyleSheet.create({
   // The Map tab floats its controls over the top and its cards over the bottom of the map, so the stand-in keeps
   // its own buttons in the middle where they can be tapped.
-  box: { flex: 1, backgroundColor: '#1d2230', padding: 10, paddingTop: 200, paddingBottom: 190, gap: 6, overflow: 'hidden' },
+  box: { flex: 1, backgroundColor: '#1d2230', padding: 10, paddingTop: 232, paddingBottom: 190, gap: 6, overflow: 'hidden' },
   tap: { alignSelf: 'flex-start', paddingVertical: 4, paddingHorizontal: 10, borderRadius: 12, borderWidth: 1, borderColor: C.line },
   list: { gap: 6 },
   marker: { padding: 8, borderRadius: 12, borderWidth: 2, borderColor: C.line, backgroundColor: C.surface },

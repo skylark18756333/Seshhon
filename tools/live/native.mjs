@@ -674,6 +674,25 @@ try {
   await nat.page.getByRole('tab', { name: 'Chats' }).click();
   await has(nat, 'Start a chat');
   await nat.page.getByRole('tab', { name: 'Home' }).click();
+  // Swipes: push the orb left (green to amber), then swipe along the bar from Home one tab to the right (Map).
+  const drag = async (testId, dx) => {
+    const box = await nat.page.getByTestId(testId).filter({ visible: true }).first().boundingBox();
+    const x = testId === 'dock-bar' ? box.x + 50 : box.x + box.width / 2, y = box.y + box.height / 2;
+    await nat.page.mouse.move(x, y);
+    await nat.page.mouse.down();
+    for (let i = 1; i <= 8; i++) await nat.page.mouse.move(x + (dx * i) / 8, y, { steps: 2 });
+    await nat.page.mouse.up();
+  };
+  await drag('dock-orb', -60);
+  await until(() => psql(`select colour from public.statuses where user_id = '${anaId}'`) === 'thinking');
+  expect('swipe the orb left', psql(`select colour from public.statuses where user_id = '${anaId}'`), 'thinking');
+  await drag('dock-orb', 60);
+  await until(() => psql(`select colour from public.statuses where user_id = '${anaId}'`) === 'on');
+  expect('swipe the orb right', psql(`select colour from public.statuses where user_id = '${anaId}'`), 'on');
+  await drag('dock-bar', 80);
+  await nat.page.getByRole('tab', { name: 'Map', selected: true }).waitFor({ timeout: 5000 });
+  expect('swipe along the bar', await nat.page.getByRole('tab', { name: 'Map', selected: true }).count(), 1);
+  await nat.page.getByRole('tab', { name: 'Home' }).click();
   await nat.page.getByTestId('open-friends').filter({ visible: true }).first().click();
   // Your own profile is the first thing on Friends.
   await nat.page.getByTestId('friends-me').filter({ visible: true }).first().click();
