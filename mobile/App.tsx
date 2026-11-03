@@ -13,6 +13,7 @@ import * as Updates from 'expo-updates';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { BackHandler, Linking, Platform, Pressable, Share, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { CrashGuard } from './src/CrashGuard';
 import { WebView, type WebViewMessageEvent, type WebViewNavigation } from 'react-native-webview';
 import type { Colour } from './src/api';
 import MapTab from './src/MapTab';
@@ -501,7 +502,7 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <StatusBar style={C.dark ? 'light' : 'dark'} />
-      {fontsReady ? <Shell /> : <Layer><View style={styles.fill} /></Layer>}
+      <CrashGuard>{fontsReady ? <Shell /> : <Layer><View style={styles.fill} /></Layer>}</CrashGuard>
     </SafeAreaProvider>
   );
 }
