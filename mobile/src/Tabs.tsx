@@ -2,6 +2,7 @@
 // line icons that each hold a light (Chats holds three). The lights and the dock's edge glow take your colour. The orb in the middle glows your
 // colour; tap it and red, amber and green fan out above it, so you can change your status from any tab, or push it
 // sideways (right towards green, left towards red). Swiping along the rest of the bar moves between the tabs.
+import { tapHomeAgain } from './Shown';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, PanResponder, Pressable, StyleSheet, Text, View } from 'react-native';
 import Svg, { Circle, Path } from 'react-native-svg';
@@ -69,6 +70,8 @@ export default function Tabs({ tab, requests, colour, onPick, onColour }: {
   // Swipe along the bar: the highlight follows your finger, one tab over for every STEP you move.
   const live = useRef({ tab, colour, onPick, onColour });
   live.current = { tab, colour, onPick, onColour };
+  // When a swipe along the bar ends on a tab, that tab's tap is ignored (the swipe already picked the page).
+  const swipedAt = useRef(0);
   const barSwipe = useMemo(() => PanResponder.create({
     onMoveShouldSetPanResponder: (_e, g) => sideways(g.dx, g.dy, 12),
     onPanResponderRelease: (_e, g) => {
@@ -76,6 +79,7 @@ export default function Tabs({ tab, requests, colour, onPick, onColour }: {
       const at = Math.max(0, PAGES.indexOf(live.current.tab));
       const to = PAGES[Math.min(PAGES.length - 1, Math.max(0, at + steps))];
       setOpen(false);
+      swipedAt.current = Date.now();
       if (to !== live.current.tab) live.current.onPick(to);
     }
   }), []);
@@ -132,7 +136,7 @@ export default function Tabs({ tab, requests, colour, onPick, onColour }: {
           }
           const here = key === tab;
           return (
-            <Pressable key={key} style={styles.button} onPress={() => { setOpen(false); onPick(key); }}
+            <Pressable key={key} style={styles.button} onPress={() => { if (Date.now() - swipedAt.current < 400) return; setOpen(false); if (here && key === 'home') tapHomeAgain(); onPick(key); }}
               accessibilityRole="tab" accessibilityLabel={key === 'messages' && waiting > 0 ? name + ', ' + waiting + ' new' : name} accessibilityState={{ selected: here }}>
               <DotIcon name={key} ink={here ? C.fg : C.muted} lit={here} light={colour ? glow : C.muted} />
               <Text style={[styles.label, here && { color: C.fg }]}>{name}</Text>

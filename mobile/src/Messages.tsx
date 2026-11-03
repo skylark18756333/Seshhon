@@ -239,7 +239,11 @@ export default function Messages({ f, onBack, onSesh }: { f: Frendzy; onBack: ()
                 multiline
                 accessibilityLabel="Message"
               />
-              <Button label="Send" small onPress={send} disabled={busy || !text.trim()} />
+              {/* A round send button with the paper plane, the same as the sesh chat's. */}
+              <Pressable style={[styles.send, (busy || !text.trim()) && styles.sendOff]} onPress={send} disabled={busy || !text.trim()}
+                accessibilityRole="button" accessibilityLabel="Send" accessibilityState={{ disabled: busy || !text.trim() }} testID="dm-send">
+                <Icon name="send" size={22} colour={C.accentInk} />
+              </Pressable>
             </View>
           </>
         ) : (
@@ -323,5 +327,7 @@ const styles = themed(() => StyleSheet.create({
   mineText: { color: C.accentInk },
   theirs: { alignSelf: 'flex-start', backgroundColor: C.surface, borderWidth: 1, borderColor: C.line },
   compose: { flexDirection: 'row', alignItems: 'flex-end', gap: 10, paddingHorizontal: 14, paddingTop: 8, paddingBottom: 10, maxWidth: 440, width: '100%', alignSelf: 'center' },
-  input: { minHeight: 48, maxHeight: 120, borderRadius: 16, borderWidth: 1, borderColor: C.line, backgroundColor: C.surface, paddingHorizontal: 14, paddingTop: 12, color: C.fg, fontFamily: F.body, fontSize: 16 }
+  input: { minHeight: 48, maxHeight: 120, borderRadius: 16, borderWidth: 1, borderColor: C.line, backgroundColor: C.surface, paddingHorizontal: 14, paddingTop: 12, color: C.fg, fontFamily: F.body, fontSize: 16 },
+  send: { width: 46, height: 46, borderRadius: 23, backgroundColor: C.accent, alignItems: 'center', justifyContent: 'center' },
+  sendOff: { opacity: 0.45 }
 }));

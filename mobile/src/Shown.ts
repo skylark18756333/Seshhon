@@ -24,3 +24,11 @@ export function useOnShow(fn: () => void): void {
     was.current = shown;
   }, [shown]);
 }
+
+// Tapping Home in the dock while Home is already on show takes you back to the top of Home (out of a sesh you opened).
+const homeTaps = new Set<() => void>();
+export function tapHomeAgain(): void { homeTaps.forEach((fn) => fn()); }
+export function useHomeTapAgain(fn: () => void): void {
+  const call = useRef(fn); call.current = fn;
+  useEffect(() => { const h = () => call.current(); homeTaps.add(h); return () => { homeTaps.delete(h); }; }, []);
+}

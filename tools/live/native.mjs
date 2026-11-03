@@ -227,6 +227,10 @@ try {
   await has(nat, 'Keep it going');
   await has(nat, 'Find venues');
   expect('Crewzy crawl and Plan for later still on hand', await nat.page.getByTestId('more-crawl').count() + await nat.page.getByTestId('more-plan').count() >= 2, true);
+  // Home shows only the card; Vote opens the sesh itself, where the voting is.
+  expect('no vote cards on Home', await nat.page.locator('[data-testid^="vote-"]').filter({ visible: true }).count(), 0);
+  await nat.page.getByTestId('sesh-where').filter({ visible: true }).first().click();
+  expect('Vote opens full screen under the sesh bar', await nat.page.getByTestId('sesh-strip-back').filter({ visible: true }).count(), 1);
   await has(nat, 'Where to?');
   const seshId = psql(`select id from public.seshes where creator = '${anaId}' and ended_at is null`);
   expect('a live sesh started by Ana', psql(`select count(*) from public.seshes where creator = '${anaId}' and ended_at is null`), 1);
@@ -251,6 +255,7 @@ try {
   await tap(natJ, 'Join');
   await has(natJ, 'LIVE SESH');
   expect('Jack is in the sesh', psql(`select count(*) from public.sesh_members where sesh_id = '${seshId}' and user_id = '${jackId}'`), 1);
+  await natJ.page.getByTestId('sesh-where').filter({ visible: true }).first().click();
   // Jack votes for the other venue, then changes to Ana's: two votes for one venue.
   await voteFor(natJ, venueB);
   await until(() => psql(`select count(*) from public.venue_votes where sesh_id = '${seshId}'`) === '2');
@@ -298,6 +303,28 @@ try {
   console.log("Jack's phone received Ana's reply: yes");
   expect('messages stored', psql(`select count(*) from public.messages where sesh_id = '${seshId}'`), 2);
   expect('input cleared after sending', await nat.page.getByLabel('Message your mates').inputValue(), '');
+  // Inside the sesh: no second message preview on the card, the time left, and Edit for the person who started it.
+  expect('no message preview inside the sesh', await nat.page.getByLabel('Open the sesh chat').filter({ visible: true }).count(), 0);
+  expect('time left shown', /h \d+m left|m left/.test(await nat.page.getByTestId('sesh-time-left').filter({ visible: true }).first().innerText()), true);
+  await nat.page.getByTestId('sesh-more').filter({ visible: true }).first().click();
+  await has(nat, 'Sesh colour');
+  await nat.page.getByTestId('sesh-colour-ocean').filter({ visible: true }).first().click();
+  await nat.page.getByTestId('sesh-name-input').filter({ visible: true }).first().fill('Friday funday');
+  await nat.page.getByRole('button', { name: 'Emoji 🪩', exact: true }).first().click();
+  await nat.page.getByTestId('sesh-save').filter({ visible: true }).first().click();
+  await until(() => psql(`select coalesce(name, '') from public.seshes where id = '${seshId}'`) === 'Friday funday');
+  expect('sesh name saved', psql(`select name || ' ' || emoji || ' ' || colour from public.seshes where id = '${seshId}'`), 'Friday funday 🪩 ocean');
+  await has(nat, '🪩 Friday funday', 10000);
+  await has(natJ, '🪩 Friday funday', 30000);
+  await sshot(nat, '11b-sesh-settings.png');
+  // Back to the sesh's room: the card, the big Chat tile with the newest messages, and the small tiles.
+  await nat.page.getByTestId('sesh-strip-back').filter({ visible: true }).first().click();
+  await has(nat, 'Open ›');
+  expect('room tiles', await nat.page.locator('[data-testid^="room-"]').filter({ visible: true }).count() >= 2, true);
+  expect('End sesh on the card', await nat.page.getByTestId('sesh-end').filter({ visible: true }).count(), 1);
+  await sshot(nat, '11c-sesh-room.png');
+  await nat.page.getByTestId('sesh-chat-tile').filter({ visible: true }).first().click();
+  await has(nat, 'Settings');
   await sshot(nat, '4-chat-ana.png');
   await sshot(natJ, '5-chat-jack.png');
 
@@ -529,7 +556,7 @@ try {
   await has(nat, 'You started it');
   await has(nat, nameA);
   await sshot(nat, '9b-home-night-card.png');
-  await nat.page.getByRole('tab', { name: 'Home' }).click();
+  await nat.page.getByTestId('sesh-where').filter({ visible: true }).first().click();
   await has(nat, 'Locked in');
 
   // The Sesh Map: stops are added from the map (the web half), so two are added straight through the
@@ -563,6 +590,7 @@ try {
   await tap(natT, 'Join');
   await has(natT, 'LIVE SESH');
   await nat.page.getByTestId('sesh-chat').filter({ visible: true }).first().click();
+  await natT.page.getByTestId('sesh-chat').filter({ visible: true }).first().click();
   await natT.page.getByLabel('Message your mates').fill('Ugh not there');
   await natT.page.getByRole('button', { name: 'Send', exact: true }).click();
   await has(nat, 'Ugh not there', 10000);
@@ -578,7 +606,8 @@ try {
   expect("Tom's message gone from Ana's chat", await nat.page.evaluate(() => document.body.innerText.includes('Ugh not there')), false);
   await natT.ctx.close();
 
-  // Plan a sesh for later, for all friends: plan_sesh.
+  // Plan a sesh for later, for all friends: plan_sesh. (Tapping Home again leaves the sesh screen for Home.)
+  await nat.page.getByRole('tab', { name: 'Home' }).click();
   await tap(nat, 'Plan a sesh for later');
   await has(nat, "When's it on?");
   await tap(nat, 'Tomorrow');
@@ -660,7 +689,7 @@ try {
 
   // A private sesh from Jack's phone: start_private_sesh. He leaves Ana's first.
   await natJ.page.getByTestId('sesh-more').filter({ visible: true }).first().click();
-  await tap(natJ, 'Leave the sesh');
+  await natJ.page.getByTestId('sesh-end-big').filter({ visible: true }).first().click();
   await has(natJ, "Ana's sesh");
   await until(() => psql(`select count(*) from public.sesh_members where sesh_id = '${seshId}' and user_id = '${jackId}'`) === '0');   // the screen can move on a moment before the database answer is read
   expect('Jack left', psql(`select count(*) from public.sesh_members where sesh_id = '${seshId}' and user_id = '${jackId}'`), 0);
@@ -677,7 +706,7 @@ try {
 
   // Ending: end_sesh, under More on the sesh card.
   await nat.page.getByTestId('sesh-more').filter({ visible: true }).first().click();
-  await tap(nat, 'End the sesh');
+  await nat.page.getByTestId('sesh-end-big').filter({ visible: true }).first().click();
   await has(nat, 'Sesh ended.');
   // end_sesh deletes the sesh, with its members, votes, stops and chat.
   expect("Ana's sesh gone", psql(`select count(*) from public.seshes where id = '${seshId}'`), 0);
@@ -702,7 +731,7 @@ try {
   expect('Go now sesh locked at the picked spot', psql(`select count(*) from public.seshes where creator = '${anaId}' and locked_venue = '${spotId}'`), 1);
   await sshot(nat, '16b-go-now-spot.png');
   await nat.page.getByTestId('sesh-more').filter({ visible: true }).first().click();
-  await tap(nat, 'End the sesh');
+  await nat.page.getByTestId('sesh-end-big').filter({ visible: true }).first().click();
   await has(nat, 'Sesh ended.');
   await nat.page.getByRole('tab', { name: 'Home' }).click();
   await has(nat, 'Up for it now');
