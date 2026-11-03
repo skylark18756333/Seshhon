@@ -99,12 +99,14 @@ function inviteFrom(url: string | null): string | null {
 // The screen's base: the background colour over the whole phone, the status glow (native tabs only) drawn from the
 // very top edge, and the content kept clear of the status bar, notch and home bar. The glow is outside the padded
 // area on purpose, so it reaches behind the status bar.
-function Layer({ glow, children }: { glow?: Colour; children: React.ReactNode }) {
+// edge: the screen runs from the very top to the very bottom (the Map tab's map); it keeps clear of the phone's own
+// bars itself.
+function Layer({ glow, edge, children }: { glow?: Colour; edge?: boolean; children: React.ReactNode }) {
   const inset = useSafeAreaInsets();
   return (
     <View style={styles.root}>
       {glow ? <Glow colour={glow} /> : null}
-      <View style={[styles.fill, styles.clear, { paddingTop: inset.top, paddingBottom: inset.bottom, paddingLeft: inset.left, paddingRight: inset.right }]}>
+      <View style={[styles.fill, styles.clear, { paddingTop: edge ? 0 : inset.top, paddingBottom: edge ? 0 : inset.bottom, paddingLeft: inset.left, paddingRight: inset.right }]}>
         {children}
       </View>
     </View>
@@ -113,6 +115,7 @@ function Layer({ glow, children }: { glow?: Colour; children: React.ReactNode })
 
 function Shell() {
   const web = useRef<WebView>(null);
+  const inset = useSafeAreaInsets();
   // The address the packed page pretends to be at (frendzy.au, plus ?invite=... when opened from an invite).
   const [page, setPage] = useState<string | null>(null);
   const [opens, setOpens] = useState(0);
@@ -446,7 +449,7 @@ function Shell() {
   if (!native) return <Layer><View style={styles.fill} /></Layer>;
 
   return (
-    <Layer glow={me ? me.colour : undefined}>
+    <Layer glow={me ? me.colour : undefined} edge={onMap}>
       <Swipe tab={tab === 'venue' ? 'home' : tab} onPick={pickTab}>
       {webLive || onWeb ? <View style={onWeb ? styles.fill : styles.hidden}>{webView}</View> : null}
       {nativeMap && (mapSeen || onMap) ? (
@@ -457,7 +460,7 @@ function Shell() {
         </View>
       ) : null}
       {homeSeen || onHome ? (
-        <View style={onHome ? styles.fill : styles.hidden}>
+        <View style={onHome ? styles.clearFill : styles.hidden /* see-through: the status glow fades down behind the header */}>
           <Shown.Provider value={onHome}>
             <Sesh f={f} onOpenWeb={pickTab} onVenue={openVenue} />
           </Shown.Provider>
@@ -470,7 +473,10 @@ function Shell() {
         : tab === 'crews' ? <Crews f={f} onBack={goBefore} onPlanned={openPlanned} />
         : null}
       </Swipe>
-      <Tabs tab={tab === 'venue' ? 'home' : tab === 'crews' ? 'you' : tab === 'messages' || tab === 'friends' ? 'home' : tab} requests={f.state ? f.state.requests_in.length : 0} onPick={pickTab} />
+      {/* On the Map tab the map runs under the tab bar, which floats over it. */}
+      <View style={onMap ? [styles.floatTabs, { paddingBottom: inset.bottom }] : null} pointerEvents="box-none">
+        <Tabs tab={tab === 'venue' ? 'home' : tab === 'crews' ? 'you' : tab === 'messages' || tab === 'friends' ? 'home' : tab} requests={f.state ? f.state.requests_in.length : 0} onPick={pickTab} />
+      </View>
       <FriendProfileHost f={f} onMessages={openChatWith} />
       {tour && me ? <Tour name={first(me.name)} onClose={() => { clearTour(); setTour(false); askAfterTour().catch(() => {}); }} /> : null}
     </Layer>
@@ -504,6 +510,7 @@ const styles = themed(() => StyleSheet.create({
   clear: { backgroundColor: 'transparent' },
   clearFill: { flex: 1, backgroundColor: 'transparent' },
   hidden: { display: 'none' },
+  floatTabs: { position: 'absolute', left: 0, right: 0, bottom: 0 },
   offline: { flex: 1, backgroundColor: C.bg, alignItems: 'center', justifyContent: 'center', padding: 32 },
   title: { color: C.fg, fontSize: 24, fontWeight: '800', marginBottom: 12 },
   body: { color: C.fg, opacity: 0.8, fontSize: 16, lineHeight: 22, textAlign: 'center', marginBottom: 24 },

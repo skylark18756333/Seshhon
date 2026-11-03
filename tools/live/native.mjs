@@ -339,8 +339,8 @@ try {
   await has(natMap, 'Tap the map to pick a spot');
   await mshot(natMap, '1-map-start.png');
 
-  const slide = async (r) => { const box = await natMap.page.getByTestId('radius').boundingBox();
-    await natMap.page.mouse.click(box.x + Math.min(box.width - 2, Math.max(1, ((r - 1) / 24) * box.width)), box.y + box.height / 2); };
+  // "How far" is a row of km buttons (1, 2, 3, 5, 10, 25) over the map.
+  const slide = async (r) => { await natMap.page.getByTestId('radius-' + r).click(); };
   // Tap the map (city centre): the circle appears and the venues inside 10 km (the default).
   await natMap.page.getByTestId('map-tap').click();
   await until(async () => (await markerIds(natMap)).length > 0);
@@ -363,7 +363,7 @@ try {
   expect('a quiet venue has no glow', (await markerText(natMap, venueB)).includes('busy-'), false);
   await mshot(natMap, '2-map-5km.png');
 
-  // The radius slider: a tap at the far right is 25 km, at the left is 1 km.
+  // The km buttons: 25 km, then 1 km.
   await slide(25);
   await until(async () => (await natMap.page.getByTestId('radius-label').innerText()).startsWith('25'));
   expect('radius label at the right end', (await natMap.page.getByTestId('radius-label').innerText()).replace(/\s+/g, ' '), '25 km');
@@ -444,12 +444,9 @@ try {
   }, [venueA, venueB, seshId]);
   expect('stops tidied away', psql(`select count(*) from public.crawl_stops where sesh_id = '${seshId}'`), 0);
 
-  // Friends who are out show as faces (never where they are): Jack and Tom (green). Mia (amber) only shows to friends
+  // Friends' faces are on Home, not the map.
   // she lets see her amber (migration 0036), and Zoe (red) never does.
-  const faces = await natMap.page.getByLabel('Friends out tonight').innerText();
-  console.log('friend faces on the map: ' + faces.replace(/\n/g, ', '));
-  expect('green friends are shown', ['Jack', 'Tom'].every((n) => faces.includes(n)), true);
-  expect('a red friend is not shown', faces.includes('Zoe'), false);
+  // (The redesigned Map tab no longer has the row of friends' faces: Home shows who is out.)
 
   // Near me: this phone's position stays on the phone.
   await natMap.ctx.grantPermissions(['geolocation']);
@@ -466,12 +463,10 @@ try {
   const dbHasIt = psql("select count(*) from (select row_to_json(p)::text t from public.profiles p union all select row_to_json(s)::text from public.statuses s) x where t like '%31.9871%'");
   expect('and is not in the database', dbHasIt, 0);
 
-  // List view lists the same venues, with Show and distances.
-  await natMap.page.getByTestId('map-list-toggle').click();
-  await natMap.page.getByTestId('venue-list').waitFor();
-  await has(natMap, 'away');
-  await mshot(natMap, '7-map-list.png');
-  await natMap.page.getByTestId('map-list-toggle').click();
+  // The venues inside the circle are cards along the bottom; tapping one picks it.
+  await natMap.page.getByTestId('venue-cards').waitFor();
+  expect('a card for each venue on the map', (await natMap.page.locator('[data-testid^="card-"]').count()) > 0, true);
+  await mshot(natMap, '7-map-cards.png');
 
   // Open venue: the existing venue page flow takes over (in the browser the page itself can't run, so the map just leaves).
   await natMap.page.getByTestId('marker-' + venueA).click().catch(() => {});
