@@ -26,10 +26,11 @@ import CrawlMap from './CrawlMap';
 import Icon from './Icon';
 import MeetMiddle from './MeetMiddle';
 import SpotPicker from './SpotPicker';
+import { ReactBar, ReactChips } from './Reactions';
 import { ChatTile, CoverBehind, EndPill, RoomTiles, SeshSettings, SeshStrip, TimeLeft, VotesMap, seshColours, useSeshDetails, type SeshLook } from './SeshDetails';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Avatar, Button, Face, Toast, TopBar } from './Parts';
-import type { ApiError } from './session';
+import { rpc, type ApiError } from './session';
 import type { Frendzy } from './useFrendzy';
 import { C, COLOURS, F, LABELS, STOPS, fade, first, fmtLeft, fmtTime, fmtWhen, themed } from './theme';
 import { awayText, distanceAway, fmtKm, hoursLine, km, leaderOf, useVenues, votePicks, type Venues } from './venues';
@@ -1416,7 +1417,7 @@ function Chat({ f, seshId, myId, confirm, setConfirm, onLatest, names, onTyping,
     const asked = seshId;
     return getMessages(asked).then((got) => {
       if (current.current !== asked) return;
-      const k = JSON.stringify(got.map((m) => m.id));
+      const k = JSON.stringify(got.map((m) => [m.id, m.reactions || null, m.my_reaction || null]));
       if (!force && k === key.current) return;
       const firstLoad = key.current === '';
       key.current = k;
@@ -1449,6 +1450,13 @@ function Chat({ f, seshId, myId, confirm, setConfirm, onLatest, names, onTyping,
       .catch((e: ApiError) => { f.say(e.message); })
       .then(() => setSending(false));
   };
+  // Emoji reactions: hold a message to pick one (reacting is the message id whose bar is open).
+  const [reacting, setReacting] = useState<string | null>(null);
+  const react = (m: Message, e: string) => {
+    setReacting(null);
+    rpc('react_message', { p_message: m.id, p_emoji: e }).then(() => refresh(true),
+      (x: ApiError) => f.say(/react_message/.test(x.message || '') ? 'Reactions are on the way.' : x.message));
+  };
   const onScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const { contentSize, contentOffset, layoutMeasurement } = e.nativeEvent;
     nearEnd.current = contentSize.height - contentOffset.y - layoutMeasurement.height < 60;
@@ -1479,7 +1487,9 @@ function Chat({ f, seshId, myId, confirm, setConfirm, onLatest, names, onTyping,
               {mineMsg ? null : <View style={{ marginBottom: 18 }}><Avatar id={m.sender} name={m.name} photos={f.photos} size={36} /></View>}
               <View style={styles.msgWrap}>
                 {mineMsg ? null : <Text style={styles.who}>{first(m.name)}</Text>}
-                <View style={[styles.msg, mineMsg ? styles.msgMe : styles.msgThem]}>
+                <Pressable style={[styles.msg, mineMsg ? styles.msgMe : styles.msgThem]} onLongPress={() => setReacting(reacting === m.id ? null : m.id)}
+                  delayLongPress={300} accessibilityHint="Hold to react" accessibilityActions={[{ name: 'longpress', label: 'React' }]}
+                  onAccessibilityAction={() => setReacting(m.id)} testID={'msg-' + m.id}>
                   <Text style={[styles.msgText, mineMsg && { color: C.accentInk }]}>{m.body}</Text>
                   <Text style={[styles.when, mineMsg ? { textAlign: 'right', color: C.mineWhen } : null]}>{fmtTime(m.at)}</Text>
                   {mineMsg ? null : confirm === 'report:' + m.id ? (
@@ -1506,7 +1516,9 @@ function Chat({ f, seshId, myId, confirm, setConfirm, onLatest, names, onTyping,
                       <LinkBtn label="Block" onPress={() => setConfirm('block:' + m.sender)} />
                     </View>
                   )}
-                </View>
+                </Pressable>
+                <ReactChips counts={m.reactions || {}} mine={m.my_reaction} right={mineMsg} onPick={(e) => react(m, e)} />
+                {reacting === m.id ? <ReactBar mine={m.my_reaction} onPick={(e) => react(m, e)} onClose={() => setReacting(null)} /> : null}
               </View>
             </View>
           );

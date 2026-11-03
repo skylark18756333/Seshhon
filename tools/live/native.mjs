@@ -303,6 +303,18 @@ try {
   console.log("Jack's phone received Ana's reply: yes");
   expect('messages stored', psql(`select count(*) from public.messages where sesh_id = '${seshId}'`), 2);
   expect('input cleared after sending', await nat.page.getByLabel('Message your mates').inputValue(), '');
+  // Emoji reactions (0046): hold a message, pick ❤️; Jack's phone shows it under the message.
+  const firstMsg = psql(`select id from public.messages where sesh_id = '${seshId}' order by created_at limit 1`);
+  const bubble = nat.page.getByTestId('msg-' + firstMsg).filter({ visible: true }).first();
+  const bb = await bubble.boundingBox();
+  await nat.page.mouse.move(bb.x + bb.width / 2, bb.y + bb.height / 2);
+  await nat.page.mouse.down(); await nat.page.waitForTimeout(700); await nat.page.mouse.up();
+  await nat.page.getByTestId('react-❤️').filter({ visible: true }).first().click();
+  await until(() => psql(`select count(*) from public.message_reactions where message_id = '${firstMsg}'`) === '1');
+  expect('reaction stored', psql(`select emoji from public.message_reactions where message_id = '${firstMsg}'`), '❤️');
+  await natJ.page.getByLabel(/^❤️ 1/).first().waitFor({ timeout: 15000 });
+  console.log("Jack's phone shows Ana's reaction: yes");
+  await sshot(nat, '4b-reaction.png');
   // Inside the sesh: no second message preview on the card, the time left, and Edit for the person who started it.
   expect('no message preview inside the sesh', await nat.page.getByLabel('Open the sesh chat').filter({ visible: true }).count(), 0);
   expect('time left shown', /h \d+m left|m left/.test(await nat.page.getByTestId('sesh-time-left').filter({ visible: true }).first().innerText()), true);

@@ -15,13 +15,30 @@ import { decodeBase64, decodeUTF8, encodeBase64, encodeUTF8 } from 'tweetnacl-ut
 import type { Friend } from './api';
 import Icon from './Icon';
 import { Button, Face, Toast, setWaiting } from './Parts';
+import { ReactBar, ReactChips } from './Reactions';
 import { rpc, type ApiError } from './session';
 import type { Frendzy } from './useFrendzy';
 import { C, COLOURS, F, LABELS, fade, first, fmtTime, themed } from './theme';
 
 nacl.setPRNG((x, n) => { x.set(Crypto.getRandomBytes(n)); });
 
-type Msg = { id: string; me: boolean; text: string; at: string };
+type Msg = { id: string; me: boolean; text: string; at: string; myReact?: string; theirReact?: string };
+// A reaction travels as a locked message of its own: a hidden marker, the message id and the emoji, then words an
+// older app shows instead ("Reacted ❤️"). Nothing about it is stored anywhere but the two phones.
+const REACT = '\u2063R:';
+function reactText(id: string, emoji: string): string { return REACT + id + ':' + emoji + '\u2063 ' + (emoji ? 'Reacted ' + emoji : 'Took a reaction off'); }
+function readReact(text: string): { id: string; emoji: string } | null {
+  if (!text.startsWith(REACT)) return null;
+  const end = text.indexOf('\u2063', REACT.length);
+  const body = text.slice(REACT.length, end < 0 ? undefined : end);
+  const at = body.indexOf(':');
+  return at < 0 ? null : { id: body.slice(0, at), emoji: body.slice(at + 1) };
+}
+function setReact(h: History, friend: string, id: string, field: 'myReact' | 'theirReact', emoji: string): History {
+  const list = h.chats[friend];
+  if (!list || !list.some((x) => x.id === id)) return h;
+  return { ...h, chats: { ...h.chats, [friend]: list.map((x) => (x.id === id ? { ...x, [field]: emoji || undefined } : x)) } };
+}
 type History = { chats: Record<string, Msg[]>; seen: Record<string, string> };
 const MAX_KEPT = 300;
 
@@ -87,7 +104,8 @@ async function collect(uid: string, h: History): Promise<History> {
       const opened = nacl.box.open(decodeBase64(b), decodeBase64(n), decodeBase64(r.key), kp.secretKey);
       if (opened) text = encodeUTF8(opened);
     } catch (_) { /* leave the note */ }
-    next = add(next, r.from, { id: r.id, me: false, text, at: r.at });
+    const re = readReact(text);
+    next = re ? setReact(next, r.from, re.id, 'theirReact', re.emoji) : add(next, r.from, { id: r.id, me: false, text, at: r.at });
   }
   saveHistory(uid, next);
   await rpc('got_friend_messages', { p_ids: rows.map((r) => r.id) });
@@ -97,7 +115,12 @@ async function collect(uid: string, h: History): Promise<History> {
 // Opening Messages straight on one friend's chat (the Message button on a friend's profile, or a face on Friends).
 let pendingChat: string | null = null;
 export function chatWith(id: string | null) { pendingChat = id; }
-const TONIGHT_MS = 12 * 3600000;   // chats with a message in the last 12 hours sit under "Tonight"
+const TONIGHT_MS = 12 * 3600000;
+function reactCounts(m: Msg): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const e of [m.myReact, m.theirReact]) if (e) out[e] = (out[e] || 0) + 1;
+  return out;
+}   // chats with a message in the last 12 hours sit under "Tonight"
 
 /* ---------- the screen ---------- */
 export default function Messages({ f, onBack, onSesh }: { f: Frendzy; onBack: () => void; onSesh: () => void }) {
@@ -171,6 +194,18 @@ export default function Messages({ f, onBack, onSesh }: { f: Frendzy; onBack: ()
     }, (e: ApiError) => { if (!e.signedOut) f.say(e.message || "Couldn't send that."); }).then(() => setBusy(false));
   }, [text, open, busy, uid, f]);
 
+  // Emoji reactions: hold a message to pick one; the same one again takes it off.
+  const [reacting, setReacting] = useState<string | null>(null);
+  const react = (m: Msg, e: string) => {
+    if (!open) return;
+    setReacting(null);
+    const emoji = m.myReact === e ? '' : e;
+    const friendId = open;
+    lockAndSend(uid, friendId, reactText(m.id, emoji)).then(() => {
+      setHist((h) => { const n = setReact(h, friendId, m.id, 'myReact', emoji); saveHistory(uid, n); return n; });
+    }, (x: ApiError) => { if (!x.signedOut) f.say(x.message || "Couldn't send that."); });
+  };
+
   if (!me) return null;
   const friend: Friend | undefined = open ? friends.find((x) => x.id === open) : undefined;
   const ordered = friends.slice().sort((a, b) => (last(b.id)?.at || '').localeCompare(last(a.id)?.at || '') || a.name.localeCompare(b.name));
@@ -216,8 +251,14 @@ export default function Messages({ f, onBack, onSesh }: { f: Frendzy; onBack: ()
             <ScrollView ref={scroll} style={styles.fill} contentContainerStyle={styles.view} keyboardShouldPersistTaps="handled">
               <Text style={[styles.muted, styles.small]}>Locked: only you and {first(friend.name)} can read these. Crewzy never keeps them, they live on your phones.</Text>
               {(hist.chats[friend.id] || []).map((m) => (
-                <View key={m.id} style={[styles.bubble, m.me ? styles.mine : styles.theirs]}>
-                  <Text style={[styles.body, m.me && styles.mineText]}>{m.text}</Text>
+                <View key={m.id} style={m.me ? styles.mineWrap : styles.theirsWrap}>
+                  <Pressable style={[styles.bubble, m.me ? styles.mine : styles.theirs]} onLongPress={() => setReacting(reacting === m.id ? null : m.id)}
+                    delayLongPress={300} accessibilityHint="Hold to react" accessibilityActions={[{ name: 'longpress', label: 'React' }]}
+                    onAccessibilityAction={() => setReacting(m.id)} testID={'dm-msg-' + m.id}>
+                    <Text style={[styles.body, m.me && styles.mineText]}>{m.text}</Text>
+                  </Pressable>
+                  <ReactChips counts={reactCounts(m)} mine={m.myReact} right={m.me} onPick={(e) => react(m, e)} />
+                  {reacting === m.id ? <ReactBar mine={m.myReact} onPick={(e) => react(m, e)} onClose={() => setReacting(null)} /> : null}
                 </View>
               ))}
               {!(hist.chats[friend.id] || []).length ? <Text style={styles.muted}>No messages yet. Say hi.</Text> : null}
@@ -322,6 +363,8 @@ const styles = themed(() => StyleSheet.create({
   seshIconIn: { position: 'absolute', top: 0, left: 0, right: 12, bottom: 12, borderRadius: 25, alignItems: 'center', justifyContent: 'center', width: 50, height: 50 },
   livePin: { fontFamily: F.bodyBold, fontSize: 10, letterSpacing: 1, color: '#fff', backgroundColor: C.off, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, overflow: 'hidden' },
   lockLine: { flexDirection: 'row', alignItems: 'center', gap: 6, justifyContent: 'center', marginTop: 10 },
+  mineWrap: { alignItems: 'flex-end' },
+  theirsWrap: { alignItems: 'flex-start' },
   bubble: { maxWidth: '82%', borderRadius: 18, paddingHorizontal: 14, paddingVertical: 10 },
   mine: { alignSelf: 'flex-end', backgroundColor: C.accent },
   mineText: { color: C.accentInk },
