@@ -19,6 +19,7 @@ import type { Colour } from './src/api';
 import MapTab from './src/MapTab';
 import { NATIVE_MAP } from './src/config';
 import { MapGuard } from './src/MapGuard';
+import { mapCrashedBefore } from './src/mapCrash';
 import AgeCheck from './src/AgeCheck';
 import Auth, { type AuthDone, type AuthStart } from './src/Auth';
 import Crews from './src/Crews';
@@ -149,6 +150,8 @@ function Shell() {
   // failed; otherwise it is the packed web map, as before.
   const [mapFailed, setMapFailed] = useState(false);
   const nativeMap = NATIVE_MAP && !mapFailed;
+  // A phone where the native map closed the app last time (mapCrash.ts) starts on the simple web map instead.
+  useEffect(() => { if (NATIVE_MAP) mapCrashedBefore().then((off) => { if (off) setMapFailed(true); }); }, []);
   const NATIVE_TABS = nativeMap ? BASE_TABS.concat('map') : BASE_TABS;
   const signedIn = !!session;
   const sessionKey = session ? session.user_id || 'in' : 'out';

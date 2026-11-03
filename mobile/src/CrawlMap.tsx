@@ -6,6 +6,7 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import type { CrawlStop, Venue } from './api';
 import NativeMap from './NativeMap';
+import { mapIsOff } from './mapCrash';
 import type { LatLng, MapMarker } from './mapShared';
 import { Button } from './Parts';
 import { C, F, themed } from './theme';
@@ -64,6 +65,9 @@ export default function CrawlMap({ stops, v, canAdd, meName, onVenue, onAdd }: {
 
   return (
     <View style={styles.wrap}>
+      {mapIsOff() ? (
+        <Text style={styles.muted}>The live map is switched off on this phone because it closed the app. Stops are listed below.</Text>
+      ) : (
       <View style={styles.map} testID="crawl-map">
         <NativeMap
           centre={from || (coords[0] as LatLng) || [-31.9523, 115.8613]}
@@ -81,6 +85,7 @@ export default function CrawlMap({ stops, v, canAdd, meName, onVenue, onAdd }: {
           onZoom={noZoom}
         />
       </View>
+      )}
       {pickVen ? (
         <View style={styles.card}>
           <View style={styles.grow}>
