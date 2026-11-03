@@ -147,8 +147,12 @@ export async function addCrawlStops(sesh: string, venues: string[]): Promise<Cra
 }
 // Meet in the middle (migration 0037): how many in the sesh have shared where they are, whether you have, and
 // the venues fairest for everyone once 2 or more have. Venues only, never anyone's position or distance.
-export type Meet = { shared: number; mine: boolean; venues: string[] };
-const meetOf = (x: any): Meet => ({ shared: Number(x && x.shared) || 0, mine: !!(x && x.mine), venues: x && Array.isArray(x.venues) ? x.venues : [] });
+export type Mate = { id: string; name: string; at: [number, number] };
+export type Meet = { shared: number; mine: boolean; venues: string[]; mates: Mate[] };
+const mateOf = (m: any): Mate | null => (m && m.id && Number.isFinite(Number(m.lat)) && Number.isFinite(Number(m.lng)) ? { id: String(m.id), name: String(m.name || 'A mate'), at: [Number(m.lat), Number(m.lng)] } : null);
+// mates: other members of the live sesh sharing their rough spot, sent only while you share too (migration 0045).
+const meetOf = (x: any): Meet => ({ shared: Number(x && x.shared) || 0, mine: !!(x && x.mine), venues: x && Array.isArray(x.venues) ? x.venues : [],
+  mates: x && Array.isArray(x.mates) ? (x.mates.map(mateOf).filter(Boolean) as Mate[]) : [] });
 export function meetVenues(sesh: string): Promise<Meet> {
   return rpc('meet_venues', { p_sesh: sesh }).then(meetOf);
 }

@@ -8,6 +8,7 @@ export type MapMarker = {
   id: string; at: LatLng; name: string; kind: 'near' | 'far' | 'goal' | 'mid'; glyph: 'events' | 'fork' | 'venues';
   tag: string; busy: number; open: boolean | null; names: boolean;
   stop: { n: number; done: boolean } | null;   // a Sesh Map stop: drawn as a numbered circle
+  mate?: { photo?: string };   // a mate in the live sesh at their rough spot (~500 m), drawn as their face
 };
 
 export type MapView = {

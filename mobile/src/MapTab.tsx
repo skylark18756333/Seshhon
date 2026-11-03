@@ -8,9 +8,10 @@
 //  - Middle (in a live sesh): Meet in the middle (migration 0037). Everyone who switches it on shares roughly where
 //    they are for that sesh only, and the map shows only the venues that are fair for everyone, in gold.
 //
-// Location rules: nobody's location is shown to anyone. Your own position (Near me) or a dropped pin stays in this
-// phone's memory and is never sent or saved. Middle sends your position rounded to about 500 m, only when you
-// switch it on, and it is deleted when you switch it off, leave or the sesh ends.
+// Location rules: nobody's location is shown by default. Your own position (Near me) or a dropped pin stays in this
+// phone's memory and is never sent or saved. The share switch (live sesh only) sends your position rounded to about
+// 500 m; mates in that sesh who share too see each other's rough spot as a face on the map (Sarah, 2026-11-03,
+// migration 0045). It is deleted when you switch it off, leave or the sesh ends.
 //
 // Speed: only the nearest/busiest 30 venues get a bubble, their names never change on zoom, and nothing on the map
 // is redrawn by the 5-second refresh, so the screen stays responsive on Android.
@@ -138,7 +139,7 @@ export default function MapTab({ f, onVenue, onOpenWeb, onWebMap }: {
   const liveId = live ? live.id : null;
   const meetKey = useRef('');
   useEffect(() => {
-    if (mode !== 'mid' || !liveId || meetOff) return;
+    if (!liveId || meetOff) return;   // read in both modes while in a live sesh: mates who share show on the map
     let gone = false;
     const ask = () => meetVenues(liveId).then((m) => {
       const k = JSON.stringify(m);
@@ -147,7 +148,7 @@ export default function MapTab({ f, onVenue, onOpenWeb, onWebMap }: {
     ask();
     const t = setInterval(() => { if (shownRef.current) ask(); }, MEET_MS);
     return () => { gone = true; clearInterval(t); };
-  }, [mode, liveId, meetOff, shownRef]);
+  }, [liveId, meetOff, shownRef]);
   const meetFailed = (e: ApiError) => { if (e && e.missing) setMeetOff(true); else setNote((e && e.message) || 'Something went wrong. Try again.'); };
   const shareMeet = async (on: boolean) => {
     if (!liveId) return;
@@ -244,11 +245,13 @@ export default function MapTab({ f, onVenue, onOpenWeb, onWebMap }: {
       const at = pins && pins[c.venue_id], ven = v.byId[c.venue_id];
       if (at && ven && !have[c.venue_id]) list.push({ id: ven.id, at, name: ven.name, kind: pick === ven.id ? 'goal' : 'near', glyph: kindGlyph(ven), tag: '', busy: 0, open: null, names: true, stop: { n: c.position, done: c.done } });
     });
+    // Mates in the live sesh who share their rough spot (only sent while you share too). Never anyone else.
+    if (meet && meet.mine) meet.mates.forEach((x) => list.push({ id: 'mate-' + x.id, at: x.at, name: x.name, kind: 'near', glyph: 'venues', tag: '', busy: 0, open: null, names: true, stop: null, mate: { photo: f.photos[x.id] } }));
     return list;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shown, stops, pick, buzz, pins, v.byId, minute, mode]);
+  }, [shown, stops, pick, buzz, pins, v.byId, minute, mode, meet, f.photos]);
   const route: LatLng[] = useMemo(() => stops.map((c) => pins && pins[c.venue_id]).filter((x): x is [number, number] => !!x), [stops, pins]);
-  const onPickPin = useCallback((id: string) => setPick(id), []);
+  const onPickPin = useCallback((id: string) => { if (id.indexOf('mate-') !== 0) setPick(id); }, []);
   const pickVen = pick ? v.byId[pick] : null;
 
   /* ---------- moving the map ---------- */
@@ -398,11 +401,11 @@ export default function MapTab({ f, onVenue, onOpenWeb, onWebMap }: {
             {mode === 'mid' && live && !meetOff ? (
               <View style={styles.row} testID="map-meet">
                 <Text style={[styles.small, styles.grow]} testID="map-meet-count">
-                  <Text style={styles.strong}>{meet ? meet.shared : 0} of {live.members.length}</Text> sharing their rough area
+                  <Text style={styles.strong}>{meet ? meet.shared : 0} of {live.members.length}</Text> sharing their rough spot
                 </Text>
                 <Switch
                   value={!!(meet && meet.mine)} disabled={meetBusy || !meet} onValueChange={shareMeet} testID="map-meet-switch"
-                  accessibilityLabel="Share my rough area for this sesh" trackColor={{ false: C.trackLine, true: C.on }} thumbColor="#ffffff"
+                  accessibilityLabel="Share my rough spot with this sesh" trackColor={{ false: C.trackLine, true: C.on }} thumbColor="#ffffff"
                 />
               </View>
             ) : null}
@@ -453,7 +456,7 @@ export default function MapTab({ f, onVenue, onOpenWeb, onWebMap }: {
                 <View style={styles.card}><Text style={styles.small}>Start or join a sesh, then come back here to find the venues halfway between you and your mates. Nobody sees where anyone is.</Text></View>
               ) : mode === 'mid' && live && !meetOff && !midIds.length ? (
                 <View style={styles.card} testID="map-meet-waiting">
-                  <Text style={styles.small}>{meet && meet.mine ? 'Once a mate switches it on too, the venues between you light up gold.' : 'Switch it on above to share your rough area (to about 500 m) for this sesh only. Nobody sees it, only the venues it finds, and it is deleted when you switch off or the sesh ends.'}</Text>
+                  <Text style={styles.small}>{meet && meet.mine ? 'Once a mate switches it on too, the venues between you light up gold.' : 'Switch it on above to share your rough spot (to about 500 m) with this sesh only. Mates who share too see you on the map and the venues between you light up. It is deleted when you switch off or the sesh ends.'}</Text>
                 </View>
               ) : (
                 <ScrollView ref={deck} horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.deck} snapToInterval={CARD_W + 8} decelerationRate="fast" testID="venue-cards">
