@@ -139,7 +139,6 @@ export default function Messages({ f, onBack, onSesh }: { f: Frendzy; onBack: ()
   // for the two of you, nothing stored; see typing.ts). They go when the message arrives or they stop.
   const typingLink = useRef<TypingLink | null>(null);
   const [theyTypeUntil, setTheyTypeUntil] = useState(0);
-  const [, setTick] = useState(0);
   useEffect(() => {
     setTheyTypeUntil(0);
     if (!uid || !open) return;
@@ -149,9 +148,15 @@ export default function Messages({ f, onBack, onSesh }: { f: Frendzy; onBack: ()
       onStopped: (id) => { if (id === open) setTheyTypeUntil(0); }
     });
     typingLink.current = l;
-    const t = setInterval(() => setTick((n) => n + 1), 1000);
-    return () => { clearInterval(t); l.stopped(); l.close(); if (typingLink.current === l) typingLink.current = null; };
+    return () => { l.stopped(); l.close(); if (typingLink.current === l) typingLink.current = null; };
   }, [uid, open]);
+  // The lights go off on their own a few seconds after the last note. One timer for that, instead of redrawing the
+  // whole chat every second.
+  useEffect(() => {
+    if (!theyTypeUntil) return;
+    const t = setTimeout(() => setTheyTypeUntil((u) => (u <= Date.now() ? 0 : u)), Math.max(0, theyTypeUntil - Date.now()) + 50);
+    return () => clearTimeout(t);
+  }, [theyTypeUntil]);
   const theyType = theyTypeUntil > Date.now();
   const onText = (v: string) => {
     setText(v);
