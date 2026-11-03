@@ -1,6 +1,6 @@
 // Meet in the middle, in a live sesh: an on/off switch, off to start. Everyone who switches it on shares roughly where they are
 // (rounded to about 500 m) for this sesh only, and the database answers with the venues that are fairest for
-// everyone (migration 0037). Since 0045 mates who share see each other's rough spot on the map; it is deleted when you
+// everyone (migration 0037). Nobody's position is ever shown or sent back, only venues, and it is deleted when you
 // tap stop, leave the sesh, or the sesh ends. Hidden until the migration has been run.
 import React, { useCallback, useEffect, useState } from 'react';
 import { StyleSheet, Switch, Text, View } from 'react-native';
@@ -54,8 +54,8 @@ export default function MeetMiddle({ s, v, myVote, onVote }: { s: Sesh; v: Venue
         />
       </View>
       <Text style={styles.small}>
-        {meet.mine ? 'On: mates in this sesh who share too see your rough spot (about 500 m) on the map, and the venues between you light up. Switch off and it is deleted straight away.'
-          : 'Switch on to see your mates on the map and find venues halfway between you. It shares your rough spot (to about 500 m) with this sesh only, and only mates who share too can see it. It is deleted when you switch off or the sesh ends.'}
+        {meet.mine ? 'On: your rough location is used for this sesh only. Nobody sees it, only the venues it finds. Switch off and it is deleted straight away.'
+          : 'Switch on to find venues halfway between you and your mates. It uses where you are (to about 500 m) for this sesh only. Nobody sees your location, and it is deleted when you switch off or the sesh ends.'}
       </Text>
       <Text style={styles.small} testID="meet-count"><Text style={styles.strong}>{meet.shared} of {people}</Text> {meet.shared === 1 ? 'has' : 'have'} it on.</Text>
       {picks.length ? (

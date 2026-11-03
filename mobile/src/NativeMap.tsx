@@ -3,7 +3,7 @@
 // gradients, so they draw the same on every Android phone. Markers stop tracking view changes once drawn; a bubble
 // that changes (busy, open, picked) gets a new key and is drawn again.
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AccessibilityInfo, Animated, Easing, Image, Platform, StyleSheet, Text, View } from 'react-native';
+import { AccessibilityInfo, Animated, Easing, Platform, StyleSheet, Text, View } from 'react-native';
 import RNMapView, { Circle, Marker, Polyline, PROVIDER_GOOGLE, type Region } from 'react-native-maps';
 import Icon from './Icon';
 import type { LatLng, MapMarker, MapView } from './mapShared';
@@ -44,18 +44,6 @@ const LIGHT_STYLE = [
 
 function Bubble({ m, compact }: { m: MapMarker; compact: boolean }) {
   const colour = m.kind === 'goal' ? GOAL : m.kind === 'far' ? FAR : m.kind === 'mid' ? GOLD : BLUE;
-  if (m.mate) {
-    // A mate at their rough spot: their photo (or first letter) in a green ring, their name under it.
-    return (
-      <View style={styles.cell}>
-        <View style={styles.top} />
-        <View style={styles.mate}>
-          {m.mate.photo ? <Image source={{ uri: m.mate.photo }} style={styles.matePic} /> : <Text style={styles.meText}>{(m.name || '?').trim().charAt(0).toUpperCase()}</Text>}
-        </View>
-        <View style={styles.bottom}><Text style={styles.name} numberOfLines={1}>{m.name}</Text></View>
-      </View>
-    );
-  }
   if (m.stop) {
     return (
       <View style={styles.cell}>
@@ -211,9 +199,9 @@ function NativeMap(p: MapView) {
   useEffect(() => { AccessibilityInfo.isReduceMotionEnabled().then(setCalm, () => {}); }, []);
   const radarOn = !!p.radar && p.chosen && !calm;
   // Only the first few venues blip (the busiest and nearest), and only when that set changes is anything read again.
-  const blipKey = p.markers.filter((m) => m.kind === 'near' && !m.stop && !m.mate).slice(0, BLIPS_MAX).map((m) => m.id + '@' + m.at.join(',')).join('|');
+  const blipKey = p.markers.filter((m) => m.kind === 'near' && !m.stop).slice(0, BLIPS_MAX).map((m) => m.id + '@' + m.at.join(',')).join('|');
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const blipList = useMemo(() => p.markers.filter((m) => m.kind === 'near' && !m.stop && !m.mate).slice(0, BLIPS_MAX), [blipKey]);
+  const blipList = useMemo(() => p.markers.filter((m) => m.kind === 'near' && !m.stop).slice(0, BLIPS_MAX), [blipKey]);
   const measure = useCallback(async () => {
     const m = map.current;
     if (!m || !radarOn) return;
@@ -361,8 +349,6 @@ const styles = themed(() => StyleSheet.create({
   youDot: { width: 16, height: 16, borderRadius: 8, backgroundColor: BLUE, borderWidth: 3, borderColor: '#fff' },
   me: { width: DISC, height: DISC, borderRadius: DISC / 2, backgroundColor: C.on, borderWidth: 3, borderColor: '#fff', alignItems: 'center', justifyContent: 'center' },
   meText: { fontFamily: F.display, fontSize: 16, color: C.ink },
-  mate: { width: DISC, height: DISC, borderRadius: DISC / 2, backgroundColor: C.on, borderWidth: 3, borderColor: RADAR, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
-  matePic: { width: DISC - 6, height: DISC - 6, borderRadius: (DISC - 6) / 2 },
   meLabel: { fontFamily: F.bodyBold, fontSize: 11, color: C.ink, backgroundColor: C.on, paddingVertical: 1, paddingHorizontal: 8, borderRadius: 8, overflow: 'hidden' }
 }));
 
