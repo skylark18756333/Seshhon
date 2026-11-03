@@ -118,7 +118,7 @@ const VenuePin = memo(function VenuePin({ m, sig, compact, onPick }: { m: MapMar
       <Bubble m={m} compact={compact} />
     </Pin>
   );
-}, (a, b) => a.sig === b.sig && a.onPick === b.onPick && a.compact === b.compact && a.m.id === b.m.id && a.m.at[0] === b.m.at[0] && a.m.at[1] === b.m.at[1] && a.m.name === b.m.name);
+}, (a, b) => a.sig === b.sig && a.compact === b.compact && a.onPick === b.onPick && a.m.id === b.m.id && a.m.at[0] === b.m.at[0] && a.m.at[1] === b.m.at[1] && a.m.name === b.m.name);
 // (Everything else a bubble shows is in sig, so a change there redraws the same marker.)
 
 /* ---------- the radar sweep (Map tab) ---------- */
