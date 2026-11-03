@@ -274,8 +274,8 @@ function NativeMap(p: MapView) {
       // (instead of zooming in), and so does a long press, even on top of a venue bubble. A single tap just closes
       // whatever card is open.
       onPress={() => { if (p.onMapTap) p.onMapTap(); }}
-      onDoublePress={(e) => { const c = e.nativeEvent.coordinate; if (c) p.onMapPress([c.latitude, c.longitude]); }}
-      onLongPress={(e) => { const c = e.nativeEvent.coordinate; p.onMapPress([c.latitude, c.longitude]); }}
+      onDoublePress={(e) => { const c = e.nativeEvent && e.nativeEvent.coordinate; if (c) p.onMapPress([c.latitude, c.longitude]); }}
+      onLongPress={(e) => { const c = e.nativeEvent && e.nativeEvent.coordinate; if (c) p.onMapPress([c.latitude, c.longitude]); }}
       zoomTapEnabled={false}
       onRegionChangeComplete={onRegion}
       mapPadding={padding}
@@ -309,8 +309,10 @@ function NativeMap(p: MapView) {
       ) : null}
       {p.markers.map((m) => (
         <VenuePin
-          key={m.id}
-          sig={[look, m.kind, m.tag, m.busy, m.open, m.names, compact ? 'c' : '', m.stop ? m.stop.n + (m.stop.done ? 'd' : '') : ''].join(':')}
+          // A marker whose picture changes size (the small zoomed-out box, or a picked venue's full bubble) is made
+          // again; changing a custom marker's size in place on Android closed the app. Same-size changes redraw in place.
+          key={m.id + (compact && m.kind !== 'goal' && !m.stop ? ':s' : ':f')}
+          sig={[look, m.kind, m.tag, m.busy, m.open, m.names, m.stop ? m.stop.n + (m.stop.done ? 'd' : '') : ''].join(':')}
           m={m}
           compact={compact}
           onPick={onPick}
