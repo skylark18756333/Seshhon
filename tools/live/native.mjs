@@ -123,6 +123,11 @@ function totp(secret, ahead = 0) {
 const tap = (p, label) => p.page.getByRole('button', { name: label, exact: true }).first().click();
 // The Sesh tab shows one place at a time: tap the cross until that venue's card is on top, then tick it.
 async function voteFor(p, venue) {
+  // Home shows only the sesh card; open its Vote part first if the cards aren't on screen.
+  if (!(await p.page.locator('[data-testid^="skip-"], [data-testid^="vote-"]').filter({ visible: true }).count())) {
+    await p.page.getByTestId('sesh-where').filter({ visible: true }).first().click().catch(() => {});
+    await p.page.waitForTimeout(300);
+  }
   for (let i = 0; i < 20 && !(await p.page.getByTestId('vote-' + venue).isVisible()); i++) {
     await p.page.locator('[data-testid^="skip-"]').first().click();
     await p.page.waitForTimeout(150);
@@ -227,6 +232,8 @@ try {
   await has(nat, 'Keep it going');
   await has(nat, 'Find venues');
   expect('Crewzy crawl and Plan for later still on hand', await nat.page.getByTestId('more-crawl').count() + await nat.page.getByTestId('more-plan').count() >= 2, true);
+  // Home shows just the card and the tiles now; the sesh's parts open inside it.
+  await nat.page.getByTestId('sesh-where').filter({ visible: true }).first().click();
   await has(nat, 'Where to?');
   const seshId = psql(`select id from public.seshes where creator = '${anaId}' and ended_at is null`);
   expect('a live sesh started by Ana', psql(`select count(*) from public.seshes where creator = '${anaId}' and ended_at is null`), 1);
@@ -563,7 +570,8 @@ try {
   await tap(natT, 'Join');
   await has(natT, 'LIVE SESH');
   await nat.page.getByTestId('sesh-chat').filter({ visible: true }).first().click();
-  await natT.page.getByLabel('Message your mates').fill('Ugh not there');
+  await natT.page.getByTestId('sesh-chat').filter({ visible: true }).first().click();   // Tom opens the sesh's chat too
+  await natT.page.getByLabel('Message your mates').filter({ visible: true }).first().fill('Ugh not there');
   await natT.page.getByRole('button', { name: 'Send', exact: true }).click();
   await has(nat, 'Ugh not there', 10000);
   const tomRow = nat.page.locator('[data-testid="chat-list"] >> text=Ugh not there').locator('xpath=../..');
@@ -579,6 +587,8 @@ try {
   await natT.ctx.close();
 
   // Plan a sesh for later, for all friends: plan_sesh.
+  // Back out of the sesh's chat to Home, where Coming up is.
+  if (await nat.page.getByTestId('sesh-back').filter({ visible: true }).count()) await nat.page.getByTestId('sesh-back').filter({ visible: true }).first().click();
   await tap(nat, 'Plan a sesh for later');
   await has(nat, "When's it on?");
   await tap(nat, 'Tomorrow');
