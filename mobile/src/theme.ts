@@ -147,7 +147,8 @@ export function themed<T extends object>(make: () => T): T {
 // The fonts from docs/fonts, turned into the .ttf files phones can load (assets/fonts, see README).
 // Midnight Pop swaps the two display fonts for Poppins; F is changed in place like C.
 const FONTS = {
-  neon: 'TiltNeon-Regular',       // the Crewzy wordmark
+  neon: 'TiltNeon-Regular',       // neon headings
+  logo: 'Baloo2-ExtraBold',       // the Cr logo at the top
   display: 'Montserrat-ExtraBold',
   displayBold: 'Montserrat-Bold',
   body: 'Inter-Regular',

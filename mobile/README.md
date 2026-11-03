@@ -28,7 +28,7 @@ it opens on its own without loading the website. Both halves use the same databa
 
 The fonts in `assets/fonts` are the web app's fonts from `docs/fonts`, saved as `.ttf` (which phones can load)
 instead of `.woff2`. They carry the same licences, which are in that folder. Poppins (Midnight Pop's headings,
-from Google Fonts) is only in the app.
+from Google Fonts) and Baloo 2 ExtraBold (the "Cr" logo, from Fontsource) are only in the app.
 
 Because the screens travel inside the app, a change to `docs/` reaches phones only with the next app build.
 Build a new version after web changes, especially ones that go with a database change.
@@ -125,5 +125,6 @@ npx tsc --noEmit       # typecheck
 npx expo start         # run in Expo Go on a phone
 ```
 
-Icons and splash are drawn by `node tools/live/phone-icons.mjs` from the repository root, using the same Frendzy
-mark as the web app icon.
+Icons and splash are drawn by `node tools/live/phone-icons.mjs` from the repository root: the Crewzy mark, three
+status lights (red, amber, green). The logo at the top of the app is "Cr" with the same lights (`src/Logo.tsx`).
+A new icon only reaches phones with a new app build; the top logo goes over the air.

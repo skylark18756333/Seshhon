@@ -489,6 +489,7 @@ export default function App() {
   // The web app's fonts, as .ttf files a phone can load (see assets/fonts).
   const [fontsReady] = useFonts({
     'TiltNeon-Regular': require('./assets/fonts/TiltNeon-Regular.ttf'),
+    'Baloo2-ExtraBold': require('./assets/fonts/Baloo2-ExtraBold.ttf'),   // the Cr logo
     'Montserrat-Bold': require('./assets/fonts/Montserrat-Bold.ttf'),
     'Montserrat-ExtraBold': require('./assets/fonts/Montserrat-ExtraBold.ttf'),
     'Inter-Regular': require('./assets/fonts/Inter-Regular.ttf'),

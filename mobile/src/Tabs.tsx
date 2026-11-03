@@ -1,14 +1,19 @@
 // The thumb dock at the bottom: Home, Map, your status orb, Events and Chats. The icons are "Crewzy dots":
 // line icons that each hold a light (Chats holds three). The lights and the dock's edge glow take your colour. The orb in the middle glows your
-// colour; tap it and red, amber and green fan out above it, so you can change your status from any tab.
-import React, { useEffect, useRef, useState } from 'react';
-import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
+// colour; tap it and red, amber and green fan out above it, so you can change your status from any tab, or push it
+// sideways (right towards green, left towards red). Swiping along the rest of the bar moves between the tabs.
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Animated, PanResponder, Pressable, StyleSheet, Text, View } from 'react-native';
 import Svg, { Circle, Path } from 'react-native-svg';
 import type { Colour } from './api';
 import { C, COLOURS, F, LABELS, fade, themed } from './theme';
 
 const TABS: [string, string][] = [['home', 'Home'], ['map', 'Map'], ['orb', ''], ['events', 'Events'], ['messages', 'Chats']];
 const ORDER: Colour[] = ['off', 'thinking', 'on'];   // red, amber, green, left to right as on the logo
+const PAGES = TABS.map(([k]) => k).filter((k) => k !== 'orb');   // the tabs a swipe along the bar moves between
+const STEP = 64;      // how far a finger moves along the bar to go one tab over
+const NUDGE = 24;     // how far the orb is pushed sideways to change colour
+const sideways = (dx: number, dy: number, min: number) => Math.abs(dx) > min && Math.abs(dx) > Math.abs(dy) * 1.5;
 
 // One Crewzy dots icon: the line drawing in ink, and its light (or lights) in colour.
 function DotIcon({ name, ink, lit, light }: { name: string; ink: string; lit: boolean; light: string }) {
@@ -48,17 +53,51 @@ export default function Tabs({ tab, requests, colour, onPick, onColour }: {
   tab: string; requests: number; colour: Colour | null; onPick: (tab: string) => void; onColour: (c: Colour) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [shown, setShown] = useState(false);   // the fan stays mounted only while open or closing, so it never sits over the screen
   const fan = useRef(new Animated.Value(0)).current;
   useEffect(() => {
-    Animated.spring(fan, { toValue: open ? 1 : 0, useNativeDriver: true, friction: 7, tension: 90 }).start();
+    if (open) setShown(true);
+    Animated.spring(fan, { toValue: open ? 1 : 0, useNativeDriver: true, friction: 7, tension: 90 }).start(({ finished }) => {
+      if (finished && !open) setShown(false);
+    });
   }, [open, fan]);
   useEffect(() => { setOpen(false); }, [tab]);
   const glow = colour ? COLOURS[colour] : C.line;
 
+  // Swipe along the bar: the highlight follows your finger, one tab over for every STEP you move.
+  const live = useRef({ tab, colour, onPick, onColour });
+  live.current = { tab, colour, onPick, onColour };
+  const barSwipe = useMemo(() => PanResponder.create({
+    onMoveShouldSetPanResponder: (_e, g) => sideways(g.dx, g.dy, 12),
+    onPanResponderRelease: (_e, g) => {
+      const steps = Math.round(g.dx / STEP) || Math.sign(g.dx);
+      const at = Math.max(0, PAGES.indexOf(live.current.tab));
+      const to = PAGES[Math.min(PAGES.length - 1, Math.max(0, at + steps))];
+      setOpen(false);
+      if (to !== live.current.tab) live.current.onPick(to);
+    }
+  }), []);
+  // Push the orb sideways: right goes towards green, left towards red. The orb leans with your finger.
+  const lean = useRef(new Animated.Value(0)).current;
+  const orbSwipe = useMemo(() => PanResponder.create({
+    onMoveShouldSetPanResponder: (_e, g) => !!live.current.colour && sideways(g.dx, g.dy, 8),
+    onPanResponderTerminationRequest: () => false,
+    onPanResponderMove: (_e, g) => lean.setValue(Math.max(-30, Math.min(30, g.dx / 2))),
+    onPanResponderRelease: (_e, g) => {
+      Animated.spring(lean, { toValue: 0, useNativeDriver: true, friction: 5 }).start();
+      const c = live.current.colour;
+      if (!c || Math.abs(g.dx) < NUDGE) return;
+      const to = ORDER[Math.min(2, Math.max(0, ORDER.indexOf(c) + (g.dx > 0 ? 1 : -1)))];
+      setOpen(false);
+      if (to !== c) live.current.onColour(to);
+    },
+    onPanResponderTerminate: () => { Animated.spring(lean, { toValue: 0, useNativeDriver: true }).start(); }
+  }), [lean]);
+
   return (
     <View style={styles.wrap} pointerEvents="box-none">
       {/* The three lights fan out above the orb. */}
-      {colour ? (
+      {colour && shown ? (
         <View style={styles.fanRow} pointerEvents={open ? 'box-none' : 'none'}>
           {ORDER.map((c, i) => {
             const x = (i - 1) * 68, y = i === 1 ? -14 : 0;
@@ -73,17 +112,20 @@ export default function Tabs({ tab, requests, colour, onPick, onColour }: {
           })}
         </View>
       ) : null}
-      <View style={[styles.nav, colour ? { borderColor: fade(glow, 0.55), shadowColor: glow } : null]} accessibilityRole="tablist" accessibilityLabel="Sections">
+      <View style={[styles.nav, colour ? { borderColor: fade(glow, 0.55), shadowColor: glow } : null]} accessibilityRole="tablist" accessibilityLabel="Sections"
+        {...barSwipe.panHandlers} testID="dock-bar">
         {TABS.map(([key, name]) => {
           if (key === 'orb') {
             return (
-              <Pressable key={key} onPress={() => setOpen((o) => !o)} disabled={!colour} accessibilityRole="button" testID="dock-orb"
-                accessibilityLabel={colour ? 'Your status: ' + LABELS[colour] + '. Tap to change' : 'Your status'}
-                style={[styles.orb, { backgroundColor: glow, shadowColor: glow, borderColor: C.bg }]}>
-                <View style={styles.orbLights}>
-                  {ORDER.map((c) => <View key={c} style={[styles.orbDot, c === colour ? styles.orbDotOn : null]} />)}
-                </View>
-              </Pressable>
+              <Animated.View key={key} {...orbSwipe.panHandlers} style={[styles.orbWrap, { transform: [{ translateX: lean }] }]}>
+                <Pressable onPress={() => setOpen((o) => !o)} disabled={!colour} accessibilityRole="button" testID="dock-orb"
+                  accessibilityLabel={colour ? 'Your status: ' + LABELS[colour] + '. Tap or swipe to change' : 'Your status'}
+                  style={[styles.orb, { backgroundColor: glow, shadowColor: glow, borderColor: C.bg }]}>
+                  <View style={styles.orbLights}>
+                    {ORDER.map((c) => <View key={c} style={[styles.orbDot, c === colour ? styles.orbDotOn : null]} />)}
+                  </View>
+                </Pressable>
+              </Animated.View>
             );
           }
           const here = key === tab;
@@ -112,8 +154,9 @@ const styles = themed(() => StyleSheet.create({
   },
   button: { width: 62, height: 60, alignItems: 'center', justifyContent: 'center', gap: 2 },
   label: { fontFamily: F.bodyBold, fontSize: 11, color: C.muted },
+  orbWrap: { marginTop: -30 },
   orb: {
-    width: 70, height: 70, borderRadius: 35, marginTop: -30, borderWidth: 4, alignItems: 'center', justifyContent: 'center',
+    width: 70, height: 70, borderRadius: 35, borderWidth: 4, alignItems: 'center', justifyContent: 'center',
     shadowOpacity: C.dark ? 0.85 : 0.45, shadowRadius: 14, shadowOffset: { width: 0, height: 0 }, elevation: 8
   },
   orbLights: { flexDirection: 'row', alignItems: 'center', gap: 4 },
