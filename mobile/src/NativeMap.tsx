@@ -178,6 +178,11 @@ const Radar = memo(function Radar({ centre, r, blips, active }: { centre: Px; r:
 });
 
 const CENTRE = { x: 0.5, y: 0.5 };
+// Nothing phones close the app as soon as the Google map opens (Adam, 2026-11-03), while other Android phones are
+// fine. Those phones use Google's older map drawing engine; every other phone keeps the current one.
+const maker = String(((Platform.constants || {}) as { Manufacturer?: string; Brand?: string }).Manufacturer || ((Platform.constants || {}) as { Brand?: string }).Brand || '').toLowerCase();
+const RENDERER: 'LATEST' | 'LEGACY' = Platform.OS === 'android' && maker.indexOf('nothing') >= 0 ? 'LEGACY' : 'LATEST';
+
 const edge = { top: 60, right: 40, bottom: 60, left: 40 };
 
 // Memoised: the map is only touched when what it shows changes.
@@ -268,6 +273,7 @@ function NativeMap(p: MapView) {
       ref={map}
       style={styles.map}
       provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
+      googleRenderer={RENDERER}
       customMapStyle={Platform.OS === 'android' ? (C.dark ? DARK_STYLE : LIGHT_STYLE) : undefined}
       initialRegion={{ latitude: p.centre[0], longitude: p.centre[1], latitudeDelta: 0.12, longitudeDelta: 0.12 }}
       // Sarah: a single tap shouldn't move your spot (too easy to do by accident). A double tap moves the pin there
