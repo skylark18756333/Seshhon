@@ -8,7 +8,7 @@
 // live map of its stops in order (CrawlMap.tsx), where more stops can be added. A Crewzy crawl is picked when you start
 // or plan a sesh (CrawlBuilder), and its stops are the same Sesh Map stops.
 import { GreenRow, HomeBottom, HomeTop } from './Home';
-import { useOnShow, useShownRef } from './Shown';
+import { useHomeTapAgain, useOnShow, useShownRef } from './Shown';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AppState, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
@@ -22,6 +22,7 @@ import CrawlMap from './CrawlMap';
 import Icon from './Icon';
 import MeetMiddle from './MeetMiddle';
 import SpotPicker from './SpotPicker';
+import { ChatTile, CoverBehind, EndPill, RoomTiles, SeshSettings, SeshStrip, TimeLeft, VotesMap, seshColours, useSeshDetails, type SeshLook } from './SeshDetails';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Avatar, Button, Face, Toast, TopBar } from './Parts';
 import type { ApiError } from './session';
@@ -65,7 +66,7 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
   const [panel, setPanel] = useState<Panel | null>(null);
   // A live sesh shows as a card on Home; tapping it opens the sesh itself (chat, vote, crawl, more).
   const [inside, setInside] = useState(false);
-  const [lastMsg, setLastMsg] = useState<{ sesh: string; m: Message | null } | null>(null);
+  const [lastMsg, setLastMsg] = useState<{ sesh: string; ms: Message[] } | null>(null);
   const [making, setMaking] = useState(false);
   // Go now: picking where to go before the sesh starts.
   const [going, setGoing] = useState(false);
@@ -76,7 +77,9 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
   const live = seshes.filter((s) => s.am_member && !isPlanned(s))[0] || null;
   const mine = (seshId && seshes.filter((s) => s.am_member && s.id === seshId)[0]) || live;
   const mineId = mine ? mine.id : null;
+  const sd = useSeshDetails(mineId);   // its name, emoji, colour, cover photo and invite-only (0044)
   useEffect(() => { setInside(false); }, [mineId]);   // a new or ended sesh starts back on Home
+  useHomeTapAgain(() => { setInside(false); setPanel(null); setSeshId(null); scroll.current?.scrollTo({ y: 0, animated: false }); });
   const top = () => scroll.current?.scrollTo({ y: 0, animated: false });
 
   /* ---------- the Sesh Map's stops, read with every refresh as the web app does ---------- */
@@ -296,13 +299,31 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
   const isCrawl = stops.length > 1;
   const picking = !mine.locked_venue && !(mine.planned && mine.starts_at && new Date(mine.starts_at).getTime() > Date.now());
   const open: Panel = panel && (panel !== 'crawl' || !crawl.off) ? panel : later ? 'more' : mine.locked_venue ? 'chat' : 'where';
-  const latest = lastMsg && lastMsg.sesh === mine.id ? lastMsg.m : null;
-  const home = !later && !inside;   // Home shows just the card and the tiles; the sesh's parts open inside it
+  const recent = lastMsg && lastMsg.sesh === mine.id ? lastMsg.ms : [];
+  const latest = recent.length ? recent[recent.length - 1] : null;
+  // A live sesh: Home shows its card; tapping it opens the sesh's room (the card, a big Chat tile showing the newest
+  // messages, and Vote / Crawl / Settings tiles); a tile opens that part full screen under a slim bar.
+  const home = !later && !inside;
+  const room = !later && inside && !panel;
+  const full = !later && inside && !!panel;
+  const showPanel = later || full;
+  const cur: Panel = later ? open : (panel && (panel !== 'crawl' || !crawl.off) ? panel : 'chat');
   const go = (p: Panel) => { setPanel(p); setInside(true); top(); };
+  const enter = () => { setPanel(null); setInside(true); top(); };
+  const endIt = () => {
+    setSeshId(null); setPanel(null); setInside(false);
+    if (mine.mine) f.act('end_sesh', { p_sesh: mine.id }, 'Sesh ended.'); else f.act('leave_sesh', { p_sesh: mine.id });
+  };
+  const venueNow = mine.locked_venue && v.byId[mine.locked_venue] ? v.byId[mine.locked_venue] : null;
+  const d = sd.details;
+  const seshTitle = (d && d.emoji ? d.emoji + ' ' : '') + ((d && d.name) || (venueNow ? venueNow.name : isCrawl ? "Tonight's crawl" : "Tonight's sesh"));
+  const parts: [Panel, string][] = [['chat', 'Chat'], ['where', venueNow ? 'Where' : 'Vote'], ...(crawl.off ? [] : [['crawl', 'Crawl'] as [Panel, string]]), ['more', 'Settings']];
+  const tally = leaderOf(mine);
+  const leadVen = tally.best && v.byId[tally.best] ? v.byId[tally.best] : null;
 
   return (
     <Frame f={f} onOpenWeb={onOpenWeb} scroll={scroll} home compact={!later}>
-      {!home ? (
+      {room || later ? (
         <Pressable style={styles.linkRow} onPress={() => { setSeshId(null); setPanel(null); setInside(false); top(); }} accessibilityRole="button" accessibilityLabel="Back to Home" testID="sesh-back">
           <Icon name="back" size={16} colour={C.muted} /><Text style={styles.linkText}>Back to Home</Text>
         </Pressable>
@@ -316,7 +337,10 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
         </View>
       ) : null}
 
-      <SeshCard
+      {full ? (
+        <SeshStrip title={seshTitle} startsAt={mine.starts_at} look={sd} parts={parts} on={cur} onPart={(p) => { setPanel(p); top(); }}
+          onBack={() => { setPanel(null); top(); }} />
+      ) : <SeshCard
         s={mine}
         later={later}
         startMs={startMs}
@@ -327,12 +351,29 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
         myId={me.id}
         photos={f.photos}
         latest={latest}
-        panel={home ? null : open}
+        panel={later ? open : null}
         crawlOn={!crawl.off}
-        onPanel={home ? go : setPanel}
-        onOpen={home ? () => go('chat') : undefined}
+        onPanel={later ? setPanel : go}
+        onOpen={home ? enter : undefined}
         onStarted={f.refresh}
-      />
+        room={room}
+        look={sd}
+        onEnd={endIt}
+        onEdit={() => go('more')}
+      />}
+
+      {room ? (
+        <>
+          <ChatTile recent={recent.slice(-2)} myId={me.id} photos={f.photos} colours={seshColours(sd.details)} onOpen={() => go('chat')} />
+          <RoomTiles tiles={[
+            { key: 'where', emoji: venueNow ? '📍' : '🗳️', title: venueNow ? 'Where' : 'Vote', colours: ['#F5A623', '#D4572A'],
+              note: venueNow ? venueNow.name : leadVen ? leadVen.name + ' leads' : 'Pick a spot', onPress: () => go('where') },
+            ...(crawl.off ? [] : [{ key: 'crawl', emoji: '🚶', title: 'Crawl', colours: ['#21C6A4', '#2A7FD4'] as [string, string],
+              note: stops.length ? stops.length + ' stop' + (stops.length === 1 ? '' : 's') : 'Add stops', onPress: () => go('crawl') }]),
+            { key: 'more', emoji: '⚙️', title: 'Settings', colours: ['#5B8CFF', '#9B5BFF'], note: mine.mine ? 'Name, colour, photo' : 'Pres, leave', onPress: () => go('more') }
+          ]} />
+        </>
+      ) : null}
 
       {!home ? null : (
         // The lobby's options stay on hand in a sesh: find somewhere, build a crawl, plan the next one.
@@ -346,7 +387,7 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
         ]} />
       )}
 
-      {!home && open === 'where' ? (
+      {showPanel && cur === 'where' ? (
         <>
           {picking ? (
             <MeetMiddle
@@ -359,6 +400,9 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
           {mine.locked_venue ? (
             <LockedCard id={mine.locked_venue} v={v} onVenue={onVenue} />
           ) : (
+            <VotesMap s={mine} v={v} meName={first(me.name)} onPick={onVenue} />
+          )}
+          {mine.locked_venue ? null : (
             <VoteSection
               s={mine}
               myId={me.id}
@@ -375,17 +419,18 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
         </>
       ) : null}
 
-      {!home && open === 'crawl' && !crawl.off ? (
+      {showPanel && cur === 'crawl' && !crawl.off ? (
         <CrawlSection s={mine} stops={stops} v={v} onMap={() => onOpenWeb('map')} onVenue={onVenue} onRun={crawlRun} />
       ) : null}
 
       {/* The chat stays mounted while another part is open, so the card can show the newest line. */}
-      <View style={!home && open === 'chat' ? null : styles.hidden}>
-        <Chat f={f} seshId={mine.id} myId={me.id} confirm={confirm} setConfirm={setConfirm} onLatest={(m) => setLastMsg({ sesh: mine.id, m })} />
+      <View style={showPanel && cur === 'chat' ? null : styles.hidden}>
+        <Chat f={f} seshId={mine.id} myId={me.id} confirm={confirm} setConfirm={setConfirm} onLatest={(ms) => setLastMsg({ sesh: mine.id, ms })} />
       </View>
 
-      {!home && open === 'more' ? (
-        <>
+      {showPanel && cur === 'more' ? (
+        later ? (
+          <>
           {mine.private ? (
             <View style={styles.card}>
               <View style={[styles.row, styles.between]}>
@@ -427,8 +472,7 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
                 .then((r) => { if (r) setPresEdit(null); });
             }}
           />
-          {later ? (
-            mine.mine ? (
+            {mine.mine ? (
               <>
                 <Button
                   label={me.colour === 'on' ? 'Start it now' : 'Go green and start it now'}
@@ -443,11 +487,53 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
               </>
             ) : (
               <Button label="Can't make it" ghost onPress={() => { setSeshId(null); setPanel(null); f.act('leave_sesh', { p_sesh: mine.id }); }} />
-            )
-          ) : mine.mine
-            ? <Button label="End the sesh" ghost onPress={() => { setSeshId(null); setPanel(null); f.act('end_sesh', { p_sesh: mine.id }, 'Sesh ended.'); }} />
-            : <Button label="Leave the sesh" ghost onPress={() => { setSeshId(null); setPanel(null); f.act('leave_sesh', { p_sesh: mine.id }); }} />}
-        </>
+            )}
+          </>
+        ) : (
+          <SeshSettings s={mine} look={sd} say={f.say} onEnd={endIt}>
+          {mine.private ? (
+            <View style={styles.card}>
+              <View style={[styles.row, styles.between]}>
+                <View style={styles.grow}>
+                  <IconLine icon="lock" colour={C.fg} text="Private sesh" bold />
+                  <Text style={[styles.muted, styles.small]}>
+                    {mine.mine ? 'Only you and the ' + asked + ' friend' + (asked === 1 ? '' : 's') + ' you picked can see it.' : 'Only the friends ' + creator + ' picked can see it.'}
+                  </Text>
+                </View>
+                {mine.mine ? <Button small ghost label="Invite" onPress={() => { setPicker({ mode: 'invite', picked: {} }); top(); }} /> : null}
+              </View>
+            </View>
+          ) : null}
+          <PresCard
+            s={mine}
+            editing={presEdit === mine.id}
+            address={presAddress}
+            minute={presMin}
+            onAddress={setPresAddress}
+            onMinute={setPresMin}
+            onEdit={() => {
+              const p = mine.pres, at = p && p.at ? new Date(p.at) : null;
+              setPresAddress((p && p.address) || '');
+              setPresMin(at ? at.getHours() * 60 + at.getMinutes() : null);
+              setPresEdit(mine.id);
+            }}
+            onCancel={() => setPresEdit(null)}
+            onRemove={() => f.act('set_sesh_pres', { p_sesh: mine.id, p_address: '', p_at: null }, 'Pres address removed.').then((r) => { if (r) setPresEdit(null); })}
+            onSave={() => {
+              if (!presAddress.trim()) { f.say('Type the address first.'); return; }
+              let at: string | null = null;
+              if (presMin !== null && mine.starts_at) {   // that time on the day of the sesh, or the evening before for a sesh after midnight
+                const start = new Date(mine.starts_at), d = new Date(start);
+                d.setHours(Math.floor(presMin / 60), presMin % 60, 0, 0);
+                if (d > start) d.setDate(d.getDate() - 1);
+                at = d.toISOString();
+              }
+              f.act('set_sesh_pres', { p_sesh: mine.id, p_address: presAddress.trim(), p_at: at }, 'Pres address saved. Only the people in the sesh can see it.')
+                .then((r) => { if (r) setPresEdit(null); });
+            }}
+          />
+          </SeshSettings>
+        )
       ) : null}
 
       {home ? <GreenRow f={f} /> : null}
@@ -784,29 +870,35 @@ function PlannedList({ seshes, skipId, canPlan, v, onOpen, onJoin, onPlan }: {
 }
 
 /* ---------- the sesh card: who's in, where, the crawl trail, the newest chat line, and the parts to open ---------- */
-function SeshCard({ s, later, startMs, creator, isCrawl, stops, v, myId, photos, latest, panel, crawlOn, onPanel, onOpen, onStarted }: {
+function SeshCard({ s, later, startMs, creator, isCrawl, stops, v, myId, photos, latest, panel, crawlOn, onPanel, onOpen, onStarted, room, look, onEnd, onEdit }: {
   s: SeshT; later: boolean; startMs: number; creator: string; isCrawl: boolean; stops: CrawlStop[]; v: Venues; myId: string;
   photos: Record<string, string>; latest: Message | null; panel: Panel | null; crawlOn: boolean; onPanel: (p: Panel) => void;
   onOpen?: () => void;   // on Home: tapping the card opens the sesh
   onStarted: () => void;
+  room?: boolean;        // in the sesh's room the Chat tile and tiles are below, so the card leaves out its preview and tabs
+  look: SeshLook;        // its own name, emoji, colour and cover photo (0044)
+  onEnd: () => void; onEdit: () => void;
 }) {
+  const d = look.details, name = d ? d.name : null, emoji = d ? d.emoji : null;
   const kind = isCrawl ? 'crawl' : 'sesh';
   const venue = s.locked_venue && v.byId[s.locked_venue] ? v.byId[s.locked_venue] : null;
-  const title = venue ? venue.name : later ? fmtWhen(s.starts_at) : isCrawl ? "Tonight's crawl" : "Tonight's sesh";
-  const sub = venue ? (later ? fmtWhen(s.starts_at) : [venue.kind, hoursLine(venue)].filter(Boolean).join(', '))
+  const title = (emoji ? emoji + ' ' : '') + (name || (venue ? venue.name : later ? fmtWhen(s.starts_at) : isCrawl ? "Tonight's crawl" : "Tonight's sesh"));
+  const sub = venue && name ? venue.name + (later ? ', ' + fmtWhen(s.starts_at) : '') : venue ? (later ? fmtWhen(s.starts_at) : [venue.kind, hoursLine(venue)].filter(Boolean).join(', '))
     : s.votes.length ? s.votes.length + ' vote' + (s.votes.length === 1 ? '' : 's') + ' on where to go' : 'Still picking a spot';
   const who = (s.mine ? 'You' : creator) + ' started it';
   const parts: [Panel, string][] = [['chat', 'Chat'], ['where', venue ? 'Where' : 'Vote'], ...(crawlOn ? [['crawl', 'Crawl'] as [Panel, string]] : []), ['more', 'More']];
   const shown = stops.slice(0, 4);
   return (
-    <LinearGradient colors={[C.heroFrom, C.heroTo]} start={{ x: 0, y: 0 }} end={{ x: 0.6, y: 1 }} style={styles.seshCard} testID="sesh-card">
+    <LinearGradient colors={seshColours(d)} start={{ x: 0, y: 0 }} end={{ x: 0.6, y: 1 }} style={styles.seshCard} testID="sesh-card">
+      <CoverBehind url={look.cover} />
       <View style={[styles.row, styles.between]}>
         <View style={styles.livePill}>
           <View style={[styles.liveDot, later ? { backgroundColor: C.thinking, shadowColor: C.thinking } : null]} />
-          <Text style={styles.liveText}>{later ? 'PLANNED ' + kind.toUpperCase() : 'LIVE ' + kind.toUpperCase()}</Text>
+          <Text style={styles.liveText}>{(later ? 'PLANNED ' : 'LIVE ') + kind.toUpperCase() + ((d ? d.private : s.private) ? ' · 🔒 INVITE ONLY' : '')}</Text>
         </View>
         {later && startMs - Date.now() < DAY ? <Text style={styles.cardSmall}>Starts in <Countdown until={startMs} onDone={onStarted} /></Text>
-          : s.private ? <IconLine icon="lock" colour="#fff" text="Private" /> : null}
+          : room ? <EndPill mine={!!s.mine} onEnd={onEnd} />
+          : !later ? <TimeLeft startsAt={s.starts_at} /> : null}
       </View>
       <Pressable onPress={onOpen} disabled={!onOpen} accessibilityRole={onOpen ? 'button' : undefined}
         accessibilityLabel={onOpen ? 'Open ' + title : undefined} testID={onOpen ? 'sesh-open' : undefined}>
@@ -814,6 +906,16 @@ function SeshCard({ s, later, startMs, creator, isCrawl, stops, v, myId, photos,
         <Text style={styles.cardSmall} numberOfLines={1}>{sub}</Text>
         {onOpen ? <Text style={[styles.cardSmall, styles.openHint]}>Tap to open the {kind} and chat</Text> : null}
       </Pressable>
+      {room ? (
+        <View style={styles.roomRow}>
+          <View style={styles.grow}><TimeLeft startsAt={s.starts_at} bar /></View>
+          {s.mine && look.ready ? (
+            <Pressable style={styles.editChip} onPress={onEdit} accessibilityRole="button" accessibilityLabel="Edit the sesh" testID="sesh-edit">
+              <Text style={styles.editChipText}>✏️ Edit</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
       <View style={[styles.row, styles.between]}>
         <View style={styles.faceStack}>
           {s.members.slice(0, 6).map((m, i) => (
@@ -841,7 +943,7 @@ function SeshCard({ s, later, startMs, creator, isCrawl, stops, v, myId, photos,
           {stops.length > shown.length ? <Text style={styles.trailMore}>+{stops.length - shown.length}</Text> : null}
         </Pressable>
       ) : null}
-      <Pressable style={styles.peek} onPress={() => onPanel('chat')} accessibilityRole="button" accessibilityLabel="Open the sesh chat">
+      {room ? null : <Pressable style={styles.peek} onPress={() => onPanel('chat')} accessibilityRole="button" accessibilityLabel="Open the sesh chat">
         {latest ? (
           <View style={styles.row}>
             <Face id={latest.sender} name={latest.name} photos={photos} size={22} font={9} />
@@ -852,15 +954,15 @@ function SeshCard({ s, later, startMs, creator, isCrawl, stops, v, myId, photos,
           <Text style={styles.peekMuted}>Reply to the {kind}...</Text>
           <Icon name="send" size={15} colour="#111114" />
         </View>
-      </Pressable>
-      <View style={styles.seg}>
+      </Pressable>}
+      {room ? null : <View style={styles.seg}>
         {parts.map(([k, label]) => (
           <Pressable key={k} style={[styles.segBtn, panel === k && styles.segOn]} onPress={() => onPanel(k)}
             accessibilityRole="tab" accessibilityLabel={label} accessibilityState={{ selected: panel === k }} testID={'sesh-' + k}>
             <Text style={[styles.segText, panel === k && styles.segTextOn]} numberOfLines={1}>{label}</Text>
           </Pressable>
         ))}
-      </View>
+      </View>}
     </LinearGradient>
   );
 }
@@ -1178,7 +1280,7 @@ function StopNum({ n, done }: { n: number; done: boolean }) {
 }
 
 /* ---------- the chat (chatHtml, chatItems, paintChat, refreshChat) ---------- */
-function Chat({ f, seshId, myId, confirm, setConfirm, onLatest }: { f: Frendzy; seshId: string; myId: string; confirm: string | null; setConfirm: (c: string | null) => void; onLatest?: (m: Message | null) => void }) {
+function Chat({ f, seshId, myId, confirm, setConfirm, onLatest }: { f: Frendzy; seshId: string; myId: string; confirm: string | null; setConfirm: (c: string | null) => void; onLatest?: (ms: Message[]) => void }) {
   const latestCb = useRef(onLatest);
   latestCb.current = onLatest;
   const [messages, setMessages] = useState<Message[]>([]);
@@ -1202,7 +1304,7 @@ function Chat({ f, seshId, myId, confirm, setConfirm, onLatest }: { f: Frendzy; 
       key.current = k;
       if (firstLoad || force) stick.current = true;
       setMessages(got);
-      if (latestCb.current) latestCb.current(got.length ? got[got.length - 1] : null);
+      if (latestCb.current) latestCb.current(got.slice(-3));
     }, () => {});
   }, [seshId]);
 
@@ -1362,6 +1464,9 @@ const styles = themed(() => StyleSheet.create({
   cardTitle: { fontFamily: F.display, fontSize: 28, lineHeight: 32, letterSpacing: -0.7, color: '#fff' },
   cardSmall: { fontFamily: F.bodyMid, fontSize: 13, lineHeight: 18, color: 'rgba(255, 255, 255, 0.9)' },
   openHint: { marginTop: 4, fontFamily: F.bodyBold, textDecorationLine: 'underline' },
+  roomRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 10 },
+  editChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 14, backgroundColor: 'rgba(255, 255, 255, 0.25)' },
+  editChipText: { fontFamily: F.bodyBold, fontSize: 12, color: '#fff' },
   cardRight: { flexShrink: 1, textAlign: 'right' },
   faceStack: { flexDirection: 'row', alignItems: 'center' },
   stackFace: { borderRadius: 20, borderWidth: 2 },
