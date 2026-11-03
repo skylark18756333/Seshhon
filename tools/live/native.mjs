@@ -284,6 +284,22 @@ try {
   await sshot(nat, '4-chat-ana.png');
   await sshot(natJ, '5-chat-jack.png');
 
+  // Typing lights: while Jack types, Ana's chat and sesh card show the Crewzy bubble with its lights taking turns
+  // (sent over Realtime broadcast, nothing stored). Then a quick reply sends with one tap and the lights go.
+  await natJ.page.getByLabel('Message your mates').fill('Grabbing a');
+  await has(nat, 'Jack is typing...', 8000);
+  console.log("Ana sees Jack typing: yes");
+  expect('typing is not stored', psql(`select count(*) from public.messages where sesh_id = '${seshId}'`), 2);
+  await sshot(nat, '5b-typing-ana.png');
+  await natJ.page.getByLabel('Message your mates').fill('');
+  expect('typing lights go when Jack clears the box', await until(async () => !(await nat.page.evaluate(() => document.body.innerText.includes('Jack is typing...'))), 8000), true);
+  await natJ.page.getByTestId('quick-On my way').filter({ visible: true }).first().click();
+  await until(() => psql(`select count(*) from public.messages where sesh_id = '${seshId}'`) === '3');
+  expect('quick reply stored', psql(`select body from public.messages where sesh_id = '${seshId}' and sender = '${jackId}' order by created_at desc limit 1`), 'On my way');
+  await has(nat, 'On my way', 10000);
+  console.log("Quick reply sent with one tap: yes");
+  await sshot(natJ, '5c-quick-replies-jack.png');
+
   // Reporting a message: report_message, with the message kept for the moderators.
   await nat.page.getByRole('button', { name: 'Report', exact: true }).first().click();
   await has(nat, 'Report this message?');
@@ -434,6 +450,9 @@ try {
   // Near me: this phone's position stays on the phone.
   await natMap.ctx.grantPermissions(['geolocation']);
   await natMap.ctx.setGeolocation({ latitude: -31.9871, longitude: 115.8412 });
+  // The picked venue's card hides Near me, so close it first.
+  const closeCard = natMap.page.getByRole('button', { name: 'Close', exact: true }).filter({ visible: true });
+  if (await closeCard.count()) await closeCard.first().click();
   await natMap.page.getByTestId('map-near-me').click();
   await has(natMap, 'Your location stays on this phone and is never saved or shown to friends.');
   await has(natMap, 'within 5 km of you');
@@ -557,11 +576,20 @@ try {
   // The pres address for it: set_sesh_pres.
   await tap(nat, 'Add a private pres address');
   await nat.page.getByLabel('Address', { exact: true }).fill('12 Smith St, Northbridge');
-  await tap(nat, '15 minutes earlier');   // the pres starts from 7:00 pm, so earlier is always before the sesh
+  for (let i = 0; i < 4; i++) await tap(nat, '15 minutes earlier');   // the pres starts from 7:00 pm and the sesh can be 6:30 pm, so go an hour earlier
   await tap(nat, 'Save');
   await has(nat, 'Pres address saved.');
   expect('pres address stored', psql(`select address from private.sesh_pres p join public.seshes s on s.id = p.sesh_id where s.creator = '${anaId}' and s.created_at > now() + interval '20 hours'`), '12 Smith St, Northbridge');
   await sshot(nat, '12-planned-sesh.png');
+  // Add to calendar: opens Google Calendar's new-event page with the sesh filled in (window.open in the browser build).
+  await nat.page.evaluate(() => { window.__opened = []; window.open = (u) => { window.__opened.push(String(u)); return null; }; });
+  await nat.page.getByTestId('add-to-calendar').filter({ visible: true }).first().click();
+  await until(async () => (await nat.page.evaluate(() => window.__opened.length)) > 0, 5000);
+  const cal = await nat.page.evaluate(() => window.__opened[0] || '');
+  expect('calendar link opens Google Calendar', cal.startsWith('https://calendar.google.com/calendar/render?action=TEMPLATE'), true);
+  expect('calendar link has the title', cal.includes('text=Crewzy%20sesh'), true);
+  expect('calendar link has the pres address', decodeURIComponent(cal).includes('Pres: 12 Smith St, Northbridge'), true);
+  expect('calendar link has a start and end', /dates=\d{8}T\d{6}Z\/\d{8}T\d{6}Z/.test(cal), true);
   await tap(nat, 'Back to Home');
   await has(nat, 'LIVE SESH');
   await has(nat, 'Coming up');

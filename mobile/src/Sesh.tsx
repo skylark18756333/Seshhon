@@ -16,6 +16,9 @@ import {
 } from 'react-native';
 import { addCrawlStops, getMessages, reportMessage, seshCrawl, sendMessage, type CrawlStop, type Friend, type Member, type Message, type Sesh as SeshT } from './api';
 import { CHAT_POLL_MS, RADIUS_KM } from './config';
+import { joinTyping, SHOW_FOR_MS, type TypingLink } from './typing';
+import TypingLights from './TypingLights';
+import { addToCalendar } from './calendar';
 import { openFriend } from './FriendProfile';
 import { CrawlBuilder, TreasureMap } from './Crawl';
 import Icon from './Icon';
@@ -62,6 +65,8 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
   const [make, setMake] = useState<{ target: string | null } | null>(null);
   const [panel, setPanel] = useState<Panel | null>(null);
   const [lastMsg, setLastMsg] = useState<{ sesh: string; m: Message | null } | null>(null);
+  // Who's typing in the sesh chat right now (first names), for the line on the sesh card.
+  const [typers, setTypers] = useState<{ sesh: string; names: string[] } | null>(null);
   const [making, setMaking] = useState(false);
   const scroll = useRef<ScrollView>(null);
   const shownRef = useShownRef();
@@ -261,6 +266,7 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
   const picking = !mine.locked_venue && !(mine.planned && mine.starts_at && new Date(mine.starts_at).getTime() > Date.now());
   const open: Panel = panel && (panel !== 'crawl' || !crawl.off) ? panel : later ? 'more' : mine.locked_venue ? 'chat' : 'where';
   const latest = lastMsg && lastMsg.sesh === mine.id ? lastMsg.m : null;
+  const typingNow = typers && typers.sesh === mine.id ? typers.names : [];
 
   return (
     <Frame f={f} onOpenWeb={onOpenWeb} scroll={scroll} home compact={!later}>
@@ -289,6 +295,7 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
         myId={me.id}
         photos={f.photos}
         latest={latest}
+        typing={typingNow}
         panel={open}
         crawlOn={!crawl.off}
         onPanel={setPanel}
@@ -330,7 +337,8 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
 
       {/* The chat stays mounted while another part is open, so the card can show the newest line. */}
       <View style={open === 'chat' ? null : styles.hidden}>
-        <Chat f={f} seshId={mine.id} myId={me.id} confirm={confirm} setConfirm={setConfirm} onLatest={(m) => setLastMsg({ sesh: mine.id, m })} />
+        <Chat f={f} seshId={mine.id} myId={me.id} confirm={confirm} setConfirm={setConfirm} onLatest={(m) => setLastMsg({ sesh: mine.id, m })}
+          names={nameMap(mine.members)} onTyping={(names) => setTypers({ sesh: mine.id, names })} />
       </View>
 
       {open === 'more' ? (
@@ -376,6 +384,17 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
                 .then((r) => { if (r) setPresEdit(null); });
             }}
           />
+          {later && mine.starts_at ? (
+            <Button ghost icon="clock" label="Add to calendar" testID="add-to-calendar" onPress={() => {
+              const lv = mine.locked_venue && v.byId[mine.locked_venue] ? v.byId[mine.locked_venue] : null;
+              addToCalendar({
+                title: (stops.length > 1 ? 'Crewzy crawl' : 'Crewzy sesh') + (creator && !mine.mine ? ' with ' + creator : ''),
+                start: new Date(mine.starts_at as string),
+                place: lv ? lv.name : null,
+                note: mine.pres && mine.pres.address ? 'Pres: ' + mine.pres.address : null
+              }, f.say);
+            }} />
+          ) : null}
           {later ? (
             mine.mine ? (
               <>
@@ -650,9 +669,9 @@ function PlannedList({ seshes, skipId, canPlan, v, onOpen, onJoin, onPlan }: {
 }
 
 /* ---------- the sesh card: who's in, where, the crawl trail, the newest chat line, and the parts to open ---------- */
-function SeshCard({ s, later, startMs, creator, isCrawl, stops, v, myId, photos, latest, panel, crawlOn, onPanel, onStarted }: {
+function SeshCard({ s, later, startMs, creator, isCrawl, stops, v, myId, photos, latest, typing, panel, crawlOn, onPanel, onStarted }: {
   s: SeshT; later: boolean; startMs: number; creator: string; isCrawl: boolean; stops: CrawlStop[]; v: Venues; myId: string;
-  photos: Record<string, string>; latest: Message | null; panel: Panel; crawlOn: boolean; onPanel: (p: Panel) => void; onStarted: () => void;
+  photos: Record<string, string>; latest: Message | null; typing: string[]; panel: Panel; crawlOn: boolean; onPanel: (p: Panel) => void; onStarted: () => void;
 }) {
   const kind = isCrawl ? 'crawl' : 'sesh';
   const venue = s.locked_venue && v.byId[s.locked_venue] ? v.byId[s.locked_venue] : null;
@@ -704,7 +723,12 @@ function SeshCard({ s, later, startMs, creator, isCrawl, stops, v, myId, photos,
         </Pressable>
       ) : null}
       <Pressable style={styles.peek} onPress={() => onPanel('chat')} accessibilityRole="button" accessibilityLabel="Open the sesh chat">
-        {latest ? (
+        {typing.length ? (
+          <View style={styles.row}>
+            <TypingLights size={0.85} />
+            <Text style={styles.peekText} numberOfLines={1}><Text style={styles.peekWho}>{typingLine(typing)}</Text></Text>
+          </View>
+        ) : latest ? (
           <View style={styles.row}>
             <Face id={latest.sender} name={latest.name} photos={photos} size={22} font={9} />
             <Text style={styles.peekText} numberOfLines={1}><Text style={styles.peekWho}>{latest.sender === myId ? 'You' : first(latest.name)}</Text> {latest.body}</Text>
@@ -1017,7 +1041,25 @@ function StopNum({ n, done }: { n: number; done: boolean }) {
 }
 
 /* ---------- the chat (chatHtml, chatItems, paintChat, refreshChat) ---------- */
-function Chat({ f, seshId, myId, confirm, setConfirm, onLatest }: { f: Frendzy; seshId: string; myId: string; confirm: string | null; setConfirm: (c: string | null) => void; onLatest?: (m: Message | null) => void }) {
+// One-tap replies under the chat, for when you're walking and don't want to type.
+const QUICK_REPLIES = ['On my way', '10 min', 'Running late', "I'm here", 'Where are you?'];
+
+// "Mia is typing", "Mia and Josh are typing", "3 people are typing".
+function typingLine(names: string[]): string {
+  if (names.length === 1) return names[0] + ' is typing...';
+  if (names.length === 2) return names[0] + ' and ' + names[1] + ' are typing...';
+  return names.length + ' people are typing...';
+}
+function nameMap(members: Member[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const m of members) out[m.id] = first(m.name);
+  return out;
+}
+
+function Chat({ f, seshId, myId, confirm, setConfirm, onLatest, names, onTyping }: {
+  f: Frendzy; seshId: string; myId: string; confirm: string | null; setConfirm: (c: string | null) => void; onLatest?: (m: Message | null) => void;
+  names: Record<string, string>; onTyping?: (names: string[]) => void;
+}) {
   const latestCb = useRef(onLatest);
   latestCb.current = onLatest;
   const [messages, setMessages] = useState<Message[]>([]);
@@ -1029,6 +1071,35 @@ function Chat({ f, seshId, myId, confirm, setConfirm, onLatest }: { f: Frendzy; 
   const stick = useRef(false);
   const nearEnd = useRef(true);
   current.current = seshId;
+
+  // Typing: tell the others while you type, and show the lights while they do. Each typer is shown until a few
+  // seconds after their last note, or until they send (their message turns up) or clear the box.
+  const link = useRef<TypingLink | null>(null);
+  const [typers, setTypers] = useState<Record<string, number>>({});
+  const typingCb = useRef(onTyping);
+  typingCb.current = onTyping;
+  useEffect(() => {
+    setTypers({});
+    const l = joinTyping(seshId, myId, {
+      onTyping: (id) => setTypers((t) => ({ ...t, [id]: Date.now() + SHOW_FOR_MS })),
+      onStopped: (id) => setTypers((t) => { if (!(id in t)) return t; const n = { ...t }; delete n[id]; return n; })
+    });
+    link.current = l;
+    const tidy = setInterval(() => setTypers((t) => {
+      const now = Date.now();
+      const keep = Object.keys(t).filter((id) => t[id] > now);
+      return keep.length === Object.keys(t).length ? t : Object.fromEntries(keep.map((id) => [id, t[id]]));
+    }), 1000);
+    return () => { clearInterval(tidy); l.stopped(); l.close(); if (link.current === l) link.current = null; };
+  }, [seshId, myId]);
+  const typingNames = Object.keys(typers).map((id) => names[id] || 'Someone');
+  const typingKey = typingNames.join('|');
+  useEffect(() => { if (typingCb.current) typingCb.current(typingNames); }, [typingKey]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const onDraft = (text: string) => {
+    setDraft(text);
+    if (!link.current) return;
+    if (text.trim()) link.current.typing(); else link.current.stopped();
+  };
 
   // Reads the chat; repaints only when the messages changed (or when asked to), as refreshChat does.
   const refresh = useCallback((force: boolean) => {
@@ -1059,11 +1130,12 @@ function Chat({ f, seshId, myId, confirm, setConfirm, onLatest }: { f: Frendzy; 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seshId, refresh]);
 
-  const send = () => {
-    const text = draft.trim();
+  const send = (quick?: string) => {
+    const text = (quick || draft).trim();
     if (!text || sending) return;
     setSending(true);
-    sendMessage(seshId, text).then(() => { setDraft(''); return refresh(true); })
+    if (link.current) link.current.stopped();
+    sendMessage(seshId, text).then(() => { if (!quick) setDraft(''); return refresh(true); })
       .catch((e: ApiError) => { f.say(e.message); })
       .then(() => setSending(false));
   };
@@ -1129,24 +1201,38 @@ function Chat({ f, seshId, myId, confirm, setConfirm, onLatest }: { f: Frendzy; 
             </View>
           );
         })}
+        {typingNames.length ? (
+          <View style={[styles.msgRow, styles.typingRow]} accessibilityLabel={typingLine(typingNames)}>
+            <TypingLights />
+            <Text style={[styles.muted, styles.tiny]} numberOfLines={1}>{typingLine(typingNames)}</Text>
+          </View>
+        ) : null}
+      </ScrollView>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.quickRow}>
+        {QUICK_REPLIES.map((q) => (
+          <Pressable key={q} style={({ pressed }) => [styles.quick, (pressed || sending) && styles.quickDown]} onPress={() => send(q)} disabled={sending}
+            accessibilityRole="button" accessibilityLabel={'Send: ' + q} testID={'quick-' + q}>
+            <Text style={styles.quickText}>{q}</Text>
+          </Pressable>
+        ))}
       </ScrollView>
       <View style={styles.chatForm}>
         <TextInput
           style={styles.chatInput}
           value={draft}
-          onChangeText={setDraft}
+          onChangeText={onDraft}
           maxLength={500}
           autoComplete="off"
           placeholder="Type a message..."
           placeholderTextColor={C.muted}
           accessibilityLabel="Message your mates"
           returnKeyType="send"
-          onSubmitEditing={send}
+          onSubmitEditing={() => send()}
           submitBehavior="submit"
         />
         <Pressable
           style={[styles.send, sending && styles.sendOff]}
-          onPress={send}
+          onPress={() => send()}
           disabled={sending}
           accessibilityRole="button"
           accessibilityLabel="Send"
@@ -1287,6 +1373,11 @@ const styles = themed(() => StyleSheet.create({
   doneTitle: { color: C.muted, textDecorationLine: 'line-through' },
 
   chat: { maxHeight: 440, minHeight: 80 },
+  typingRow: { alignItems: 'center', gap: 8, paddingLeft: 4, paddingTop: 2 },
+  quickRow: { gap: 8, paddingVertical: 2, paddingRight: 8 },
+  quick: { paddingHorizontal: 14, minHeight: 40, justifyContent: 'center', borderRadius: 20, backgroundColor: C.surface2, borderWidth: 1, borderColor: C.line },
+  quickDown: { opacity: 0.6 },
+  quickText: { fontFamily: F.bodyMid, fontSize: 14, color: C.fg },
   chatInner: { gap: 14, paddingVertical: 4 },
   msgRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 10, maxWidth: '88%' },
   msgRowMe: { alignSelf: 'flex-end' },
