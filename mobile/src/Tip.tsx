@@ -160,7 +160,7 @@ const styles = themed(() => StyleSheet.create({
   inner: { borderRadius: 23, backgroundColor: C.dark ? C.surface : '#FFFFFF', paddingTop: 14, paddingHorizontal: 18, paddingBottom: 16, gap: 8 },
   // The pointer is a turned square half under the bubble; `cover` hides the half inside it.
   arrow: { position: 'absolute', width: 16, height: 16, transform: [{ rotate: '45deg' }], backgroundColor: C.dark ? C.bg : '#FFFFFF', borderColor: fade(C.accent, C.dark ? 0.45 : 0.18), borderWidth: 1 },
-  cover: { ...StyleSheet.absoluteFillObject, borderRadius: 23, backgroundColor: C.dark ? C.bg : '#FFFFFF' },
+  cover: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, borderRadius: 23, backgroundColor: C.dark ? C.bg : '#FFFFFF' },
   head: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   spark: { width: 8, height: 8, borderRadius: 4, backgroundColor: C.on, shadowColor: C.on, shadowOpacity: 0.9, shadowRadius: 6, shadowOffset: { width: 0, height: 0 } },
   eyebrow: { fontFamily: F.bodyBold, fontSize: 12, letterSpacing: 1.4, textTransform: 'uppercase', color: C.muted },
