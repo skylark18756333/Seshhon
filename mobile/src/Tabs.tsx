@@ -1,46 +1,131 @@
-// The tab bar at the bottom: Home, Map and Events (venues live in the Map tab, with its List button). Home is
-// the native screen; the others open the packed web app on that tab.
-import React from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
-import Icon from './Icon';
-import { C, F, themed } from './theme';
+// The thumb dock at the bottom: Home, Map, your status orb, Events and Chats. The icons are "Crewzy dots":
+// line icons that each hold a light (Chats holds three). The lights and the dock's edge glow take your colour. The orb in the middle glows your
+// colour; tap it and red, amber and green fan out above it, so you can change your status from any tab.
+import React, { useEffect, useRef, useState } from 'react';
+import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
+import Svg, { Circle, Path } from 'react-native-svg';
+import type { Colour } from './api';
+import { C, COLOURS, F, LABELS, fade, themed } from './theme';
 
-const TABS: [string, string][] = [['home', 'Home'], ['map', 'Map'], ['events', 'Events']];
+const TABS: [string, string][] = [['home', 'Home'], ['map', 'Map'], ['orb', ''], ['events', 'Events'], ['messages', 'Chats']];
+const ORDER: Colour[] = ['off', 'thinking', 'on'];   // red, amber, green, left to right as on the logo
 
-export default function Tabs({ tab, requests, onPick }: { tab: string; requests: number; onPick: (tab: string) => void }) {
+// One Crewzy dots icon: the line drawing in ink, and its light (or lights) in colour.
+function DotIcon({ name, ink, lit, light }: { name: string; ink: string; lit: boolean; light: string }) {
+  const op = lit ? 1 : 0.7;
+  const line = { fill: 'none', stroke: ink, strokeWidth: 2.2, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const };
   return (
-    <View style={styles.nav} accessibilityRole="tablist" accessibilityLabel="Sections">
-      {TABS.map(([key, name]) => {
-        const here = key === tab;
-        return (
-          <React.Fragment key={key}>
-          <Pressable
-            style={[styles.button, here && styles.here]}
-            onPress={() => onPick(key)}
-            accessibilityRole="tab"
-            accessibilityLabel={name}
-            accessibilityState={{ selected: here }}
-          >
-            <Icon name={key} size={22} colour={here ? C.accentInk : C.muted} />
-            {key === 'home' && requests > 0 ? (
-              <View style={styles.badge}><Text style={styles.badgeText}>{requests}</Text></View>
-            ) : null}
-          </Pressable>
-          </React.Fragment>
-        );
-      })}
+    <Svg width={27} height={27} viewBox="0 0 24 24">
+      {name === 'home' ? (
+        <>
+          <Path d="M3.5 11 12 4l8.5 7" {...line} />
+          <Path d="M6 10v10h12V10" {...line} />
+          <Circle cx={12} cy={14.5} r={2} fill={light} opacity={op} />
+        </>
+      ) : name === 'map' ? (
+        <>
+          <Path d="M12 21.5s-7-6.4-7-11.7a7 7 0 0 1 14 0c0 5.3-7 11.7-7 11.7z" {...line} />
+          <Circle cx={12} cy={9.8} r={2.4} fill={light} opacity={op} />
+        </>
+      ) : name === 'events' ? (
+        <>
+          <Path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h15A1.5 1.5 0 0 1 21 6.5v3a2.5 2.5 0 0 0 0 5v3a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5v-3a2.5 2.5 0 0 0 0-5z" {...line} />
+          <Circle cx={9} cy={12} r={2} fill={light} opacity={op} />
+        </>
+      ) : (
+        <>
+          <Path d="M12 3c5 0 9 3.6 9 8s-4 8-9 8c-1 0-2-.1-2.9-.4L4 20.5l1.3-4A7.6 7.6 0 0 1 3 11c0-4.4 4-8 9-8z" {...line} />
+          <Circle cx={8} cy={11} r={1.4} fill={light} opacity={op} />
+          <Circle cx={12} cy={11} r={1.4} fill={light} opacity={op} />
+          <Circle cx={16} cy={11} r={1.4} fill={light} opacity={op} />
+        </>
+      )}
+    </Svg>
+  );
+}
+
+export default function Tabs({ tab, requests, colour, onPick, onColour }: {
+  tab: string; requests: number; colour: Colour | null; onPick: (tab: string) => void; onColour: (c: Colour) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const fan = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.spring(fan, { toValue: open ? 1 : 0, useNativeDriver: true, friction: 7, tension: 90 }).start();
+  }, [open, fan]);
+  useEffect(() => { setOpen(false); }, [tab]);
+  const glow = colour ? COLOURS[colour] : C.line;
+
+  return (
+    <View style={styles.wrap} pointerEvents="box-none">
+      {/* The three lights fan out above the orb. */}
+      {colour ? (
+        <View style={styles.fanRow} pointerEvents={open ? 'box-none' : 'none'}>
+          {ORDER.map((c, i) => {
+            const x = (i - 1) * 68, y = i === 1 ? -14 : 0;
+            return (
+              <Animated.View key={c} style={{ opacity: fan, transform: [{ translateX: fan.interpolate({ inputRange: [0, 1], outputRange: [0, x] }) }, { translateY: fan.interpolate({ inputRange: [0, 1], outputRange: [40, y] }) }, { scale: fan }] }}>
+                <Pressable onPress={() => { setOpen(false); if (c !== colour) onColour(c); }} accessibilityRole="button" accessibilityLabel={'Go ' + LABELS[c].toLowerCase()} testID={'dock-' + c}
+                  style={[styles.fanDot, { backgroundColor: COLOURS[c], shadowColor: COLOURS[c] }, c === colour && styles.fanOn]}>
+                  <Text style={styles.fanText}>{LABELS[c]}</Text>
+                </Pressable>
+              </Animated.View>
+            );
+          })}
+        </View>
+      ) : null}
+      <View style={[styles.nav, colour ? { borderColor: fade(glow, 0.55), shadowColor: glow } : null]} accessibilityRole="tablist" accessibilityLabel="Sections">
+        {TABS.map(([key, name]) => {
+          if (key === 'orb') {
+            return (
+              <Pressable key={key} onPress={() => setOpen((o) => !o)} disabled={!colour} accessibilityRole="button" testID="dock-orb"
+                accessibilityLabel={colour ? 'Your status: ' + LABELS[colour] + '. Tap to change' : 'Your status'}
+                style={[styles.orb, { backgroundColor: glow, shadowColor: glow, borderColor: C.bg }]}>
+                <View style={styles.orbLights}>
+                  {ORDER.map((c) => <View key={c} style={[styles.orbDot, c === colour ? styles.orbDotOn : null]} />)}
+                </View>
+              </Pressable>
+            );
+          }
+          const here = key === tab;
+          return (
+            <Pressable key={key} style={styles.button} onPress={() => { setOpen(false); onPick(key); }}
+              accessibilityRole="tab" accessibilityLabel={name} accessibilityState={{ selected: here }}>
+              <DotIcon name={key} ink={here ? C.fg : C.muted} lit={here} light={colour ? glow : C.muted} />
+              <Text style={[styles.label, here && { color: C.fg }]}>{name}</Text>
+              {key === 'home' && requests > 0 ? (
+                <View style={styles.badge}><Text style={styles.badgeText}>{requests}</Text></View>
+              ) : null}
+            </Pressable>
+          );
+        })}
+      </View>
     </View>
   );
 }
 
 const styles = themed(() => StyleSheet.create({
-  // A floating glass pill of icons. The open tab is a white circle.
+  wrap: { alignItems: 'center' },
   nav: {
-    flexDirection: 'row', alignSelf: 'center', width: '88%', maxWidth: 360, marginTop: 6, marginBottom: 14, padding: 6,
-    borderRadius: 32, borderWidth: 1, borderColor: C.line, backgroundColor: C.tabBg
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', width: '94%', maxWidth: 400, height: 68,
+    marginTop: 14, marginBottom: 12, paddingHorizontal: 6, borderRadius: 34, borderWidth: 1.5, borderColor: C.line, backgroundColor: C.tabBg,
+    shadowOpacity: C.dark ? 0.55 : 0.25, shadowRadius: 16, shadowOffset: { width: 0, height: 0 }, elevation: 4
   },
-  button: { flex: 1, minHeight: 48, alignItems: 'center', justifyContent: 'center', borderRadius: 24 },
-  here: { backgroundColor: C.accent },
-  badge: { position: 'absolute', top: 4, left: '50%', marginLeft: 6, minWidth: 18, height: 18, paddingHorizontal: 5, borderRadius: 9, backgroundColor: C.off, alignItems: 'center', justifyContent: 'center' },
+  button: { width: 62, height: 60, alignItems: 'center', justifyContent: 'center', gap: 2 },
+  label: { fontFamily: F.bodyBold, fontSize: 11, color: C.muted },
+  orb: {
+    width: 70, height: 70, borderRadius: 35, marginTop: -30, borderWidth: 4, alignItems: 'center', justifyContent: 'center',
+    shadowOpacity: C.dark ? 0.85 : 0.45, shadowRadius: 14, shadowOffset: { width: 0, height: 0 }, elevation: 8
+  },
+  orbLights: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  orbDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: 'rgba(11, 11, 13, 0.3)' },
+  orbDotOn: { width: 12, height: 12, borderRadius: 6, backgroundColor: '#FFFFFF' },
+  fanRow: { position: 'absolute', bottom: 118, left: 0, right: 0, height: 64, alignItems: 'center', justifyContent: 'center', zIndex: 5 },
+  fanDot: {
+    position: 'absolute', left: -32, top: 0, width: 64, height: 64, borderRadius: 32, alignItems: 'center', justifyContent: 'center',
+    shadowOpacity: 0.8, shadowRadius: 12, shadowOffset: { width: 0, height: 0 }, elevation: 6, borderWidth: 3, borderColor: fade('#FFFFFF', 0.25)
+  },
+  fanOn: { borderColor: '#FFFFFF' },
+  fanText: { fontFamily: F.bodyBold, fontSize: 12, color: '#0B0B0D' },
+  badge: { position: 'absolute', top: 2, left: '50%', marginLeft: 6, minWidth: 18, height: 18, paddingHorizontal: 5, borderRadius: 9, backgroundColor: C.off, alignItems: 'center', justifyContent: 'center' },
   badgeText: { fontFamily: F.bodyBold, fontSize: 11, color: '#fff' }
 }));

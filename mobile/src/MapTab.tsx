@@ -474,7 +474,7 @@ export default function MapTab({ f, onVenue, onOpenWeb, onWebMap }: {
 
 /* ---------- pieces ---------- */
 const CARD_W = 228;
-const TABS_H = 80;   // the floating tab bar (App.tsx) sits over the bottom of the map
+const TABS_H = 112;   // the floating thumb dock (its status orb rises above the bar) (App.tsx) sits over the bottom of the map
 // One venue in the cards along the bottom.
 function VenueCard({ s, mid, first, pinFrom, voted, canVote, onShow, onVote }: {
   s: Spot; mid: boolean; first: boolean; pinFrom: boolean; voted: boolean; canVote: boolean; onShow: (id: string) => void; onVote: (id: string) => void;
