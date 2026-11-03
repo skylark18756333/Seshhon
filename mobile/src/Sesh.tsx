@@ -62,8 +62,6 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
   // Building a Crewzy crawl: target is the planned sesh it's for, or null to start one now with the stops.
   const [make, setMake] = useState<{ target: string | null } | null>(null);
   const [panel, setPanel] = useState<Panel | null>(null);
-  // A live sesh shows as a card on Home; tapping it opens the sesh itself (chat, vote, crawl, more).
-  const [inside, setInside] = useState(false);
   const [lastMsg, setLastMsg] = useState<{ sesh: string; m: Message | null } | null>(null);
   const [making, setMaking] = useState(false);
   // Go now: picking where to go before the sesh starts.
@@ -75,7 +73,6 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
   const live = seshes.filter((s) => s.am_member && !isPlanned(s))[0] || null;
   const mine = (seshId && seshes.filter((s) => s.am_member && s.id === seshId)[0]) || live;
   const mineId = mine ? mine.id : null;
-  useEffect(() => { setInside(false); }, [mineId]);   // a new or ended sesh starts back on Home
   const top = () => scroll.current?.scrollTo({ y: 0, animated: false });
 
   /* ---------- the Sesh Map's stops, read with every refresh as the web app does ---------- */
@@ -296,13 +293,11 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
   const picking = !mine.locked_venue && !(mine.planned && mine.starts_at && new Date(mine.starts_at).getTime() > Date.now());
   const open: Panel = panel && (panel !== 'crawl' || !crawl.off) ? panel : later ? 'more' : mine.locked_venue ? 'chat' : 'where';
   const latest = lastMsg && lastMsg.sesh === mine.id ? lastMsg.m : null;
-  const home = !later && !inside;   // Home shows just the card and the tiles; the sesh's parts open inside it
-  const go = (p: Panel) => { setPanel(p); setInside(true); top(); };
 
   return (
     <Frame f={f} onOpenWeb={onOpenWeb} scroll={scroll} home compact={!later}>
-      {!home ? (
-        <Pressable style={styles.linkRow} onPress={() => { setSeshId(null); setPanel(null); setInside(false); top(); }} accessibilityRole="button" accessibilityLabel="Back to Home" testID="sesh-back">
+      {later ? (
+        <Pressable style={styles.linkRow} onPress={() => { setSeshId(null); setPanel(null); top(); }} accessibilityRole="button" accessibilityLabel="Back to Home">
           <Icon name="back" size={16} colour={C.muted} /><Text style={styles.linkText}>Back to Home</Text>
         </Pressable>
       ) : null}
@@ -326,26 +321,25 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
         myId={me.id}
         photos={f.photos}
         latest={latest}
-        panel={home ? null : open}
+        panel={open}
         crawlOn={!crawl.off}
-        onPanel={home ? go : setPanel}
-        onOpen={home ? () => go('chat') : undefined}
+        onPanel={setPanel}
         onStarted={f.refresh}
       />
 
-      {!home ? null : (
+      {later ? null : (
         // The lobby's options stay on hand in a sesh: find somewhere, build a crawl, plan the next one.
         <TileRow tiles={[
           { key: 'find', emoji: '🔎', title: 'Find venues', note: 'Map of spots near you', colours: ['#FF7A45', '#E0407A'], onPress: () => onOpenWeb('map') },
           ...(crawl.off ? [] : [{ key: 'crawl', emoji: '📍', title: 'Crewzy crawl', note: isCrawl ? 'See your trail' : 'Add stops a short walk apart', colours: ['#21C6A4', '#2A7FD4'] as [string, string],
-            onPress: () => go('crawl') }]),
+            onPress: () => setPanel('crawl') }]),
           { key: 'plan', emoji: '🗓', title: 'Plan for later', note: 'Any day in the next 2 weeks', colours: ['#5B8CFF', '#9B5BFF'], onPress: startPlan },
           { key: 'events', emoji: '🎶', title: "What's on", note: 'Gigs and events near you', colours: ['#F5A623', '#D4572A'], onPress: () => onOpenWeb('events') },
           { key: 'crews', emoji: '🤝', title: 'Crew catch-up', note: 'See when your crews are free', colours: ['#7AA52F', '#2E8F6A'], onPress: () => onOpenWeb('crews') }
         ]} />
       )}
 
-      {!home && open === 'where' ? (
+      {open === 'where' ? (
         <>
           {picking ? (
             <MeetMiddle
@@ -374,16 +368,16 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
         </>
       ) : null}
 
-      {!home && open === 'crawl' && !crawl.off ? (
+      {open === 'crawl' && !crawl.off ? (
         <CrawlSection s={mine} stops={stops} v={v} onMap={() => onOpenWeb('map')} onVenue={onVenue} onRun={crawlRun} />
       ) : null}
 
       {/* The chat stays mounted while another part is open, so the card can show the newest line. */}
-      <View style={!home && open === 'chat' ? null : styles.hidden}>
+      <View style={open === 'chat' ? null : styles.hidden}>
         <Chat f={f} seshId={mine.id} myId={me.id} confirm={confirm} setConfirm={setConfirm} onLatest={(m) => setLastMsg({ sesh: mine.id, m })} />
       </View>
 
-      {!home && open === 'more' ? (
+      {open === 'more' ? (
         <>
           {mine.private ? (
             <View style={styles.card}>
@@ -449,8 +443,8 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
         </>
       ) : null}
 
-      {home ? <GreenRow f={f} /> : null}
-      {home ? planned : null}
+      {later ? null : <GreenRow f={f} />}
+      {later ? null : planned}
     </Frame>
   );
 }
@@ -783,11 +777,9 @@ function PlannedList({ seshes, skipId, canPlan, v, onOpen, onJoin, onPlan }: {
 }
 
 /* ---------- the sesh card: who's in, where, the crawl trail, the newest chat line, and the parts to open ---------- */
-function SeshCard({ s, later, startMs, creator, isCrawl, stops, v, myId, photos, latest, panel, crawlOn, onPanel, onOpen, onStarted }: {
+function SeshCard({ s, later, startMs, creator, isCrawl, stops, v, myId, photos, latest, panel, crawlOn, onPanel, onStarted }: {
   s: SeshT; later: boolean; startMs: number; creator: string; isCrawl: boolean; stops: CrawlStop[]; v: Venues; myId: string;
-  photos: Record<string, string>; latest: Message | null; panel: Panel | null; crawlOn: boolean; onPanel: (p: Panel) => void;
-  onOpen?: () => void;   // on Home: tapping the card opens the sesh
-  onStarted: () => void;
+  photos: Record<string, string>; latest: Message | null; panel: Panel; crawlOn: boolean; onPanel: (p: Panel) => void; onStarted: () => void;
 }) {
   const kind = isCrawl ? 'crawl' : 'sesh';
   const venue = s.locked_venue && v.byId[s.locked_venue] ? v.byId[s.locked_venue] : null;
@@ -807,12 +799,10 @@ function SeshCard({ s, later, startMs, creator, isCrawl, stops, v, myId, photos,
         {later && startMs - Date.now() < DAY ? <Text style={styles.cardSmall}>Starts in <Countdown until={startMs} onDone={onStarted} /></Text>
           : s.private ? <IconLine icon="lock" colour="#fff" text="Private" /> : null}
       </View>
-      <Pressable onPress={onOpen} disabled={!onOpen} accessibilityRole={onOpen ? 'button' : undefined}
-        accessibilityLabel={onOpen ? 'Open ' + title : undefined} testID={onOpen ? 'sesh-open' : undefined}>
+      <View>
         <Text style={styles.cardTitle} numberOfLines={2}>{title}</Text>
         <Text style={styles.cardSmall} numberOfLines={1}>{sub}</Text>
-        {onOpen ? <Text style={[styles.cardSmall, styles.openHint]}>Tap to open the {kind} and chat</Text> : null}
-      </Pressable>
+      </View>
       <View style={[styles.row, styles.between]}>
         <View style={styles.faceStack}>
           {s.members.slice(0, 6).map((m, i) => (
@@ -1360,7 +1350,6 @@ const styles = themed(() => StyleSheet.create({
   liveText: { fontFamily: F.bodyBold, fontSize: 11, letterSpacing: 1.3, color: '#fff' },
   cardTitle: { fontFamily: F.display, fontSize: 28, lineHeight: 32, letterSpacing: -0.7, color: '#fff' },
   cardSmall: { fontFamily: F.bodyMid, fontSize: 13, lineHeight: 18, color: 'rgba(255, 255, 255, 0.9)' },
-  openHint: { marginTop: 4, fontFamily: F.bodyBold, textDecorationLine: 'underline' },
   cardRight: { flexShrink: 1, textAlign: 'right' },
   faceStack: { flexDirection: 'row', alignItems: 'center' },
   stackFace: { borderRadius: 20, borderWidth: 2 },
