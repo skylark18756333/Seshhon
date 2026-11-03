@@ -210,7 +210,7 @@ export default function Messages({ f, onBack, onSesh }: { f: Frendzy; onBack: ()
         </Pressable>
         <Text style={[styles.h1, styles.grow]} numberOfLines={1} accessibilityRole="header">{friend ? friend.name : 'Messages'}</Text>
       </View>
-      <KeyboardAvoidingView style={styles.fill} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardAvoidingView style={styles.fill} behavior="padding">
         {friend ? (
           <>
             <ScrollView ref={scroll} style={styles.fill} contentContainerStyle={styles.view} keyboardShouldPersistTaps="handled">

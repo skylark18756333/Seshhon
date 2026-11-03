@@ -287,7 +287,7 @@ export default function You({ f, onOpenWeb, onSignedOut }: { f: Frendzy; onOpenW
   return (
     <View style={styles.fill}>
       <TopBar f={f} onOpenWeb={onOpenWeb} />
-      <KeyboardAvoidingView style={styles.fill} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardAvoidingView style={styles.fill} behavior="padding">
         <ScrollView style={styles.fill} contentContainerStyle={styles.view} keyboardShouldPersistTaps="handled">
           <View style={styles.row}>
             <Avatar id={me.id} name={me.name} photos={f.photos} ring={COLOURS[me.colour]} size={56} font={18} />

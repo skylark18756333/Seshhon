@@ -117,7 +117,7 @@ export default function Crews({ f, onBack, onPlanned }: { f: Frendzy; onBack: ()
         </Pressable>
         <Text style={[styles.h1, styles.grow]} numberOfLines={1} accessibilityRole="header">{view.t === 'crew' && crew ? crew.name : view.t === 'bestie' && bestie ? bestie.name : title}</Text>
       </View>
-      <KeyboardAvoidingView style={styles.fill} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardAvoidingView style={styles.fill} behavior="padding">
         <ScrollView style={styles.fill} contentContainerStyle={styles.view} keyboardShouldPersistTaps="handled">
           {data === null ? <Text style={styles.muted}>Loading...</Text>
             : data === 'off' ? (

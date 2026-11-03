@@ -458,6 +458,7 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
       {/* The chat stays mounted while another part is open, so the card can show the newest line. */}
       <View style={showPanel && cur === 'chat' ? null : styles.hidden}>
         <Chat f={f} seshId={mine.id} myId={me.id} confirm={confirm} setConfirm={setConfirm} onLatest={(ms) => setLastMsg({ sesh: mine.id, ms })}
+          onFocusInput={() => setTimeout(() => scroll.current?.scrollToEnd({ animated: true }), 250)}
           names={nameMap(mine.members)} onTyping={(names) => setTypers({ sesh: mine.id, names })} />
       </View>
 
@@ -599,7 +600,8 @@ function toggle(picked: Picked, id: string): Picked {
 function Frame({ f, onOpenWeb, scroll, home, compact, children }: { f: Frendzy; onOpenWeb: (tab: string) => void; scroll: React.RefObject<ScrollView | null>; home?: boolean; compact?: boolean; children: React.ReactNode }) {
   const me = f.state && f.state.me;
   return (
-    <KeyboardAvoidingView style={styles.fill} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    // Android draws under the keyboard (edge to edge), so the screen is padded up by the keyboard's height on both.
+    <KeyboardAvoidingView style={styles.fill} behavior="padding">
       <TopBar f={f} onOpenWeb={onOpenWeb} />
       <ScrollView ref={scroll} style={styles.fill} contentContainerStyle={styles.view} keyboardShouldPersistTaps="handled">
         {home ? <HomeTop f={f} onOpenWeb={onOpenWeb} compact={compact} /> : null}
@@ -1363,9 +1365,10 @@ function nameMap(members: Member[]): Record<string, string> {
   return out;
 }
 
-function Chat({ f, seshId, myId, confirm, setConfirm, onLatest, names, onTyping }: {
+function Chat({ f, seshId, myId, confirm, setConfirm, onLatest, names, onTyping, onFocusInput }: {
   f: Frendzy; seshId: string; myId: string; confirm: string | null; setConfirm: (c: string | null) => void; onLatest?: (ms: Message[]) => void;
   names: Record<string, string>; onTyping?: (names: string[]) => void;
+  onFocusInput?: () => void;   // the page scrolls down so the typing box sits just above the keyboard
 }) {
   const latestCb = useRef(onLatest);
   latestCb.current = onLatest;
@@ -1533,6 +1536,7 @@ function Chat({ f, seshId, myId, confirm, setConfirm, onLatest, names, onTyping 
           placeholder="Type a message..."
           placeholderTextColor={C.muted}
           accessibilityLabel="Message your mates"
+          onFocus={onFocusInput}
           returnKeyType="send"
           onSubmitEditing={() => send()}
           submitBehavior="submit"
