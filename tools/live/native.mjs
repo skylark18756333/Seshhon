@@ -207,9 +207,26 @@ try {
   await has(nat, 'Start a party');
   await sshot(nat, '1-no-sesh.png');
 
-  // Start a sesh: start_sesh, the same function the web app calls.
+  // Go now opens "Where to?": a map and the popular spots around you. (Picking one is checked after this sesh ends.)
   await nat.page.getByTestId('lobby-now').filter({ visible: true }).first().click();
-  await has(nat, 'LIVE SESH');
+  await has(nat, 'Where to?');
+  await has(nat, 'Popular around here');
+  await has(nat, 'Pick a spot to start');
+  await sshot(nat, '1b-where-to.png');
+  await tap(nat, 'Back');
+  await has(nat, "What's the move?");
+  // An open sesh to vote in: start_sesh as Ana's phone calls it (a sesh started without a spot, as Invite only does).
+  const startAs = async (name, fn, args = {}) => {
+    const tok = JSON.parse(sessions[name] || await nat.page.evaluate(() => localStorage.getItem('seshhon-session-v1'))).access_token;
+    const r = await fetch(API + '/rest/v1/rpc/' + fn, { method: 'POST', headers: { apikey: 'test-anon-key', Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' }, body: JSON.stringify(args) });
+    if (!r.ok) throw new Error(name + ' ' + fn + ': ' + r.status + ' ' + (await r.text()));
+  };
+  await startAs('Ana', 'start_sesh');
+  await has(nat, 'LIVE SESH', 15000);
+  // The lobby's options stay under the sesh card while you're in one.
+  await has(nat, 'Keep it going');
+  await has(nat, 'Find venues');
+  expect('Crewzy crawl and Plan for later still on hand', await nat.page.getByTestId('more-crawl').count() + await nat.page.getByTestId('more-plan').count() >= 2, true);
   await has(nat, 'Where to?');
   const seshId = psql(`select id from public.seshes where creator = '${anaId}' and ended_at is null`);
   expect('a live sesh started by Ana', psql(`select count(*) from public.seshes where creator = '${anaId}' and ended_at is null`), 1);
@@ -434,6 +451,9 @@ try {
   // Near me: this phone's position stays on the phone.
   await natMap.ctx.grantPermissions(['geolocation']);
   await natMap.ctx.setGeolocation({ latitude: -31.9871, longitude: 115.8412 });
+  // A venue card left open from the stops above hides Near me, so close it first.
+  const closeCard = natMap.page.getByRole('button', { name: 'Close', exact: true }).filter({ visible: true });
+  if (await closeCard.count()) await closeCard.first().click();
   await natMap.page.getByTestId('map-near-me').click();
   await has(natMap, 'Your location stays on this phone and is never saved or shown to friends.');
   await has(natMap, 'within 5 km of you');
@@ -462,7 +482,9 @@ try {
   await natMap.page.getByTestId('map-stub').waitFor();
   console.log('back on the native map after a venue: yes');
 
-  // "Map not loading? Use the simple map": the Map tab becomes the packed web map.
+  // "Map not loading? Use the simple map": the Map tab becomes the packed web map. (Close the venue card first.)
+  const closeCard2 = natMap.page.getByRole('button', { name: 'Close', exact: true }).filter({ visible: true });
+  if (await closeCard2.count()) await closeCard2.first().click();
   await natMap.page.getByTestId('map-simple').click();
   await until(async () => (await natMap.page.getByTestId('map-stub').count()) === 0);
   expect('the simple map link switches to the web map', await natMap.page.getByTestId('map-stub').count(), 0);
@@ -543,8 +565,23 @@ try {
   // Plan a sesh for later, for all friends: plan_sesh.
   await tap(nat, 'Plan a sesh for later');
   await has(nat, "When's it on?");
-  await tap(nat, 'A day later');
+  await tap(nat, 'Tomorrow');
+  await tap(nat, 'Night, 8:00 pm');   // the time-of-day chips; 8 pm keeps the pres below (6:45 pm) before the sesh
+  await has(nat, 'Tomorrow, 8:00 pm');
   await sshot(nat, '10-plan.png');
+  // The plan screen in each look: switch in You > Look, then back to Home where the plan is still open.
+  for (const id of ['day', 'pop', 'neon']) {
+    await nat.page.getByRole('tab', { name: 'You' }).click().catch(() => tap(nat, 'You'));
+    const sec = nat.page.getByTestId('set-look').filter({ visible: true }).first();
+    await sec.waitFor({ timeout: 8000 });
+    if ((await sec.getAttribute('aria-expanded')) !== 'true') await sec.click();
+    await nat.page.locator('[data-testid="look-' + id + '"]').filter({ visible: true }).first().click();
+    await nat.page.getByRole('tab', { name: 'Home' }).click();
+    await has(nat, "When's it on?");
+    await sshot(nat, '10-plan-' + id + '.png');
+    await nat.page.getByText('YOUR PLAN', { exact: true }).scrollIntoViewIfNeeded();
+    await sshot(nat, '10-plan-' + id + '-ticket.png');
+  }
   await tap(nat, 'Pick friends');
   await has(nat, 'Pick at least one friend');
   await nat.page.getByRole('button', { name: 'Jack', exact: true }).click();
@@ -593,6 +630,26 @@ try {
   expect('its chat gone', psql(`select count(*) from public.messages where sesh_id = '${seshId}'`), 0);
   await sshot(nat, '16-ended.png');
   await natJ.ctx.close();
+
+  // Go now, properly: pick the top popular spot and the sesh starts there, locked in (start_sesh, cast_vote, lock_sesh).
+  // The seeded venues are examples, which Go now never offers, so reopen the app to load the real ones added above.
+  await nat.page.reload();
+  await has(nat, "What's the move?", 20000);
+  await nat.page.getByTestId('lobby-now').filter({ visible: true }).first().click();
+  await has(nat, 'Popular around here');
+  const firstSpot = nat.page.locator('[data-testid^="spot-"]:not([data-testid="spot-open"])').filter({ visible: true }).first();
+  const spotId = (await firstSpot.getAttribute('data-testid')).slice(5);
+  await firstSpot.click();
+  const spotName = psql(`select name from public.venues where id = '${spotId}'`);
+  await tap(nat, 'Start the sesh at ' + spotName);
+  await has(nat, 'LIVE SESH');
+  await has(nat, spotName);
+  await until(() => psql(`select count(*) from public.seshes where creator = '${anaId}' and locked_venue = '${spotId}'`) === '1');
+  expect('Go now sesh locked at the picked spot', psql(`select count(*) from public.seshes where creator = '${anaId}' and locked_venue = '${spotId}'`), 1);
+  await sshot(nat, '16b-go-now-spot.png');
+  await nat.page.getByTestId('sesh-more').filter({ visible: true }).first().click();
+  await tap(nat, 'End the sesh');
+  await has(nat, 'Sesh ended.');
   await nat.page.getByRole('tab', { name: 'Home' }).click();
   await has(nat, 'Up for it now');
   await nat.page.getByRole('tab', { name: 'Home' }).click();
@@ -603,12 +660,53 @@ try {
   await has(nat, 'Send invite link');
   await has(nat, 'GREEN');
   await sshot(nat, '17-friends.png');
+  // The thumb dock: the orb in the middle changes your status from any tab, and Chats opens Messages.
+  await nat.page.getByTestId('dock-orb').filter({ visible: true }).first().click();
+  await nat.page.getByTestId('dock-thinking').filter({ visible: true }).first().waitFor({ timeout: 5000 });
+  await nat.page.waitForTimeout(500);
+  await sshot(nat, '17a-dock-open.png');
+  await nat.page.getByTestId('dock-thinking').filter({ visible: true }).first().click();
+  await until(() => psql(`select colour from public.statuses where user_id = '${anaId}'`) === 'thinking');
+  expect('status from the dock', psql(`select colour from public.statuses where user_id = '${anaId}'`), 'thinking');
+  await nat.page.getByTestId('dock-orb').filter({ visible: true }).first().click();
+  await nat.page.getByTestId('dock-on').filter({ visible: true }).first().click();
+  await until(() => psql(`select colour from public.statuses where user_id = '${anaId}'`) === 'on');
+  await nat.page.getByRole('tab', { name: 'Chats' }).click();
+  await has(nat, 'Start a chat');
+  await nat.page.getByRole('tab', { name: 'Home' }).click();
+  // Swipes: push the orb left (green to amber), then swipe along the bar from Home one tab to the right (Map).
+  const drag = async (testId, dx) => {
+    const box = await nat.page.getByTestId(testId).filter({ visible: true }).first().boundingBox();
+    const x = testId === 'dock-bar' ? box.x + 50 : box.x + box.width / 2, y = box.y + box.height / 2;
+    await nat.page.mouse.move(x, y);
+    await nat.page.mouse.down();
+    for (let i = 1; i <= 8; i++) await nat.page.mouse.move(x + (dx * i) / 8, y, { steps: 2 });
+    await nat.page.mouse.up();
+  };
+  await drag('dock-orb', -60);
+  await until(() => psql(`select colour from public.statuses where user_id = '${anaId}'`) === 'thinking');
+  expect('swipe the orb left', psql(`select colour from public.statuses where user_id = '${anaId}'`), 'thinking');
+  await drag('dock-orb', 60);
+  await until(() => psql(`select colour from public.statuses where user_id = '${anaId}'`) === 'on');
+  expect('swipe the orb right', psql(`select colour from public.statuses where user_id = '${anaId}'`), 'on');
+  await drag('dock-bar', 80);
+  await until(async () => (await nat.page.getByTestId('map-stub').filter({ visible: true }).count()) === 1);
+  await sshot(nat, '17c-swiped-to-map.png');
+  expect('swipe along the bar opens Map', await nat.page.getByTestId('map-stub').filter({ visible: true }).count(), 1);
+  await nat.page.getByRole('tab', { name: 'Home' }).click();
+  await nat.page.getByTestId('open-friends').filter({ visible: true }).first().click();
+  // Your own profile is the first thing on Friends.
+  await nat.page.getByTestId('friends-me').filter({ visible: true }).first().click();
+  await nat.page.getByTestId('profile-customise').filter({ visible: true }).first().waitFor({ timeout: 10000 });
+  await sshot(nat, '17b-my-profile.png');
+  await nat.page.getByRole('button', { name: 'Back', exact: true }).filter({ visible: true }).last().click();
   await tap(nat, 'Back');
-  // Messages, from the chat button: green friends as chat heads, then the chats.
-  await nat.page.getByTestId('home-messages').filter({ visible: true }).first().click();
+  // Messages, from Chats in the dock (the header has no Messages button): green friends as chat heads, then the chats.
+  expect('no Messages button in the header', await nat.page.getByTestId('home-messages').count(), 0);
+  await nat.page.getByRole('tab', { name: 'Chats' }).click();
   await has(nat, 'Start a chat');
   await sshot(nat, '18-messages.png');
-  await tap(nat, 'Back');
+  await nat.page.getByRole('tab', { name: 'Home' }).click();
   await has(nat, "What's the move?");
 
   /* ---------- crews, besties and free time ---------- */
@@ -1032,6 +1130,8 @@ try {
   expect('sign-in cleared on log out', await nina.page.evaluate(() => localStorage.getItem('seshhon-session-v1')), 'null');
   await tap(nina, 'I already have an account');
   await has(nina, 'Log in');
+  // The remembered username is read from the phone's storage a moment after the screen shows.
+  await until(async () => (await nina.page.getByLabel('Username or email', { exact: true }).inputValue()) === 'nina_test');
   expect('username filled in', await nina.page.getByLabel('Username or email', { exact: true }).inputValue(), 'nina_test');
   await tap(nina, 'Log in'); await has(nina, 'Enter your username or email, and your password.');
   await fillL(nina, 'Password', 'wrongpassword1');

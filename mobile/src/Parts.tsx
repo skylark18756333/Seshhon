@@ -34,7 +34,7 @@ export const Glow = React.memo(function Glow({ colour }: { colour: Colour }) {
 let waitingNow = 0;
 const waitingListeners = new Set<(n: number) => void>();
 export function setWaiting(n: number) { waitingNow = n; waitingListeners.forEach((l) => l(n)); }
-function useWaiting(on: boolean): number {
+export function useWaiting(on: boolean): number {
   const [n, setN] = useState(waitingNow);
   useEffect(() => {
     waitingListeners.add(setN);
@@ -50,11 +50,11 @@ function useWaiting(on: boolean): number {
   return n;
 }
 
-// The header above every tab: the logo with the status lights on the left; Friends, Messages and you on the right.
+// The header above every tab: the logo with the status lights on the left; Friends and you on the right.
+// Messages live in the dock's Chats tab, which carries the new-message count.
 export function TopBar({ f, onOpenWeb }: { f: Frendzy; onOpenWeb: (tab: string) => void }) {
   const me = f.state && f.state.me;
   const requests = f.state ? f.state.requests_in.length : 0;
-  const waiting = useWaiting(!!me);
   if (!me) return null;
   return (
     <View style={styles.top}>
@@ -64,10 +64,6 @@ export function TopBar({ f, onOpenWeb }: { f: Frendzy; onOpenWeb: (tab: string) 
         <Pressable onPress={() => onOpenWeb('friends')} accessibilityRole="button" accessibilityLabel={'Friends' + (requests ? ', ' + requests + ' new requests' : '')} style={styles.headBtn} testID="open-friends">
           <Icon name="sesh" size={17} colour={C.fg} />
           {requests ? <View style={styles.headBadge}><Text style={styles.headBadgeText}>{requests}</Text></View> : null}
-        </Pressable>
-        <Pressable onPress={() => onOpenWeb('messages')} accessibilityRole="button" accessibilityLabel={'Messages' + (waiting ? ', ' + waiting + ' new' : '')} style={styles.headBtn} testID="home-messages">
-          <Icon name="chat" size={17} colour={C.fg} />
-          {waiting ? <View style={styles.headBadge}><Text style={styles.headBadgeText}>{waiting > 9 ? '9+' : waiting}</Text></View> : null}
         </Pressable>
         <Pressable onPress={() => onOpenWeb('you')} accessibilityRole="button" accessibilityLabel="You" style={[styles.profile, { borderColor: COLOURS[me.colour] }]}>
           <Face id={me.id} name={me.name} photos={f.photos} size={36} font={12} />

@@ -21,6 +21,7 @@ import { CrawlBuilder } from './Crawl';
 import CrawlMap from './CrawlMap';
 import Icon from './Icon';
 import MeetMiddle from './MeetMiddle';
+import SpotPicker from './SpotPicker';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Avatar, Button, Face, Toast, TopBar } from './Parts';
 import type { ApiError } from './session';
@@ -64,6 +65,8 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
   const [panel, setPanel] = useState<Panel | null>(null);
   const [lastMsg, setLastMsg] = useState<{ sesh: string; m: Message | null } | null>(null);
   const [making, setMaking] = useState(false);
+  // Go now: picking where to go before the sesh starts.
+  const [going, setGoing] = useState(false);
   const scroll = useRef<ScrollView>(null);
   const shownRef = useShownRef();
 
@@ -124,6 +127,35 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
                 f.say(target ? 'Trail saved. Your crew can see the stops in the sesh.' : "Crawl's on. Friends who are around can join and follow the trail.");
               }, (e: ApiError) => { f.say(e.message); }).then(() => f.refresh()).then(() => { setSeshId(id); setMake(null); top(); });
             }).finally(() => setMaking(false));
+          }}
+        />
+      </Frame>
+    );
+  }
+  if (going && !mine) {
+    const green = me.colour === 'on';
+    return (
+      <Frame f={f} onOpenWeb={onOpenWeb} scroll={scroll}>
+        <SpotPicker
+          v={v}
+          meName={me.name}
+          green={green}
+          busy={making}
+          onCancel={() => { setGoing(false); top(); }}
+          onGo={(venue) => {
+            if (making) return;
+            setMaking(true);
+            // Green first if needed (you asked to go out), then start the sesh, vote for the spot and lock it in.
+            const ready: Promise<unknown> = green ? Promise.resolve(true) : f.act('set_status', { new_colour: 'on' });
+            ready.then(() => f.act('start_sesh', {}))
+              .then((r: any) => {
+                if (!r || !r.id) return;
+                const id = r.id as string;
+                return f.act('cast_vote', { p_sesh: id, p_venue: venue })
+                  .then(() => f.act('lock_sesh', { p_sesh: id }, "Sesh started at " + (v.byId[venue] ? v.byId[venue].name : 'your spot') + '. Friends who are around can join.'))
+                  .then(() => { setSeshId(id); setPanel(null); setGoing(false); top(); });
+              })
+              .finally(() => setMaking(false));
           }}
         />
       </Frame>
@@ -205,8 +237,8 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
       f.act('set_status', { new_colour: 'on' }, "You're green.").then((r) => { then(); });
     };
     const tiles: LobbyTile[] = [
-      { key: 'now', emoji: '⚡', title: 'Go now', note: green ? 'Friends on green and amber can join' : 'Turns you green', colours: ['#FF7A45', '#E0407A'],
-        onPress: () => goGreen(() => { f.act('start_sesh', {}, 'Sesh started. Friends who are around can join.').then(top); }) },
+      { key: 'now', emoji: '⚡', title: 'Go now', note: 'Pick a popular spot near you', colours: ['#FF7A45', '#E0407A'],
+        onPress: () => { setGoing(true); top(); } },
       ...(crawl.off ? [] : [{ key: 'crawl', emoji: '📍', title: 'Crewzy crawl', note: 'A few spots a short walk apart', colours: ['#21C6A4', '#2A7FD4'] as [string, string],
         onPress: () => goGreen(() => { setMake({ target: null }); top(); }) }]),
       { key: 'plan', emoji: '🗓', title: 'Plan for later', note: 'Any day in the next 2 weeks', colours: ['#5B8CFF', '#9B5BFF'], onPress: startPlan },
@@ -295,6 +327,18 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
         onPanel={setPanel}
         onStarted={f.refresh}
       />
+
+      {later ? null : (
+        // The lobby's options stay on hand in a sesh: find somewhere, build a crawl, plan the next one.
+        <TileRow tiles={[
+          { key: 'find', emoji: '🔎', title: 'Find venues', note: 'Map of spots near you', colours: ['#FF7A45', '#E0407A'], onPress: () => onOpenWeb('map') },
+          ...(crawl.off ? [] : [{ key: 'crawl', emoji: '📍', title: 'Crewzy crawl', note: isCrawl ? 'See your trail' : 'Add stops a short walk apart', colours: ['#21C6A4', '#2A7FD4'] as [string, string],
+            onPress: () => setPanel('crawl') }]),
+          { key: 'plan', emoji: '🗓', title: 'Plan for later', note: 'Any day in the next 2 weeks', colours: ['#5B8CFF', '#9B5BFF'], onPress: startPlan },
+          { key: 'events', emoji: '🎶', title: "What's on", note: 'Gigs and events near you', colours: ['#F5A623', '#D4572A'], onPress: () => onOpenWeb('events') },
+          { key: 'crews', emoji: '🤝', title: 'Crew catch-up', note: 'See when your crews are free', colours: ['#7AA52F', '#2E8F6A'], onPress: () => onOpenWeb('crews') }
+        ]} />
+      )}
 
       {open === 'where' ? (
         <>
@@ -519,43 +563,108 @@ function PickerView({ picker, friends, mine, photos, onPick, onCancel, onGo }: {
   );
 }
 
-/* ---------- planning a sesh for later (planHtml) ---------- */
-// A phone has no date-and-time box like the web page's, so the day and the time each step back and forward.
+/* ---------- planning a sesh for later (planHtml): in the party-lobby look ---------- */
+// The day is a row of cards you swipe along (the next two weeks), the time is a vibe chip (Arvo, Evening, Night,
+// Late) fine-tuned by 15 minutes, and who and what are gradient tiles like the lobby's. A ticket at the bottom sums it up.
+const PLAN_GRAD: [string, string] = ['#5B8CFF', '#9B5BFF'];
+const VIBES: { key: string; emoji: string; label: string; h: number; m: number }[] = [
+  { key: 'arvo', emoji: '☀️', label: 'Arvo', h: 15, m: 0 },
+  { key: 'evening', emoji: '🌆', label: 'Evening', h: 18, m: 0 },
+  { key: 'night', emoji: '🌙', label: 'Night', h: 20, m: 0 },
+  { key: 'late', emoji: '✨', label: 'Late', h: 22, m: 0 }
+];
+const SHORT_DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 export function PlanView({ plan, friends, photos, crawlOption, onChange, onCancel, onGo }: {
   plan: Plan; friends: Friend[]; photos: Record<string, string>; crawlOption?: boolean;
   onChange: (p: Plan) => void; onCancel: () => void; onGo: () => void;
 }) {
   const n = Object.keys(plan.picked).length;
   const min = Date.now() + 10 * 60000, max = Date.now() + 14 * DAY;
-  const move = (ms: number) => {
-    const at = Math.min(max, Math.max(min, plan.at + ms));
-    // keep it on a quarter hour
-    const d = new Date(at); d.setMinutes(Math.round(d.getMinutes() / 15) * 15, 0, 0);
+  // Keep it on a quarter hour, between ten minutes from now and two weeks ahead.
+  const setAt = (at: number) => {
+    const d = new Date(Math.min(max, Math.max(min, at))); d.setMinutes(Math.round(d.getMinutes() / 15) * 15, 0, 0);
     let t = d.getTime();
     if (t < min) t += 15 * 60000;
     if (t > max) t -= 15 * 60000;
     onChange({ ...plan, at: t });
   };
+  const cur = new Date(plan.at);
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const days = Array.from({ length: 15 }, (_, i) => { const d = new Date(today); d.setDate(d.getDate() + i); return d; });
+  const sameDay = (a: Date, b: Date) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  const pickDay = (d: Date) => { const t = new Date(d); t.setHours(cur.getHours(), cur.getMinutes(), 0, 0); setAt(t.getTime()); };
+  const pickVibe = (h: number, m: number) => { const t = new Date(cur); t.setHours(h, m, 0, 0); setAt(t.getTime()); };
+  const hour = cur.getHours();
+  const vibe = hour >= 21 || hour < 5 ? 'late' : hour >= 19 ? 'night' : hour >= 17 ? 'evening' : 'arvo';
+  const vibeOf = VIBES.filter((x) => x.key === vibe)[0];
+  const goLabel = plan.pick ? (n ? (plan.crawl ? 'Next: pick the stops' : 'Plan it with ' + n) : 'Pick at least one friend') : (plan.crawl ? 'Next: pick the stops' : 'Plan it');
   return (
     <>
-      <View style={styles.head}>
-        <View style={styles.iconLine}><Icon name="clock" size={14} colour={C.muted} /><Text style={styles.eyebrow}>Plan a sesh</Text></View>
-        <Text style={styles.h1}>When's it on?</Text>
-        <Text style={styles.muted}>Up to 2 weeks ahead. Friends can say they're in, vote on where to go and chat about it before it starts. It goes live at this time.</Text>
-      </View>
-      <View style={styles.field}>
-        <Text style={styles.label}>Date and time</Text>
-        <View style={[styles.card, { gap: 12 }]}>
-          <Text style={styles.title} accessibilityLabel={'Planned for ' + fmtWhen(plan.at)}>{fmtWhen(plan.at)}</Text>
-          <Stepper label="Day" back="A day earlier" on="A day later" onBack={() => move(-DAY)} onOn={() => move(DAY)} />
-          <Stepper label="Time" back="15 minutes earlier" on="15 minutes later" onBack={() => move(-15 * 60000)} onOn={() => move(15 * 60000)} />
+      <View style={styles.planHead}>
+        <Pressable onPress={onCancel} accessibilityRole="button" accessibilityLabel="Back" style={styles.planBack}>
+          <Icon name="back" size={18} colour={C.fg} />
+        </Pressable>
+        <View style={styles.grow}>
+          <Text style={[styles.eyebrow, { color: PLAN_GRAD[0] }]}>🗓 Plan for later</Text>
+          <Text style={styles.h1}>When's it on?</Text>
         </View>
       </View>
-      <View style={[styles.stack, { gap: 8 }]}>
-        <Text style={styles.h2}>Who's it for?</Text>
-        <View style={styles.row}>
-          <Button small ghost={plan.pick} label="All my friends" pressed={!plan.pick} onPress={() => onChange({ ...plan, pick: false })} />
-          <Button small ghost={!plan.pick} icon="lock" label="Pick friends" pressed={plan.pick} onPress={() => onChange({ ...plan, pick: true })} />
+      <Text style={[styles.muted, styles.small]}>Friends can say they're in, vote on where to go and chat before it starts. It goes live at this time.</Text>
+
+      <View style={styles.planSection}>
+        <Text style={styles.planLabel}>Pick a day</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dayRow}>
+          {days.map((d, i) => {
+            const on = sameDay(d, cur);
+            const name = i === 0 ? 'Today' : i === 1 ? 'Tmrw' : SHORT_DAYS[d.getDay()];
+            const weekend = d.getDay() === 5 || d.getDay() === 6;
+            const body = (
+              <>
+                <Text style={[styles.dayName, on && styles.onInk]}>{name}</Text>
+                <Text style={[styles.dayNum, on && styles.onInk]}>{d.getDate()}</Text>
+                {weekend ? <View style={[styles.dayDot, on && { backgroundColor: '#fff' }]} /> : <View style={styles.dayDotSpace} />}
+              </>
+            );
+            return (
+              <Pressable key={i} onPress={() => pickDay(d)} accessibilityRole="button" accessibilityState={{ selected: on }}
+                accessibilityLabel={i === 0 ? 'Today' : i === 1 ? 'Tomorrow' : LONG_DAY[d.getDay()] + ' ' + d.getDate()}>
+                {on ? <LinearGradient colors={PLAN_GRAD} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[styles.day, styles.dayOn]}>{body}</LinearGradient>
+                  : <View style={styles.day}>{body}</View>}
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      </View>
+
+      <View style={styles.planSection}>
+        <Text style={styles.planLabel}>What time?</Text>
+        <View style={styles.vibeRow}>
+          {VIBES.map((x) => {
+            const on = x.key === vibe;
+            return (
+              <Pressable key={x.key} onPress={() => pickVibe(x.h, x.m)} style={[styles.vibe, on && { borderColor: PLAN_GRAD[1], backgroundColor: fade(PLAN_GRAD[1], 0.16) }]}
+                accessibilityRole="button" accessibilityState={{ selected: on }} accessibilityLabel={x.label + ', ' + fmtTime(new Date(2000, 0, 1, x.h, x.m).getTime())}>
+                <Text style={styles.vibeEmoji}>{x.emoji}</Text>
+                <Text style={[styles.vibeText, on && { color: C.fg }]}>{x.label}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+        <View style={styles.timeBar}>
+          <Round icon="back" label="15 minutes earlier" onPress={() => setAt(plan.at - 15 * 60000)} />
+          <View style={{ alignItems: 'center' }}>
+            <Text style={styles.timeBig}>{fmtTime(plan.at)}</Text>
+            <Text style={[styles.muted, styles.tiny]}>{vibeOf.emoji} {vibeOf.label}</Text>
+          </View>
+          <Round icon="back" flip label="15 minutes later" onPress={() => setAt(plan.at + 15 * 60000)} />
+        </View>
+      </View>
+
+      <View style={styles.planSection}>
+        <Text style={styles.planLabel}>Who's it for?</Text>
+        <View style={styles.choiceRow}>
+          <Choice on={!plan.pick} emoji="👯" title="All my friends" note="Green and amber see it" colours={['#21C6A4', '#2A7FD4']} onPress={() => onChange({ ...plan, pick: false })} />
+          <Choice on={plan.pick} emoji="🔒" title="Pick friends" note="Only who you pick" colours={['#C04BD8', '#5E3BD1']} onPress={() => onChange({ ...plan, pick: true })} />
         </View>
         {plan.pick ? (
           friends.length ? (
@@ -564,33 +673,51 @@ export function PlanView({ plan, friends, photos, crawlOption, onChange, onCance
               <PickRows list={friends} picked={plan.picked} photos={photos} onPick={(id) => onChange({ ...plan, picked: toggle(plan.picked, id) })} />
             </>
           ) : <Text style={[styles.muted, styles.small]}>Add some friends first, then you can pick who comes.</Text>
-        ) : <Text style={[styles.muted, styles.small]}>Your friends on green or amber can see it and join.</Text>}
+        ) : null}
       </View>
+
       {crawlOption ? (
-        <View style={[styles.stack, { gap: 8 }]}>
-          <Text style={styles.h2}>What kind of sesh?</Text>
-          <View style={styles.row}>
-            <Button small ghost={!!plan.crawl} label="A sesh" pressed={!plan.crawl} onPress={() => onChange({ ...plan, crawl: false })} />
-            <Button small ghost={!plan.crawl} label="Crewzy crawl" colour={plan.crawl ? C.thinking : undefined} ink={!!plan.crawl} pressed={!!plan.crawl} onPress={() => onChange({ ...plan, crawl: true })} />
+        <View style={styles.planSection}>
+          <Text style={styles.planLabel}>What kind of sesh?</Text>
+          <View style={styles.choiceRow}>
+            <Choice on={!plan.crawl} emoji="🎉" title="A sesh" note="Friends vote on where" colours={['#FF7A45', '#E0407A']} onPress={() => onChange({ ...plan, crawl: false })} />
+            <Choice on={!!plan.crawl} emoji="📍" title="Crewzy crawl" note="Stops a short walk apart" colours={['#F5A623', '#D4572A']} onPress={() => onChange({ ...plan, crawl: true })} />
           </View>
-          <Text style={[styles.muted, styles.small]}>{plan.crawl ? 'Next you pick the stops, a short walk apart. Your crew sees the trail map.' : 'Your friends vote on where to go.'}</Text>
         </View>
       ) : null}
-      <Button label={plan.pick ? (n ? (plan.crawl ? 'Next: pick the stops' : 'Plan it with ' + n) : 'Pick at least one friend') : (plan.crawl ? 'Next: pick the stops' : 'Plan it')} disabled={plan.pick && !n} onPress={onGo} />
+
+      <LinearGradient colors={PLAN_GRAD} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.ticket}>
+        <Text style={styles.ticketEyebrow}>YOUR PLAN</Text>
+        <Text style={styles.ticketTitle} accessibilityLabel={'Planned for ' + fmtWhen(plan.at)}>{fmtWhen(plan.at)}</Text>
+        <Text style={styles.ticketNote}>
+          {(plan.pick ? (n ? n + ' friend' + (n === 1 ? '' : 's') + ' picked' : 'Pick who comes') : 'All your friends') + ' · ' + (plan.crawl ? 'Crewzy crawl' : 'Sesh')}
+        </Text>
+        <Pressable onPress={onGo} disabled={plan.pick && !n} accessibilityRole="button" accessibilityLabel={goLabel} accessibilityState={{ disabled: plan.pick && !n }}
+          style={({ pressed }) => [styles.ticketBtn, plan.pick && !n && { opacity: 0.55 }, pressed && { transform: [{ scale: 0.98 }] }]}>
+          <Text style={styles.ticketBtnText}>{goLabel}</Text>
+        </Pressable>
+      </LinearGradient>
       <Button label="Cancel" ghost onPress={onCancel} />
     </>
   );
 }
+const LONG_DAY = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-function Stepper({ label, back, on, onBack, onOn }: { label: string; back: string; on: string; onBack: () => void; onOn: () => void }) {
+// One gradient tile of two (Who's it for, What kind): lit when chosen, outlined otherwise.
+function Choice({ on, emoji, title, note, colours, onPress }: { on: boolean; emoji: string; title: string; note: string; colours: [string, string]; onPress: () => void }) {
+  const body = (
+    <>
+      <Text style={styles.choiceEmoji}>{emoji}</Text>
+      <Text style={[styles.choiceTitle, !on && { color: C.fg }]} numberOfLines={1}>{title}</Text>
+      <Text style={[styles.choiceNote, !on && { color: C.muted }]} numberOfLines={1}>{note}</Text>
+    </>
+  );
   return (
-    <View style={[styles.row, styles.between]}>
-      <Text style={[styles.muted, styles.small]}>{label}</Text>
-      <View style={[styles.row, { gap: 8 }]}>
-        <Round icon="back" label={back} onPress={onBack} />
-        <Round icon="back" flip label={on} onPress={onOn} />
-      </View>
-    </View>
+    <Pressable onPress={onPress} style={({ pressed }) => [styles.grow, pressed && { transform: [{ scale: 0.97 }] }]}
+      accessibilityRole="button" accessibilityState={{ selected: on }} accessibilityLabel={title}>
+      {on ? <LinearGradient colors={colours} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.choice}>{body}</LinearGradient>
+        : <View style={[styles.choice, styles.choiceOff]}>{body}</View>}
+    </Pressable>
   );
 }
 
@@ -767,6 +894,29 @@ function Lobby({ f, tiles, note, onSeat }: { f: Frendzy; tiles: LobbyTile[]; not
           </Pressable>
         ))}
       </View>
+    </View>
+  );
+}
+
+// The same tiles, smaller and in one row you swipe along, under the sesh card.
+function TileRow({ tiles }: { tiles: LobbyTile[] }) {
+  return (
+    <View style={{ gap: 8 }}>
+      <Text style={styles.h2}>Keep it going</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tileRow}>
+        {tiles.map((t) => (
+          <Pressable key={t.key} style={({ pressed }) => [styles.tileSmallWrap, pressed && { transform: [{ scale: 0.97 }] }]} onPress={t.onPress}
+            accessibilityRole="button" accessibilityLabel={t.title + '. ' + t.note} testID={'more-' + t.key}>
+            <LinearGradient colors={t.colours} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.tileSmall}>
+              <Text style={styles.tileEmojiSmall}>{t.emoji}</Text>
+              <View>
+                <Text style={styles.tileTitle} numberOfLines={1}>{t.title}</Text>
+                <Text style={styles.tileNote} numberOfLines={2}>{t.note}</Text>
+              </View>
+            </LinearGradient>
+          </Pressable>
+        ))}
+      </ScrollView>
     </View>
   );
 }
@@ -1242,6 +1392,40 @@ const styles = themed(() => StyleSheet.create({
   tileWrap: { width: '48%', flexGrow: 1 },
   tile: { borderRadius: 20, padding: 14, minHeight: 116, justifyContent: 'space-between' },
   tileEmoji: { fontSize: 26 },
+  planHead: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  planBack: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, borderColor: C.line, backgroundColor: C.surface, alignItems: 'center', justifyContent: 'center' },
+  planSection: { gap: 10 },
+  planLabel: { fontFamily: F.bodyBold, fontSize: 12, letterSpacing: 1.4, textTransform: 'uppercase', color: C.muted },
+  dayRow: { gap: 8, paddingRight: 4 },
+  day: { width: 62, height: 84, borderRadius: 18, borderWidth: 1, borderColor: C.line, backgroundColor: C.surface, alignItems: 'center', justifyContent: 'center', gap: 2 },
+  dayOn: { borderWidth: 0 },
+  dayName: { fontFamily: F.bodyBold, fontSize: 12, color: C.muted },
+  dayNum: { fontFamily: F.display, fontSize: 24, color: C.fg },
+  dayDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#9B5BFF' },
+  dayDotSpace: { height: 6 },
+  onInk: { color: '#fff' },
+  vibeRow: { flexDirection: 'row', gap: 8 },
+  vibe: { flex: 1, alignItems: 'center', gap: 2, paddingVertical: 10, borderRadius: 16, borderWidth: 1.5, borderColor: C.line, backgroundColor: C.surface },
+  vibeEmoji: { fontSize: 20 },
+  vibeText: { fontFamily: F.bodyBold, fontSize: 13, color: C.muted },
+  timeBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 8, paddingHorizontal: 10, borderRadius: 22, borderWidth: 1, borderColor: C.line, backgroundColor: C.surface },
+  timeBig: { fontFamily: F.display, fontSize: 30, letterSpacing: -0.5, color: C.fg },
+  choiceRow: { flexDirection: 'row', gap: 10 },
+  choice: { borderRadius: 20, padding: 14, minHeight: 104, justifyContent: 'space-between' },
+  choiceOff: { borderWidth: 1.5, borderColor: C.line, backgroundColor: C.surface },
+  choiceEmoji: { fontSize: 24 },
+  choiceTitle: { fontFamily: F.displayBold, fontSize: 16, color: '#fff' },
+  choiceNote: { fontFamily: F.body, fontSize: 12, color: 'rgba(255, 255, 255, 0.9)' },
+  ticket: { borderRadius: 24, padding: 18, gap: 4 },
+  ticketEyebrow: { fontFamily: F.bodyBold, fontSize: 11, letterSpacing: 1.6, color: 'rgba(255, 255, 255, 0.85)' },
+  ticketTitle: { fontFamily: F.display, fontSize: 24, lineHeight: 28, color: '#fff' },
+  ticketNote: { fontFamily: F.body, fontSize: 14, color: 'rgba(255, 255, 255, 0.92)', marginBottom: 10 },
+  ticketBtn: { height: 52, borderRadius: 26, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' },
+  ticketBtnText: { fontFamily: F.bodyBold, fontSize: 17, color: '#2B1F66' },
+  tileRow: { gap: 10, paddingRight: 4 },
+  tileSmallWrap: { width: 148 },
+  tileSmall: { borderRadius: 18, padding: 12, height: 104, justifyContent: 'space-between' },
+  tileEmojiSmall: { fontSize: 22 },
   tileTitle: { fontFamily: F.displayBold, fontSize: 16, color: '#fff' },
   tileNote: { fontFamily: F.body, fontSize: 12, lineHeight: 16, color: 'rgba(255, 255, 255, 0.9)' },
 
