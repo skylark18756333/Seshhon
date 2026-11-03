@@ -77,19 +77,22 @@ function SpotMark({ mine, name }: { mine: boolean; name: string }) {
 
 // A custom marker has to be drawn once before the map can freeze it into a picture; frozen straight away, Android
 // shows a bare default pin. So it tracks its view for a moment, then stops (which keeps 60 of them fast).
-function Pin({ children, ...rest }: React.ComponentProps<typeof Marker>) {
+// sig: what the bubble shows. When it changes the same marker tracks again briefly to redraw its picture, instead of
+// being thrown away and made again (remounting markers on Android was a likely cause of the map closing the app).
+function Pin({ children, sig, ...rest }: React.ComponentProps<typeof Marker> & { sig?: string }) {
   const [track, setTrack] = useState(true);
-  useEffect(() => { const t = setTimeout(() => setTrack(false), 800); return () => clearTimeout(t); }, []);
+  useEffect(() => { setTrack(true); const t = setTimeout(() => setTrack(false), 800); return () => clearTimeout(t); }, [sig]);
   return <Marker {...rest} tracksViewChanges={track}>{children}</Marker>;
 }
 
 // One venue on the map. Drawn again only when its own bubble changes, so the rest of the screen redrawing (a friend
 // going green, the five-second refresh) never makes the map update all 60 markers at once.
-const VenuePin = memo(function VenuePin({ m, onPick }: { m: MapMarker; onPick: (id: string) => void }) {
+const VenuePin = memo(function VenuePin({ m, sig, onPick }: { m: MapMarker; sig: string; onPick: (id: string) => void }) {
   const press = useCallback((e: { stopPropagation: () => void }) => { e.stopPropagation(); onPick(m.id); }, [m.id, onPick]);
   const coordinate = { latitude: m.at[0], longitude: m.at[1] };
   return (
     <Pin
+      sig={sig}
       coordinate={coordinate}
       anchor={CENTRE}
       title={m.name}
@@ -99,8 +102,8 @@ const VenuePin = memo(function VenuePin({ m, onPick }: { m: MapMarker; onPick: (
       <Bubble m={m} />
     </Pin>
   );
-}, (a, b) => a.onPick === b.onPick && a.m.id === b.m.id && a.m.at[0] === b.m.at[0] && a.m.at[1] === b.m.at[1] && a.m.name === b.m.name);
-// (Everything else a bubble shows is in its key below, so a change there draws a new marker anyway.)
+}, (a, b) => a.sig === b.sig && a.onPick === b.onPick && a.m.id === b.m.id && a.m.at[0] === b.m.at[0] && a.m.at[1] === b.m.at[1] && a.m.name === b.m.name);
+// (Everything else a bubble shows is in sig, so a change there redraws the same marker.)
 
 /* ---------- the radar sweep (Map tab) ---------- */
 // A green beam goes round the radius circle every few seconds, and each venue blips (a glowing ring that pops and
@@ -108,7 +111,7 @@ const VenuePin = memo(function VenuePin({ m, onPick }: { m: MapMarker; onPick: (
 // stays easy and nothing on the map is redrawn. Everything moves on the native animation driver from one value, so
 // the JS thread does no work per frame. The layer is worked out again only when the map stops moving, and hidden
 // while it moves.
-const SWEEP_MS = 4000, FAN = 9, FAN_DEG = 4.5, FADE = 0.65, BLIPS_MAX = 16, SETTLE_MS = 180;
+const SWEEP_MS = 4000, FAN = 9, FAN_DEG = 4.5, FADE = 0.65, BLIPS_MAX = 12, SETTLE_MS = 180;
 type Px = { x: number; y: number };
 type Blip = { id: string; x: number; y: number; at: number };   // at: where round the circle, 0 to 1 clockwise from east
 
@@ -135,7 +138,7 @@ const Radar = memo(function Radar({ centre, r, blips, active }: { centre: Px; r:
   }, [active, turn]);
   // Made once (and once per set of blips), so a redraw never swaps the nodes the turning value drives.
   const spin = useMemo(() => turn.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] }), [turn]);
-  const anims = useMemo(() => blips.map((b) => ({ b, op: turn.interpolate(blipCurve(b.at, 1, 0.12)), sc: turn.interpolate(blipCurve(b.at, 1.5, 0.8)) })), [blips, turn]);
+  const anims = useMemo(() => blips.map((b) => ({ b, op: turn.interpolate(blipCurve(b.at, 1, 0.12)), sc: turn.interpolate(blipCurve(b.at, 1.5, 0.8)) })), []); // eslint-disable-line react-hooks/exhaustive-deps
   const box = { position: 'absolute' as const, left: centre.x - r, top: centre.y - r, width: r * 2, height: r * 2 };
   // Fades in once the map has settled, so it never pops in at the wrong place.
   const shownIn = useRef(new Animated.Value(0)).current;
@@ -175,7 +178,7 @@ function NativeMap(p: MapView) {
   const shown = useShown();
   const moving = useRef(false);
   const settle = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [geom, setGeom] = useState<{ c: Px; r: number; blips: Blip[] } | null>(null);
+  const [geom, setGeom] = useState<{ key: string; c: Px; r: number; blips: Blip[] } | null>(null);
   const [calm, setCalm] = useState(false);   // the phone asks for less motion
   useEffect(() => { AccessibilityInfo.isReduceMotionEnabled().then(setCalm, () => {}); }, []);
   const radarOn = !!p.radar && p.chosen && !calm;
@@ -198,7 +201,7 @@ function NativeMap(p: MapView) {
         const a = Math.atan2(pts[i].y - c.y, pts[i].x - c.x);
         return { id: b.id, x: pts[i].x, y: pts[i].y, at: ((a / (2 * Math.PI)) + 1) % 1 };
       });
-      if (!moving.current) setGeom({ c, r, blips });   // a move that started meanwhile wins: it is read again when it stops
+      if (!moving.current) setGeom({ key: [Math.round(c.x), Math.round(c.y), Math.round(r)].map(String).concat(blips.map((b) => b.id + Math.round(b.x) + ',' + Math.round(b.y))).join('|'), c, r, blips });   // a move that started meanwhile wins: it is read again when it stops
     } catch (err) { /* the map isn't ready yet: the next stop tries again */ }
   }, [radarOn, p.radiusKm, p.centre, blipList]);
   const measureSoon = useCallback(() => {
@@ -283,13 +286,18 @@ function NativeMap(p: MapView) {
       ) : null}
       {p.markers.map((m) => (
         <VenuePin
-          key={[look, m.id, m.kind, m.tag, m.busy, m.open, m.names, m.stop ? m.stop.n + (m.stop.done ? 'd' : '') : ''].join(':')}
+          key={m.id}
+          sig={[look, m.kind, m.tag, m.busy, m.open, m.names, m.stop ? m.stop.n + (m.stop.done ? 'd' : '') : ''].join(':')}
           m={m}
           onPick={onPick}
         />
       ))}
     </RNMapView>
-    {radarOn && geom ? <Radar centre={geom.c} r={geom.r} blips={geom.blips} active={shown} /> : null}
+    {radarOn && geom ? (
+      // Keyed on the picture: new blips make a fresh radar (new value, new nodes) rather than re-wiring the animated
+      // nodes of one whose loop is running on the native side, which can close the app on Android.
+      <Radar key={geom.key} centre={geom.c} r={geom.r} blips={geom.blips} active={shown} />
+    ) : null}
     </View>
   );
 }
