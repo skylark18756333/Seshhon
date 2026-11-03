@@ -660,6 +660,26 @@ try {
   await has(nat, 'Send invite link');
   await has(nat, 'GREEN');
   await sshot(nat, '17-friends.png');
+  // The thumb dock: the orb in the middle changes your status from any tab, and Chats opens Messages.
+  await nat.page.getByTestId('dock-orb').filter({ visible: true }).first().click();
+  await nat.page.getByTestId('dock-thinking').filter({ visible: true }).first().waitFor({ timeout: 5000 });
+  await nat.page.waitForTimeout(500);
+  await sshot(nat, '17a-dock-open.png');
+  await nat.page.getByTestId('dock-thinking').filter({ visible: true }).first().click();
+  await until(() => psql(`select colour from public.statuses where user_id = '${anaId}'`) === 'thinking');
+  expect('status from the dock', psql(`select colour from public.statuses where user_id = '${anaId}'`), 'thinking');
+  await nat.page.getByTestId('dock-orb').filter({ visible: true }).first().click();
+  await nat.page.getByTestId('dock-on').filter({ visible: true }).first().click();
+  await until(() => psql(`select colour from public.statuses where user_id = '${anaId}'`) === 'on');
+  await nat.page.getByRole('tab', { name: 'Chats' }).click();
+  await has(nat, 'Start a chat');
+  await nat.page.getByRole('tab', { name: 'Home' }).click();
+  await nat.page.getByTestId('open-friends').filter({ visible: true }).first().click();
+  // Your own profile is the first thing on Friends.
+  await nat.page.getByTestId('friends-me').filter({ visible: true }).first().click();
+  await nat.page.getByTestId('profile-customise').filter({ visible: true }).first().waitFor({ timeout: 10000 });
+  await sshot(nat, '17b-my-profile.png');
+  await nat.page.getByRole('button', { name: 'Back', exact: true }).filter({ visible: true }).last().click();
   await tap(nat, 'Back');
   // Messages, from the chat button: green friends as chat heads, then the chats.
   await nat.page.getByTestId('home-messages').filter({ visible: true }).first().click();
@@ -1089,6 +1109,8 @@ try {
   expect('sign-in cleared on log out', await nina.page.evaluate(() => localStorage.getItem('seshhon-session-v1')), 'null');
   await tap(nina, 'I already have an account');
   await has(nina, 'Log in');
+  // The remembered username is read from the phone's storage a moment after the screen shows.
+  await until(async () => (await nina.page.getByLabel('Username or email', { exact: true }).inputValue()) === 'nina_test');
   expect('username filled in', await nina.page.getByLabel('Username or email', { exact: true }).inputValue(), 'nina_test');
   await tap(nina, 'Log in'); await has(nina, 'Enter your username or email, and your password.');
   await fillL(nina, 'Password', 'wrongpassword1');

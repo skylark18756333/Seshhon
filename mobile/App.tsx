@@ -475,7 +475,8 @@ function Shell() {
       </Swipe>
       {/* On the Map tab the map runs under the tab bar, which floats over it. */}
       <View style={onMap ? [styles.floatTabs, { paddingBottom: inset.bottom }] : null} pointerEvents="box-none">
-        <Tabs tab={tab === 'venue' ? 'home' : tab === 'crews' ? 'you' : tab === 'messages' || tab === 'friends' ? 'home' : tab} requests={f.state ? f.state.requests_in.length : 0} onPick={pickTab} />
+        <Tabs tab={tab === 'venue' ? 'home' : tab === 'crews' ? 'you' : tab === 'friends' ? 'home' : tab} requests={f.state ? f.state.requests_in.length : 0}
+          colour={f.state && f.state.me ? f.state.me.colour : null} onPick={pickTab} onColour={f.setColour} />
       </View>
       <FriendProfileHost f={f} onMessages={openChatWith} />
       {tour && me ? <Tour name={first(me.name)} onClose={() => { clearTour(); setTour(false); askAfterTour().catch(() => {}); }} /> : null}
