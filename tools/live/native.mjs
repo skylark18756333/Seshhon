@@ -690,8 +690,9 @@ try {
   await until(() => psql(`select colour from public.statuses where user_id = '${anaId}'`) === 'on');
   expect('swipe the orb right', psql(`select colour from public.statuses where user_id = '${anaId}'`), 'on');
   await drag('dock-bar', 80);
-  await nat.page.getByRole('tab', { name: 'Map', selected: true }).waitFor({ timeout: 5000 });
-  expect('swipe along the bar', await nat.page.getByRole('tab', { name: 'Map', selected: true }).count(), 1);
+  await until(async () => (await nat.page.getByTestId('map-stub').filter({ visible: true }).count()) === 1);
+  await sshot(nat, '17c-swiped-to-map.png');
+  expect('swipe along the bar opens Map', await nat.page.getByTestId('map-stub').filter({ visible: true }).count(), 1);
   await nat.page.getByRole('tab', { name: 'Home' }).click();
   await nat.page.getByTestId('open-friends').filter({ visible: true }).first().click();
   // Your own profile is the first thing on Friends.
@@ -700,11 +701,12 @@ try {
   await sshot(nat, '17b-my-profile.png');
   await nat.page.getByRole('button', { name: 'Back', exact: true }).filter({ visible: true }).last().click();
   await tap(nat, 'Back');
-  // Messages, from the chat button: green friends as chat heads, then the chats.
-  await nat.page.getByTestId('home-messages').filter({ visible: true }).first().click();
+  // Messages, from Chats in the dock (the header has no Messages button): green friends as chat heads, then the chats.
+  expect('no Messages button in the header', await nat.page.getByTestId('home-messages').count(), 0);
+  await nat.page.getByRole('tab', { name: 'Chats' }).click();
   await has(nat, 'Start a chat');
   await sshot(nat, '18-messages.png');
-  await tap(nat, 'Back');
+  await nat.page.getByRole('tab', { name: 'Home' }).click();
   await has(nat, "What's the move?");
 
   /* ---------- crews, besties and free time ---------- */
