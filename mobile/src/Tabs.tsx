@@ -86,14 +86,14 @@ export default function Tabs({ tab, requests, colour, onPick, onColour }: {
     onPanResponderTerminationRequest: () => false,
     onPanResponderMove: (_e, g) => lean.setValue(Math.max(-30, Math.min(30, g.dx / 2))),
     onPanResponderRelease: (_e, g) => {
-      Animated.spring(lean, { toValue: 0, useNativeDriver: true, friction: 5 }).start();
+      Animated.spring(lean, { toValue: 0, useNativeDriver: false, friction: 5 }).start();
       const c = live.current.colour;
       if (!c || Math.abs(g.dx) < NUDGE) return;
       const to = ORDER[Math.min(2, Math.max(0, ORDER.indexOf(c) + (g.dx > 0 ? 1 : -1)))];
       setOpen(false);
       if (to !== c) live.current.onColour(to);
     },
-    onPanResponderTerminate: () => { Animated.spring(lean, { toValue: 0, useNativeDriver: true }).start(); }
+    onPanResponderTerminate: () => { Animated.spring(lean, { toValue: 0, useNativeDriver: false }).start(); }
   }), [lean]);
 
   return (
