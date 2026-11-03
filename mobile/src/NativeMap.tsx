@@ -183,12 +183,41 @@ const CENTRE = { x: 0.5, y: 0.5 };
 const maker = String(((Platform.constants || {}) as { Manufacturer?: string; Brand?: string }).Manufacturer || ((Platform.constants || {}) as { Brand?: string }).Brand || '').toLowerCase();
 const RENDERER: 'LATEST' | 'LEGACY' = Platform.OS === 'android' && maker.indexOf('nothing') >= 0 ? 'LEGACY' : 'LATEST';
 
+const DOUBLE_MS = 400, DOUBLE_PX = 60;   // two taps within this time and distance count as a double tap
+
 const edge = { top: 60, right: 40, bottom: 60, left: 40 };
 
 // Memoised: the map is only touched when what it shows changes.
 export default memo(NativeMap);
 function NativeMap(p: MapView) {
   const map = useRef<RNMapView>(null);
+  // Double tap moves the pin, on every phone. Google's own double-tap event doesn't arrive on some Android phones,
+  // so two quick taps close together are also counted here; whichever comes first wins and the other is ignored.
+  const lastTap = useRef<{ at: number; x: number; y: number } | null>(null);
+  const movedAt = useRef(0);
+  const movePin = useCallback((c: { latitude: number; longitude: number } | undefined) => {
+    if (!c || Date.now() - movedAt.current < DOUBLE_MS) return;
+    movedAt.current = Date.now();
+    lastTap.current = null;
+    pressRef.current([c.latitude, c.longitude]);
+  }, []);
+  const pressRef = useRef(p.onMapPress); pressRef.current = p.onMapPress;
+  const tapRef = useRef(p.onMapTap); tapRef.current = p.onMapTap;
+  const onTap = useCallback((e: { nativeEvent?: { coordinate?: { latitude: number; longitude: number }; position?: { x: number; y: number }; action?: string } }) => {
+    const n = e && e.nativeEvent;
+    if (n && n.action === 'marker-press') return;
+    if (tapRef.current) tapRef.current();
+    const c = n && n.coordinate, pos = n && n.position;
+    if (!c) return;
+    const now = Date.now(), last = lastTap.current, x = pos ? pos.x : 0, y = pos ? pos.y : 0;
+    if (last && now - last.at < DOUBLE_MS && (!pos || Math.abs(x - last.x) + Math.abs(y - last.y) < DOUBLE_PX)) movePin(c);
+    else lastTap.current = { at: now, x, y };
+  }, [movePin]);
+  const onDouble = useCallback((e: { nativeEvent?: { coordinate?: { latitude: number; longitude: number } } }) => movePin(e && e.nativeEvent && e.nativeEvent.coordinate), [movePin]);
+  const onLong = useCallback((e: { nativeEvent?: { coordinate?: { latitude: number; longitude: number } } }) => {
+    const c = e && e.nativeEvent && e.nativeEvent.coordinate;
+    if (c) { movedAt.current = Date.now(); pressRef.current([c.latitude, c.longitude]); }
+  }, []);
   const onPickRef = useRef(p.onPick); onPickRef.current = p.onPick;
   const onPick = useCallback((id: string) => onPickRef.current(id), []);
   const names = useRef<boolean | null>(null);
@@ -279,9 +308,9 @@ function NativeMap(p: MapView) {
       // Sarah: a single tap shouldn't move your spot (too easy to do by accident). A double tap moves the pin there
       // (instead of zooming in), and so does a long press, even on top of a venue bubble. A single tap just closes
       // whatever card is open.
-      onPress={() => { if (p.onMapTap) p.onMapTap(); }}
-      onDoublePress={(e) => { const c = e.nativeEvent && e.nativeEvent.coordinate; if (c) p.onMapPress([c.latitude, c.longitude]); }}
-      onLongPress={(e) => { const c = e.nativeEvent && e.nativeEvent.coordinate; if (c) p.onMapPress([c.latitude, c.longitude]); }}
+      onPress={onTap}
+      onDoublePress={onDouble}
+      onLongPress={onLong}
       zoomTapEnabled={false}
       onRegionChangeComplete={onRegion}
       mapPadding={padding}
