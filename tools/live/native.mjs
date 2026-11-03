@@ -595,6 +595,22 @@ try {
   await has(nat, 'Coming up');
   await sshot(nat, '13-back-to-tonight.png');
 
+  // The calendar inside the app: tomorrow's planned sesh has a dot, tapping the day lists it, and "Plan a sesh on ..."
+  // opens the plan screen.
+  await nat.page.getByTestId('open-calendar').filter({ visible: true }).first().click();
+  await has(nat, 'Your calendar');
+  const tmrw = new Date(Date.now() + 86400000);
+  if (tmrw.getDate() === 1) await tap(nat, 'Next month');
+  await nat.page.getByTestId('cal-day-' + tmrw.getDate()).filter({ visible: true }).first().click();
+  await has(nat, 'Your sesh');
+  expect('the calendar lists the planned sesh on its day', await nat.page.locator('[data-testid^="cal-sesh-"]').filter({ visible: true }).count(), 1);
+  await until(async () => !(await nat.page.evaluate(() => document.body.innerText.includes('Pres address saved'))), 10000);   // let the toast go first
+  await sshot(nat, '13b-calendar.png');
+  await nat.page.getByTestId('cal-plan-day').filter({ visible: true }).first().click();
+  await has(nat, "When's it on?");
+  await tap(nat, 'Cancel');
+  await has(nat, 'Coming up');
+
   // A private sesh from Jack's phone: start_private_sesh. He leaves Ana's first.
   await natJ.page.getByTestId('sesh-more').filter({ visible: true }).first().click();
   await tap(natJ, 'Leave the sesh');

@@ -19,6 +19,7 @@ import { CHAT_POLL_MS, RADIUS_KM } from './config';
 import { joinTyping, SHOW_FOR_MS, type TypingLink } from './typing';
 import TypingLights from './TypingLights';
 import { addToCalendar } from './calendar';
+import CalendarView from './CalendarView';
 import { openFriend } from './FriendProfile';
 import { CrawlBuilder, TreasureMap } from './Crawl';
 import Icon from './Icon';
@@ -56,6 +57,7 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
   const [seshId, setSeshId] = useState<string | null>(null);
   const [picker, setPicker] = useState<Picker | null>(null);
   const [plan, setPlan] = useState<Plan | null>(null);
+  const [calendar, setCalendar] = useState(false);   // the in-app calendar of planned seshes
   const [presEdit, setPresEdit] = useState<string | null>(null);
   const [presAddress, setPresAddress] = useState('');
   const [presMin, setPresMin] = useState<number | null>(null);
@@ -180,12 +182,18 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
     );
   }
 
-  const startPlan = () => {   // starts at the next half hour, at least an hour from now
+  // Starts at the next half hour, at least an hour from now; on a later day picked from the calendar, 7 pm that day.
+  const startPlan = (day?: Date) => {
     const t = new Date(Date.now() + 3600000);
     t.setMinutes(t.getMinutes() < 30 ? 30 : 60, 0, 0);
+    if (day) {
+      const evening = new Date(day.getFullYear(), day.getMonth(), day.getDate(), 19, 0, 0, 0);
+      if (evening.getTime() > t.getTime()) t.setTime(evening.getTime());
+    }
     setPlan({ at: t.getTime(), pick: false, picked: {} });
     top();
   };
+  const openCalendar = () => { setCalendar(true); top(); };
   const planned = (
     <PlannedList
       seshes={seshes}
@@ -194,9 +202,25 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
       v={v}
       onOpen={(id) => { setSeshId(id); setPanel(null); top(); }}
       onJoin={(id) => f.act('join_sesh', { p_sesh: id }, "You're in. It goes live at the planned time.")}
-      onPlan={startPlan}
+      onPlan={() => startPlan()}
+      onCalendar={openCalendar}
     />
   );
+
+  if (calendar) {
+    return (
+      <Frame f={f} onOpenWeb={onOpenWeb} scroll={scroll}>
+        <CalendarView
+          seshes={seshes.filter((s) => isPlanned(s))}
+          v={v}
+          onBack={() => { setCalendar(false); top(); }}
+          onOpen={(id) => { setCalendar(false); setSeshId(id); setPanel(null); top(); }}
+          onJoin={(id) => f.act('join_sesh', { p_sesh: id }, "You're in. It goes live at the planned time.")}
+          onPlanDay={(d) => { setCalendar(false); startPlan(d); }}
+        />
+      </Frame>
+    );
+  }
 
   /* ---------- not in a sesh: the party lobby. Join a friend's sesh, or start or plan your own from the tiles ---------- */
   if (!mine) {
@@ -213,7 +237,7 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
         onPress: () => goGreen(() => { f.act('start_sesh', {}, 'Sesh started. Friends who are around can join.').then(top); }) },
       ...(crawl.off ? [] : [{ key: 'crawl', emoji: '📍', title: 'Crewzy crawl', note: 'A few spots a short walk apart', colours: ['#21C6A4', '#2A7FD4'] as [string, string],
         onPress: () => goGreen(() => { setMake({ target: null }); top(); }) }]),
-      { key: 'plan', emoji: '🗓', title: 'Plan for later', note: 'Any day in the next 2 weeks', colours: ['#5B8CFF', '#9B5BFF'], onPress: startPlan },
+      { key: 'plan', emoji: '🗓', title: 'Plan for later', note: 'Pick a day on your calendar', colours: ['#5B8CFF', '#9B5BFF'], onPress: openCalendar },
       { key: 'private', emoji: '🔒', title: 'Invite only', note: 'Only friends you pick see it', colours: ['#C04BD8', '#5E3BD1'],
         onPress: () => goGreen(() => { setPicker({ mode: 'start', picked: {} }); top(); }) },
       { key: 'events', emoji: '🎶', title: "What's on", note: 'Gigs and events near you', colours: ['#F5A623', '#D4572A'], onPress: () => onOpenWeb('events') },
@@ -631,9 +655,9 @@ function Round({ icon, label, onPress, disabled, pressed, flip, size }: { icon: 
 }
 
 /* ---------- Coming up: planned seshes as a row of small cards you swipe sideways (plannedHtml) ---------- */
-function PlannedList({ seshes, skipId, canPlan, v, onOpen, onJoin, onPlan }: {
+function PlannedList({ seshes, skipId, canPlan, v, onOpen, onJoin, onPlan, onCalendar }: {
   seshes: SeshT[]; skipId: string | null; canPlan: boolean; v: Venues;
-  onOpen: (id: string) => void; onJoin: (id: string) => void; onPlan: () => void;
+  onOpen: (id: string) => void; onJoin: (id: string) => void; onPlan: () => void; onCalendar: () => void;
 }) {
   const list = seshes.filter((s) => isPlanned(s) && s.id !== skipId)
     .sort((a, b) => new Date(a.starts_at || 0).getTime() - new Date(b.starts_at || 0).getTime());
@@ -642,7 +666,10 @@ function PlannedList({ seshes, skipId, canPlan, v, onOpen, onJoin, onPlan }: {
     <View style={styles.stack}>
       <View style={[styles.row, styles.between]}>
         <Text style={styles.h2}>Coming up</Text>
-        <Text style={[styles.muted, styles.small]}>{list.length ? list.length + ' planned' : 'Nothing yet'}</Text>
+        <Pressable onPress={onCalendar} style={styles.calLink} accessibilityRole="button" accessibilityLabel="Open your calendar" testID="open-calendar">
+          <Icon name="clock" size={14} colour={C.fg} />
+          <Text style={styles.calLinkText}>{list.length ? list.length + ' planned · ' : ''}Calendar</Text>
+        </Pressable>
       </View>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
         {list.map((s) => {
@@ -1373,6 +1400,8 @@ const styles = themed(() => StyleSheet.create({
   doneTitle: { color: C.muted, textDecorationLine: 'line-through' },
 
   chat: { maxHeight: 440, minHeight: 80 },
+  calLink: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, minHeight: 36, borderRadius: 18, backgroundColor: C.surface2, borderWidth: 1, borderColor: C.line },
+  calLinkText: { fontFamily: F.bodyBold, fontSize: 13, color: C.fg },
   typingRow: { alignItems: 'center', gap: 8, paddingLeft: 4, paddingTop: 2 },
   quickRow: { gap: 8, paddingVertical: 2, paddingRight: 8 },
   quick: { paddingHorizontal: 14, minHeight: 40, justifyContent: 'center', borderRadius: 20, backgroundColor: C.surface2, borderWidth: 1, borderColor: C.line },
