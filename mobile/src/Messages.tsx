@@ -116,6 +116,12 @@ async function collect(uid: string, h: History): Promise<History> {
 // Opening Messages straight on one friend's chat (the Message button on a friend's profile, or a face on Friends).
 let pendingChat: string | null = null;
 export function chatWith(id: string | null) { pendingChat = id; }
+// Send one message to a friend from another screen (an event suggested from Events): locked the same way, and kept in
+// this phone's history so it shows in that chat.
+export async function sendToFriend(uid: string, to: string, text: string): Promise<void> {
+  const m = await lockAndSend(uid, to, text);
+  saveHistory(uid, add(await loadHistory(uid), to, m));
+}
 const TONIGHT_MS = 12 * 3600000;
 function reactCounts(m: Msg): Record<string, number> {
   const out: Record<string, number> = {};
