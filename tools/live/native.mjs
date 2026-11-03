@@ -660,6 +660,11 @@ try {
   await has(nat, 'Send invite link');
   await has(nat, 'GREEN');
   await sshot(nat, '17-friends.png');
+  // Your own profile is the first thing on Friends.
+  await nat.page.getByTestId('friends-me').filter({ visible: true }).first().click();
+  await nat.page.getByTestId('profile-customise').filter({ visible: true }).first().waitFor({ timeout: 10000 });
+  await sshot(nat, '17b-my-profile.png');
+  await nat.page.getByRole('button', { name: 'Back', exact: true }).filter({ visible: true }).last().click();
   await tap(nat, 'Back');
   // Messages, from the chat button: green friends as chat heads, then the chats.
   await nat.page.getByTestId('home-messages').filter({ visible: true }).first().click();
