@@ -26,7 +26,8 @@ export type Sesh = {
   votes: Vote[];
 };
 // A sesh chat message, as get_messages() sends it.
-export type Message = { id: string; sender: string; name: string; body: string; at: string };
+export type Message = { id: string; sender: string; name: string; body: string; at: string;
+  reactions?: Record<string, number>; my_reaction?: string | null };   // reactions: 0046
 // One stop of the Sesh Map (pub crawl), as sesh_crawl() sends it.
 export type CrawlStop = { venue_id: string; position: number; done: boolean; mine: boolean };
 // A venue, as api_venues() sends it.
