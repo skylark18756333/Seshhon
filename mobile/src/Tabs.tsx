@@ -6,6 +6,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, PanResponder, Pressable, StyleSheet, Text, View } from 'react-native';
 import Svg, { Circle, Path } from 'react-native-svg';
 import type { Colour } from './api';
+import { useWaiting } from './Parts';
 import { C, COLOURS, F, LABELS, fade, themed } from './theme';
 
 const TABS: [string, string][] = [['home', 'Home'], ['map', 'Map'], ['orb', ''], ['events', 'Events'], ['messages', 'Chats']];
@@ -53,6 +54,7 @@ export default function Tabs({ tab, requests, colour, onPick, onColour }: {
   tab: string; requests: number; colour: Colour | null; onPick: (tab: string) => void; onColour: (c: Colour) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const waiting = useWaiting(!!colour);   // new messages, shown on Chats
   const [shown, setShown] = useState(false);   // the fan stays mounted only while open or closing, so it never sits over the screen
   const fan = useRef(new Animated.Value(0)).current;
   useEffect(() => {
@@ -131,11 +133,14 @@ export default function Tabs({ tab, requests, colour, onPick, onColour }: {
           const here = key === tab;
           return (
             <Pressable key={key} style={styles.button} onPress={() => { setOpen(false); onPick(key); }}
-              accessibilityRole="tab" accessibilityLabel={name} accessibilityState={{ selected: here }}>
+              accessibilityRole="tab" accessibilityLabel={key === 'messages' && waiting > 0 ? name + ', ' + waiting + ' new' : name} accessibilityState={{ selected: here }}>
               <DotIcon name={key} ink={here ? C.fg : C.muted} lit={here} light={colour ? glow : C.muted} />
               <Text style={[styles.label, here && { color: C.fg }]}>{name}</Text>
               {key === 'home' && requests > 0 ? (
                 <View style={styles.badge}><Text style={styles.badgeText}>{requests}</Text></View>
+              ) : null}
+              {key === 'messages' && waiting > 0 ? (
+                <View style={styles.badge}><Text style={styles.badgeText}>{waiting > 9 ? '9+' : waiting}</Text></View>
               ) : null}
             </Pressable>
           );
