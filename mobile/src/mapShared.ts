@@ -23,6 +23,7 @@ export type MapView = {
   fit: { key: number; coords: LatLng[] };   // when key changes the map moves to show these
   focus: { key: number; at: LatLng } | null;   // when key changes the map centres on this (a venue picked from a list)
   onPick: (id: string) => void;
-  onMapPress: (at: LatLng) => void;
+  onMapPress: (at: LatLng) => void;   // a double tap or long press: move the spot there
+  onMapTap?: () => void;              // a single tap on empty map (closes an open card)
   onZoom: (names: boolean) => void;   // street names/venue names show once zoomed in (the web map's "names" class)
 };

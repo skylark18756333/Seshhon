@@ -352,7 +352,7 @@ try {
   // This phone hasn't shared its location, so nothing is shown until a spot is chosen.
   expect('no venues until a spot is chosen', (await markerIds(natMap)).length, 0);
   expect('no circle yet', await natMap.page.getByTestId('map-circle').innerText(), 'no circle');
-  await has(natMap, 'Tap the map to pick a spot');
+  await has(natMap, 'Double tap the map to pick a spot');
   await mshot(natMap, '1-map-start.png');
 
   // "How far" is a row of km buttons (1, 2, 3, 5, 10, 25) over the map.
@@ -714,12 +714,53 @@ try {
   await has(nat, 'Send invite link');
   await has(nat, 'GREEN');
   await sshot(nat, '17-friends.png');
+  // The thumb dock: the orb in the middle changes your status from any tab, and Chats opens Messages.
+  await nat.page.getByTestId('dock-orb').filter({ visible: true }).first().click();
+  await nat.page.getByTestId('dock-thinking').filter({ visible: true }).first().waitFor({ timeout: 5000 });
+  await nat.page.waitForTimeout(500);
+  await sshot(nat, '17a-dock-open.png');
+  await nat.page.getByTestId('dock-thinking').filter({ visible: true }).first().click();
+  await until(() => psql(`select colour from public.statuses where user_id = '${anaId}'`) === 'thinking');
+  expect('status from the dock', psql(`select colour from public.statuses where user_id = '${anaId}'`), 'thinking');
+  await nat.page.getByTestId('dock-orb').filter({ visible: true }).first().click();
+  await nat.page.getByTestId('dock-on').filter({ visible: true }).first().click();
+  await until(() => psql(`select colour from public.statuses where user_id = '${anaId}'`) === 'on');
+  await nat.page.getByRole('tab', { name: 'Chats' }).click();
+  await has(nat, 'Start a chat');
+  await nat.page.getByRole('tab', { name: 'Home' }).click();
+  // Swipes: push the orb left (green to amber), then swipe along the bar from Home one tab to the right (Map).
+  const drag = async (testId, dx) => {
+    const box = await nat.page.getByTestId(testId).filter({ visible: true }).first().boundingBox();
+    const x = testId === 'dock-bar' ? box.x + 50 : box.x + box.width / 2, y = box.y + box.height / 2;
+    await nat.page.mouse.move(x, y);
+    await nat.page.mouse.down();
+    for (let i = 1; i <= 8; i++) await nat.page.mouse.move(x + (dx * i) / 8, y, { steps: 2 });
+    await nat.page.mouse.up();
+  };
+  await drag('dock-orb', -60);
+  await until(() => psql(`select colour from public.statuses where user_id = '${anaId}'`) === 'thinking');
+  expect('swipe the orb left', psql(`select colour from public.statuses where user_id = '${anaId}'`), 'thinking');
+  await drag('dock-orb', 60);
+  await until(() => psql(`select colour from public.statuses where user_id = '${anaId}'`) === 'on');
+  expect('swipe the orb right', psql(`select colour from public.statuses where user_id = '${anaId}'`), 'on');
+  await drag('dock-bar', 80);
+  await until(async () => (await nat.page.getByTestId('map-stub').filter({ visible: true }).count()) === 1);
+  await sshot(nat, '17c-swiped-to-map.png');
+  expect('swipe along the bar opens Map', await nat.page.getByTestId('map-stub').filter({ visible: true }).count(), 1);
+  await nat.page.getByRole('tab', { name: 'Home' }).click();
+  await nat.page.getByTestId('open-friends').filter({ visible: true }).first().click();
+  // Your own profile is the first thing on Friends.
+  await nat.page.getByTestId('friends-me').filter({ visible: true }).first().click();
+  await nat.page.getByTestId('profile-customise').filter({ visible: true }).first().waitFor({ timeout: 10000 });
+  await sshot(nat, '17b-my-profile.png');
+  await nat.page.getByRole('button', { name: 'Back', exact: true }).filter({ visible: true }).last().click();
   await tap(nat, 'Back');
-  // Messages, from the chat button: green friends as chat heads, then the chats.
-  await nat.page.getByTestId('home-messages').filter({ visible: true }).first().click();
+  // Messages, from Chats in the dock (the header has no Messages button): green friends as chat heads, then the chats.
+  expect('no Messages button in the header', await nat.page.getByTestId('home-messages').count(), 0);
+  await nat.page.getByRole('tab', { name: 'Chats' }).click();
   await has(nat, 'Start a chat');
   await sshot(nat, '18-messages.png');
-  await tap(nat, 'Back');
+  await nat.page.getByRole('tab', { name: 'Home' }).click();
   await has(nat, "What's the move?");
 
   /* ---------- crews, besties and free time ---------- */
@@ -1143,6 +1184,8 @@ try {
   expect('sign-in cleared on log out', await nina.page.evaluate(() => localStorage.getItem('seshhon-session-v1')), 'null');
   await tap(nina, 'I already have an account');
   await has(nina, 'Log in');
+  // The remembered username is read from the phone's storage a moment after the screen shows.
+  await until(async () => (await nina.page.getByLabel('Username or email', { exact: true }).inputValue()) === 'nina_test');
   expect('username filled in', await nina.page.getByLabel('Username or email', { exact: true }).inputValue(), 'nina_test');
   await tap(nina, 'Log in'); await has(nina, 'Enter your username or email, and your password.');
   await fillL(nina, 'Password', 'wrongpassword1');

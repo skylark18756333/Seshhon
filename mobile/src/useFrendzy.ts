@@ -59,6 +59,7 @@ export function useFrendzy(signedIn: boolean, paused?: boolean, sessionKey?: str
   const photosKey = useRef('');
   const photosAt = useRef(0);
   const photosJson = useRef('{}');
+  const photosGen = useRef(0);   // goes up on sign-out, so a late photo answer for the last person is dropped
   const readers = useRef(new Set<() => void>());
 
   const say = useCallback((message: string) => {
@@ -85,8 +86,12 @@ export function useFrendzy(signedIn: boolean, paused?: boolean, sessionKey?: str
       const pk = data.me ? JSON.stringify([data.me.id].concat(data.friends.map((x) => x.id))) : '';
       if (pk && (freshPhotos || pk !== photosKey.current || Date.now() - photosAt.current > PHOTOS_MS)) {
         photosKey.current = pk; photosAt.current = Date.now();
+        // Not tied to this read's ticket: the next 5-second poll used to start before a slow photo answer
+        // came back and throw it away, so photos often never showed on a weak signal.
+        const gen = photosGen.current;
         friendPhotos().then((p) => {
-          if (!alive.current || !reads.current.current(ticket)) return;
+          if (!alive.current || gen !== photosGen.current) return;
+          if (!p) { photosAt.current = 0; photosKey.current = ''; return; }   // failed: keep what's shown, try again next poll
           const json = JSON.stringify(p);
           if (json !== photosJson.current) { photosJson.current = json; setPhotos(p); }
         }).catch(() => {});
@@ -106,7 +111,7 @@ export function useFrendzy(signedIn: boolean, paused?: boolean, sessionKey?: str
     alive.current = true;
     reads.current.invalidate();
     setState(null); setPhotos({}); setUsername(null); setError(null); setOffline(false);
-    lastKey.current = ''; photosKey.current = ''; photosAt.current = 0; photosJson.current = '{}';
+    lastKey.current = ''; photosKey.current = ''; photosAt.current = 0; photosJson.current = '{}'; photosGen.current += 1;
     let cancelled = false;
     if (!signedIn) { setPhase('loading'); return () => { alive.current = false; reads.current.invalidate(); }; }
     setPhase('loading');

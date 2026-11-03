@@ -13,6 +13,7 @@ import * as Updates from 'expo-updates';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { BackHandler, Linking, Platform, Pressable, Share, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { CrashGuard } from './src/CrashGuard';
 import { WebView, type WebViewMessageEvent, type WebViewNavigation } from 'react-native-webview';
 import type { Colour } from './src/api';
 import MapTab from './src/MapTab';
@@ -475,7 +476,8 @@ function Shell() {
       </Swipe>
       {/* On the Map tab the map runs under the tab bar, which floats over it. */}
       <View style={onMap ? [styles.floatTabs, { paddingBottom: inset.bottom }] : null} pointerEvents="box-none">
-        <Tabs tab={tab === 'venue' ? 'home' : tab === 'crews' ? 'you' : tab === 'messages' || tab === 'friends' ? 'home' : tab} requests={f.state ? f.state.requests_in.length : 0} onPick={pickTab} />
+        <Tabs tab={tab === 'venue' ? 'home' : tab === 'crews' ? 'you' : tab === 'friends' ? 'home' : tab} requests={f.state ? f.state.requests_in.length : 0}
+          colour={f.state && f.state.me ? f.state.me.colour : null} onPick={pickTab} onColour={f.setColour} />
       </View>
       <FriendProfileHost f={f} onMessages={openChatWith} />
       {tour && me ? <Tour name={first(me.name)} onClose={() => { clearTour(); setTour(false); askAfterTour().catch(() => {}); }} /> : null}
@@ -488,6 +490,7 @@ export default function App() {
   // The web app's fonts, as .ttf files a phone can load (see assets/fonts).
   const [fontsReady] = useFonts({
     'TiltNeon-Regular': require('./assets/fonts/TiltNeon-Regular.ttf'),
+    'Baloo2-ExtraBold': require('./assets/fonts/Baloo2-ExtraBold.ttf'),   // the Cr logo
     'Montserrat-Bold': require('./assets/fonts/Montserrat-Bold.ttf'),
     'Montserrat-ExtraBold': require('./assets/fonts/Montserrat-ExtraBold.ttf'),
     'Inter-Regular': require('./assets/fonts/Inter-Regular.ttf'),
@@ -499,7 +502,7 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <StatusBar style={C.dark ? 'light' : 'dark'} />
-      {fontsReady ? <Shell /> : <Layer><View style={styles.fill} /></Layer>}
+      <CrashGuard>{fontsReady ? <Shell /> : <Layer><View style={styles.fill} /></Layer>}</CrashGuard>
     </SafeAreaProvider>
   );
 }
