@@ -2,7 +2,6 @@
 // Views (a round icon, the venue's name, a tag like "Top pick", a glow where it is busy), with no shadows and no
 // gradients, so they draw the same on every Android phone. Markers stop tracking view changes once drawn; a bubble
 // that changes (busy, open, picked) gets a new key and is drawn again.
-import { mapOpening } from './mapCrash';
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AccessibilityInfo, Animated, Easing, Image, Platform, StyleSheet, Text, View } from 'react-native';
 import RNMapView, { Circle, Marker, Polyline, PROVIDER_GOOGLE, type Region } from 'react-native-maps';
@@ -197,7 +196,6 @@ const edge = { top: 60, right: 40, bottom: 60, left: 40 };
 export default memo(NativeMap);
 function NativeMap(p: MapView) {
   const map = useRef<RNMapView>(null);
-  useEffect(() => mapOpening(), []);   // see mapCrash.ts: a phone whose map crashes the app gets the simple map
   const onPickRef = useRef(p.onPick); onPickRef.current = p.onPick;
   const onPick = useCallback((id: string) => onPickRef.current(id), []);
   const names = useRef<boolean | null>(null);
