@@ -551,7 +551,7 @@ function planTimes(): [string, Date][] {
   const seen: Record<string, boolean> = {};
   const add = (label: string, days: number) => {
     const d = new Date(); d.setDate(d.getDate() + days); d.setHours(19, 0, 0, 0);
-    if (d.getTime() < Date.now() + 10 * 60000 || d.getTime() > Date.now() + 14 * 86400000) return;
+    if (d.getTime() < Date.now() + 10 * 60000 || d.getTime() > Date.now() + 365 * 86400000) return;
     const key = d.toDateString();
     if (seen[key]) return;
     seen[key] = true; out.push([label, d]);

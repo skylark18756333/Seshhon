@@ -1,7 +1,6 @@
 // The Crewzy calendar, inside the app: this month and next as a grid of days. Days with a planned sesh get a glowing
 // dot (green: you're in, amber: a friend's you can join). Tap a day to see its seshes, or plan one on that day.
-// Seshes can be planned up to 2 weeks ahead (plan_sesh), so only today and the next 14 days can be planned; the
-// rest of the month is shown dimmed. It reads the same planned seshes as "Coming up" and stores nothing new.
+// Seshes can be planned up to a year ahead (plan_sesh, migration 0043); days before today are shown dimmed. It reads the same planned seshes as "Coming up" and stores nothing new.
 import React, { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { Sesh as SeshT } from './api';
@@ -9,8 +8,8 @@ import Icon from './Icon';
 import { Button } from './Parts';
 import { C, F, fade, first, fmtTime, themed } from './theme';
 import type { Venues } from './venues';
+import { PLAN_AHEAD_DAYS } from './config';
 
-const AHEAD_DAYS = 14;
 const WEEKDAYS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const LONG_DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -23,7 +22,7 @@ export default function CalendarView({ seshes, v, onBack, onOpen, onJoin, onPlan
   onBack: () => void; onOpen: (id: string) => void; onJoin: (id: string) => void; onPlanDay: (day: Date) => void;
 }) {
   const today = startOfDay(new Date());
-  const last = new Date(today); last.setDate(last.getDate() + AHEAD_DAYS);
+  const last = new Date(today); last.setDate(last.getDate() + PLAN_AHEAD_DAYS);
   const [month, setMonth] = useState(new Date(today.getFullYear(), today.getMonth(), 1));
   const [picked, setPicked] = useState<Date>(today);
 
@@ -130,7 +129,7 @@ export default function CalendarView({ seshes, v, onBack, onOpen, onJoin, onPlan
       })}
       {plannable(picked)
         ? <Button icon="plus" label={'Plan a sesh ' + (picked.getTime() === today.getTime() ? 'today' : 'on ' + LONG_DAYS[picked.getDay()] + ' ' + picked.getDate())} onPress={() => onPlanDay(picked)} testID="cal-plan-day" />
-        : <Text style={styles.muted}>{picked < today ? 'That day has been and gone.' : 'You can plan up to 2 weeks ahead.'}</Text>}
+        : <Text style={styles.muted}>{picked < today ? 'That day has been and gone.' : 'You can plan up to a year ahead.'}</Text>}
     </View>
   );
 }

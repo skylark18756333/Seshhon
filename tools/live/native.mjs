@@ -642,7 +642,20 @@ try {
   await sshot(nat, '13b-calendar.png');
   await nat.page.getByTestId('cal-plan-day').filter({ visible: true }).first().click();
   await has(nat, "When's it on?");
-  await tap(nat, 'Cancel');
+  // Months ahead (0043, up to a year): "More" on the day row opens the calendar, three months on, the 15th.
+  await nat.page.getByTestId('plan-more-dates').filter({ visible: true }).first().click();
+  await has(nat, 'Your calendar');
+  for (let i = 0; i < 3; i++) await tap(nat, 'Next month');
+  await nat.page.getByTestId('cal-day-15').filter({ visible: true }).first().click();
+  await nat.page.getByTestId('cal-plan-day').filter({ visible: true }).first().click();
+  await has(nat, "When's it on?");
+  await sshot(nat, '13c-plan-months-ahead.png');
+  await tap(nat, 'Plan it');
+  await has(nat, 'Planned.');
+  const farWant = new Date(); farWant.setDate(1); farWant.setMonth(farWant.getMonth() + 3); farWant.setDate(15);
+  expect('a sesh planned 3 months ahead', psql(`select to_char(min(created_at) at time zone 'UTC', 'YYYY-MM') from public.seshes where creator = '${anaId}' and created_at > now() + interval '60 days'`), farWant.toISOString().slice(0, 7));
+  psql(`delete from public.seshes where creator = '${anaId}' and created_at > now() + interval '60 days'`);   // tidy it away for the rest of the test
+  await tap(nat, 'Back to Home');
   await has(nat, 'Coming up');
 
   // A private sesh from Jack's phone: start_private_sesh. He leaves Ana's first.

@@ -10,6 +10,8 @@ export const POLL_MS = Number(process.env.EXPO_PUBLIC_POLL_MS) || 5000;   // how
 export const CHAT_POLL_MS = Number(process.env.EXPO_PUBLIC_CHAT_POLL_MS) || 2500;   // how often an open sesh chat asks for new messages
 // Where distances are measured from, as on the web app's map until someone picks a spot: Perth CBD.
 export const MAP_CENTRE: [number, number] = [-31.9523, 115.8613];
+// How far ahead a sesh can be planned: a year (plan_sesh, migration 0043).
+export const PLAN_AHEAD_DAYS = 365;
 export const RADIUS_KM = 10;   // the phone app's default "How far": venues within 10 km of you
 // Whether the Map tab is the native Google map. Android: only when the build was given a Google Maps key
 // (GOOGLE_MAPS_ANDROID_KEY, see app.config.js, which sets extra.nativeMap); without one the Map tab stays the packed

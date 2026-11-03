@@ -15,7 +15,7 @@ import {
   type NativeScrollEvent, type NativeSyntheticEvent
 } from 'react-native';
 import { addCrawlStops, getMessages, reportMessage, seshCrawl, sendMessage, type CrawlStop, type Friend, type Member, type Message, type Sesh as SeshT } from './api';
-import { CHAT_POLL_MS, RADIUS_KM } from './config';
+import { CHAT_POLL_MS, PLAN_AHEAD_DAYS, RADIUS_KM } from './config';
 import { joinTyping, SHOW_FOR_MS, type TypingLink } from './typing';
 import TypingLights from './TypingLights';
 import { addToCalendar } from './calendar';
@@ -198,6 +198,7 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
           crawlOption
           onChange={setPlan}
           onCancel={() => { setPlan(null); top(); }}
+          onMoreDates={() => { setPlan(null); setCalendar(true); top(); }}
           onGo={() => {
             const ids = Object.keys(plan.picked);
             if (plan.pick && !ids.length) return;
@@ -616,13 +617,14 @@ const VIBES: { key: string; emoji: string; label: string; h: number; m: number }
   { key: 'late', emoji: '✨', label: 'Late', h: 22, m: 0 }
 ];
 const SHORT_DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-export function PlanView({ plan, friends, photos, crawlOption, onChange, onCancel, onGo }: {
+const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+export function PlanView({ plan, friends, photos, crawlOption, onChange, onCancel, onGo, onMoreDates }: {
   plan: Plan; friends: Friend[]; photos: Record<string, string>; crawlOption?: boolean;
-  onChange: (p: Plan) => void; onCancel: () => void; onGo: () => void;
+  onChange: (p: Plan) => void; onCancel: () => void; onGo: () => void; onMoreDates?: () => void;
 }) {
   const n = Object.keys(plan.picked).length;
-  const min = Date.now() + 10 * 60000, max = Date.now() + 14 * DAY;
-  // Keep it on a quarter hour, between ten minutes from now and two weeks ahead.
+  const min = Date.now() + 10 * 60000, max = Date.now() + PLAN_AHEAD_DAYS * DAY;
+  // Keep it on a quarter hour, between ten minutes from now and a year ahead.
   const setAt = (at: number) => {
     const d = new Date(Math.min(max, Math.max(min, at))); d.setMinutes(Math.round(d.getMinutes() / 15) * 15, 0, 0);
     let t = d.getTime();
@@ -634,6 +636,10 @@ export function PlanView({ plan, friends, photos, crawlOption, onChange, onCance
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const days = Array.from({ length: 15 }, (_, i) => { const d = new Date(today); d.setDate(d.getDate() + i); return d; });
   const sameDay = (a: Date, b: Date) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  // A day picked further ahead on the calendar gets its own card at the start of the row, so it's in view.
+  const curDay = new Date(cur); curDay.setHours(0, 0, 0, 0);
+  const farDay = !days.some((d) => sameDay(d, curDay));
+  if (farDay) days.unshift(curDay);
   const pickDay = (d: Date) => { const t = new Date(d); t.setHours(cur.getHours(), cur.getMinutes(), 0, 0); setAt(t.getTime()); };
   const pickVibe = (h: number, m: number) => { const t = new Date(cur); t.setHours(h, m, 0, 0); setAt(t.getTime()); };
   const hour = cur.getHours();
@@ -658,7 +664,9 @@ export function PlanView({ plan, friends, photos, crawlOption, onChange, onCance
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dayRow}>
           {days.map((d, i) => {
             const on = sameDay(d, cur);
-            const name = i === 0 ? 'Today' : i === 1 ? 'Tmrw' : SHORT_DAYS[d.getDay()];
+            const far = farDay && i === 0;
+            const k = farDay ? i - 1 : i;   // 0 is today, 1 tomorrow
+            const name = far ? MONTH_SHORT[d.getMonth()] : k === 0 ? 'Today' : k === 1 ? 'Tmrw' : SHORT_DAYS[d.getDay()];
             const weekend = d.getDay() === 5 || d.getDay() === 6;
             const body = (
               <>
@@ -669,12 +677,21 @@ export function PlanView({ plan, friends, photos, crawlOption, onChange, onCance
             );
             return (
               <Pressable key={i} onPress={() => pickDay(d)} accessibilityRole="button" accessibilityState={{ selected: on }}
-                accessibilityLabel={i === 0 ? 'Today' : i === 1 ? 'Tomorrow' : LONG_DAY[d.getDay()] + ' ' + d.getDate()}>
+                accessibilityLabel={far ? LONG_DAY[d.getDay()] + ' ' + d.getDate() + ' ' + MONTH_SHORT[d.getMonth()] : k === 0 ? 'Today' : k === 1 ? 'Tomorrow' : LONG_DAY[d.getDay()] + ' ' + d.getDate()}>
                 {on ? <LinearGradient colors={PLAN_GRAD} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[styles.day, styles.dayOn]}>{body}</LinearGradient>
                   : <View style={styles.day}>{body}</View>}
               </Pressable>
             );
           })}
+          {onMoreDates ? (
+            <Pressable onPress={onMoreDates} accessibilityRole="button" accessibilityLabel="More dates, up to a year ahead" testID="plan-more-dates">
+              <View style={styles.day}>
+                <Text style={styles.dayName}>More</Text>
+                <Icon name="clock" size={20} colour={C.fg} />
+                <View style={styles.dayDotSpace} />
+              </View>
+            </Pressable>
+          ) : null}
         </ScrollView>
       </View>
 
