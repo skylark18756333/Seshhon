@@ -7,6 +7,7 @@ import { Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View, useWin
 import type { Friend } from './api';
 import { openFriend } from './FriendProfile';
 import Icon from './Icon';
+import { Tip } from './Tip';
 import { Button, Face, Toast } from './Parts';
 import type { Frendzy } from './useFrendzy';
 import { C, COLOURS, F, fade, first, themed } from './theme';
@@ -83,12 +84,16 @@ export default function Friends({ f, onBack, onOpenWeb }: { f: Frendzy; onBack: 
         </View>
 
         <View style={styles.chipRow}>
-          <Pressable style={styles.chip} onPress={() => onOpenWeb('crews')} accessibilityRole="button" accessibilityLabel="Crews and besties" testID="open-crews">
+          <Tip id="friends-crews" onPress={() => onOpenWeb('crews')}>{(press) => (
+          <Pressable style={styles.chip} onPress={press} accessibilityRole="button" accessibilityLabel="Crews and besties" testID="open-crews">
             <Text style={styles.chipText}>Crews and besties</Text>
           </Pressable>
-          <Pressable style={styles.chip} onPress={share} accessibilityRole="button" accessibilityLabel="Send your invite link">
+          )}</Tip>
+          <Tip id="friends-invite" onPress={share}>{(press) => (
+          <Pressable style={styles.chip} onPress={press} accessibilityRole="button" accessibilityLabel="Send your invite link">
             <Text style={styles.chipText}>Send invite link</Text>
           </Pressable>
+          )}</Tip>
         </View>
 
         {friends.length > 9 ? (
@@ -122,7 +127,8 @@ function Tile({ fr, photos, col, face }: { fr: Friend; photos: Record<string, st
   const lit = fr.colour === 'on' || fr.colour === 'thinking';
   const ring = lit ? COLOURS[fr.colour] : C.line;
   return (
-    <Pressable style={[styles.tile, { width: col }]} onPress={() => openFriend(fr.id)} accessibilityRole="button"
+    <Tip id="friend-tile" onPress={() => openFriend(fr.id)} style={{ width: col }}>{(press) => (
+    <Pressable style={[styles.tile, { width: col }]} onPress={press} accessibilityRole="button"
       accessibilityLabel={'Open ' + fr.name + "'s profile" + (fr.colour === 'on' ? ', green' : fr.colour === 'thinking' ? ', amber' : '')}>
       <View style={[styles.ring, { borderColor: ring, borderWidth: lit ? 3 : 1.5, borderRadius: (face + 12) / 2, shadowColor: ring },
         fr.colour === 'on' && styles.glow, fr.colour === 'on' && { backgroundColor: fade(C.on, 0.12) }]}>
@@ -135,6 +141,7 @@ function Tile({ fr, photos, col, face }: { fr: Friend; photos: Record<string, st
       ) : null}
       <Text style={styles.name} numberOfLines={1}>{first(fr.name)}</Text>
     </Pressable>
+    )}</Tip>
   );
 }
 

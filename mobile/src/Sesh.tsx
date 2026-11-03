@@ -20,6 +20,7 @@ import { openFriend } from './FriendProfile';
 import { CrawlBuilder, TreasureMap } from './Crawl';
 import Icon from './Icon';
 import MeetMiddle from './MeetMiddle';
+import { Tip, TipSpot } from './Tip';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Avatar, Button, Face, Toast, TopBar } from './Parts';
 import type { ApiError } from './session';
@@ -234,7 +235,7 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
                       {s.members.length} in{s.locked_venue && v.byId[s.locked_venue] ? ', at ' + v.byId[s.locked_venue].name : ', picking a spot'}
                     </Text>
                   </View>
-                  <Button small label="Join" onPress={() => f.act('join_sesh', { p_sesh: s.id }, "You're in.")} />
+                  <Tip id="join-sesh" onPress={() => f.act('join_sesh', { p_sesh: s.id }, "You're in.")}>{(press) => <Button small label="Join" onPress={press} />}</Tip>
                 </View>
               </View>
             ))}
@@ -278,6 +279,7 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
         </View>
       ) : null}
 
+      <TipSpot id="sesh-card" when={!later} delay={1200}>
       <SeshCard
         s={mine}
         later={later}
@@ -294,6 +296,7 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
         onPanel={setPanel}
         onStarted={f.refresh}
       />
+      </TipSpot>
 
       {open === 'where' ? (
         <>
@@ -394,7 +397,7 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
               <Button label="Can't make it" ghost onPress={() => { setSeshId(null); setPanel(null); f.act('leave_sesh', { p_sesh: mine.id }); }} />
             )
           ) : mine.mine
-            ? <Button label="End the sesh" ghost onPress={() => { setSeshId(null); setPanel(null); f.act('end_sesh', { p_sesh: mine.id }, 'Sesh ended.'); }} />
+            ? <Tip id="sesh-end" onPress={() => { setSeshId(null); setPanel(null); f.act('end_sesh', { p_sesh: mine.id }, 'Sesh ended.'); }}>{(press) => <Button label="End the sesh" ghost onPress={press} />}</Tip>
             : <Button label="Leave the sesh" ghost onPress={() => { setSeshId(null); setPanel(null); f.act('leave_sesh', { p_sesh: mine.id }); }} />}
         </>
       ) : null}
@@ -717,10 +720,12 @@ function SeshCard({ s, later, startMs, creator, isCrawl, stops, v, myId, photos,
       </Pressable>
       <View style={styles.seg}>
         {parts.map(([k, label]) => (
-          <Pressable key={k} style={[styles.segBtn, panel === k && styles.segOn]} onPress={() => onPanel(k)}
+          <Tip key={k} id={'sesh-' + k} onPress={() => onPanel(k)} style={styles.grow}>{(press) => (
+          <Pressable style={[styles.segBtn, panel === k && styles.segOn]} onPress={press}
             accessibilityRole="tab" accessibilityLabel={label} accessibilityState={{ selected: panel === k }} testID={'sesh-' + k}>
             <Text style={[styles.segText, panel === k && styles.segTextOn]} numberOfLines={1}>{label}</Text>
           </Pressable>
+          )}</Tip>
         ))}
       </View>
     </LinearGradient>
@@ -745,16 +750,19 @@ function Lobby({ f, tiles, note, onSeat }: { f: Frendzy; tiles: LobbyTile[]; not
           <Text style={styles.seatName}>You</Text>
         </View>
         {[0, 1, 2, 3].map((i) => (
-          <Pressable key={i} style={styles.seat} onPress={onSeat} accessibilityRole="button" accessibilityLabel="Pick friends for a private sesh">
+          <Tip key={i} id="lobby-seat" onPress={onSeat}>{(press) => (
+          <Pressable style={styles.seat} onPress={press} accessibilityRole="button" accessibilityLabel="Pick friends for a private sesh">
             <View style={styles.seatEmpty}><Icon name="plus" size={18} colour={C.muted} /></View>
             <Text style={[styles.seatName, { color: C.muted }]}>Invite</Text>
           </Pressable>
+          )}</Tip>
         ))}
       </View>
       {note ? <Text style={[styles.muted, styles.small]}>{note}</Text> : null}
       <View style={styles.tiles}>
         {tiles.map((t) => (
-          <Pressable key={t.key} style={({ pressed }) => [styles.tileWrap, pressed && { transform: [{ scale: 0.97 }] }]} onPress={t.onPress}
+          <Tip key={t.key} id={'lobby-' + t.key} onPress={t.onPress} style={styles.tileWrap}>{(press) => (
+          <Pressable style={({ pressed }) => [pressed && { transform: [{ scale: 0.97 }] }]} onPress={press}
             accessibilityRole="button" accessibilityLabel={t.title + '. ' + t.note} testID={'lobby-' + t.key}>
             <LinearGradient colors={t.colours} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.tile}>
               <Text style={styles.tileEmoji}>{t.emoji}</Text>
@@ -764,6 +772,7 @@ function Lobby({ f, tiles, note, onSeat }: { f: Frendzy; tiles: LobbyTile[]; not
               </View>
             </LinearGradient>
           </Pressable>
+          )}</Tip>
         ))}
       </View>
     </View>

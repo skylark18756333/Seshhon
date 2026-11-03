@@ -32,6 +32,7 @@ import Swipe from './src/Swipe';
 import Tabs from './src/Tabs';
 import EventsTab from './src/EventsTab';
 import Tour from './src/Tour';
+import { TipHost } from './src/Tip';
 import TwoStep from './src/TwoStep';
 import You from './src/You';
 import { C, first, themed, useLook } from './src/theme';
@@ -478,6 +479,7 @@ function Shell() {
         <Tabs tab={tab === 'venue' ? 'home' : tab === 'crews' ? 'you' : tab === 'messages' || tab === 'friends' ? 'home' : tab} requests={f.state ? f.state.requests_in.length : 0} onPick={pickTab} />
       </View>
       <FriendProfileHost f={f} onMessages={openChatWith} />
+      <TipHost />
       {tour && me ? <Tour name={first(me.name)} onClose={() => { clearTour(); setTour(false); askAfterTour().catch(() => {}); }} /> : null}
     </Layer>
   );

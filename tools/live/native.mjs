@@ -84,9 +84,12 @@ const nativeNoKey = http.createServer((req, res) => {
 await new Promise((r) => setTimeout(r, 800));
 
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM || '/opt/pw-browsers/chromium' });
-async function phone(name, url, init) {
+async function phone(name, url, init, opts = {}) {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, timezoneId: 'Australia/Perth' });
   if (init) await ctx.addInitScript(init);
+  // The first-use tips (mobile/src/tips.ts) would catch the first tap on every button, so they're off for every
+  // phone here except the one that checks them (opts.tips).
+  if (!opts.tips) await ctx.addInitScript(`try { localStorage.setItem('crewzy-tips-off', '1'); } catch (e) {}`);
   // LOOK=day or LOOK=pop opens the native screens in that look (You > Look) instead of Neon Night.
   if (process.env.LOOK) await ctx.addInitScript(`try { localStorage.setItem('frendzy-look', ${JSON.stringify(process.env.LOOK)}); } catch (e) {}`);
   // A pretend Cloudflare Turnstile at the real address, as tools/live/check.mjs uses: it hands out a
@@ -195,6 +198,54 @@ try {
   await nat.page.getByRole('tab', { name: 'Map' }).click();
   await shot(nat, '4-tab-map.png');
   console.log('after tapping Map: ' + (await nat.page.evaluate(() => document.body.innerText)).replace(/\n+/g, ' | '));
+
+  /* ---------- first-use tips and the walkthrough ---------- */
+  // A phone with tips on, opening the walkthrough as after sign-up. Tips wait while it's open; then the switch tip
+  // shows by itself, and the first tap on Go now and on the Map tab shows a tip instead of going straight there.
+  {
+    const tipsDir = path.join(out, 'native-tips');
+    fs.mkdirSync(tipsDir, { recursive: true });
+    const tshot = async (p, file) => { await p.page.waitForTimeout(700); await p.page.screenshot({ path: path.join(tipsDir, file) }); console.log('  saved native-tips/' + file); };
+    const natTip = await phone('tips', `http://127.0.0.1:${NATIVE_PORT}/`, `localStorage.setItem('seshhon-session-v1', ${JSON.stringify(session)});
+      localStorage.setItem('seshhon-page-store', JSON.stringify({ 'seshhon-tour-pending': 'true' }));`, { tips: true });
+    await has(natTip, 'Welcome, Ana.');
+    await tshot(natTip, '01-tour-welcome.png');
+    const titles = ['Your switch', 'Start a party', 'In a sesh', 'Find a place', 'Friends and messages', "You're in control"];
+    for (let i = 0; i < titles.length; i++) {
+      await natTip.page.getByRole('button', { name: i ? 'Next' : 'Show me', exact: true }).click();
+      await has(natTip, titles[i]);
+      await tshot(natTip, '0' + (i + 2) + '-tour-' + titles[i].toLowerCase().replace(/[^a-z]+/g, '-').replace(/-$/, '') + '.png');
+    }
+    expect('no tip while the walkthrough is open', await natTip.page.getByTestId('tip-go').count(), 0);
+    await natTip.page.getByRole('button', { name: "Let's go", exact: true }).click();
+    await has(natTip, 'Drag the glowing circle', 6000);
+    await tshot(natTip, '10-tip-switch.png');
+    await natTip.page.getByTestId('tip-go').click();
+    await natTip.page.waitForTimeout(500);
+    // Go now: the first tap shows the tip, and nothing is started until "Let's go" on the tip.
+    await natTip.page.getByTestId('lobby-now').click();
+    await has(natTip, 'Start a sesh right now');
+    await tshot(natTip, '11-tip-go-now.png');
+    expect('Go now waits for the tip', psql("select count(*) from public.seshes s join public.profiles p on p.id = s.creator where p.name = 'Ana'"), 0);
+    await natTip.page.getByRole('button', { name: 'Not now', exact: true }).click();
+    await natTip.page.waitForTimeout(500);
+    // The Map tab: the tip, then its own button carries on to the Map.
+    await natTip.page.getByRole('tab', { name: 'Map' }).click();
+    await has(natTip, 'Venues around you on a radar');
+    await tshot(natTip, '12-tip-map-tab.png');
+    await natTip.page.getByTestId('tip-go').click();
+    await natTip.page.waitForTimeout(800);
+    expect('the tip carried on to the Map', await natTip.page.getByText('Around me', { exact: true }).isVisible(), true);
+    await natTip.page.getByRole('tab', { name: 'Home' }).click();
+    await natTip.page.waitForTimeout(600);
+    // Seen once is enough: the second tap on the Map tab goes straight there.
+    await natTip.page.getByRole('tab', { name: 'Map' }).click();
+    await natTip.page.waitForTimeout(600);
+    expect('second tap on Map shows no tip', await natTip.page.getByTestId('tip-go').count(), 0);
+    expect('tips seen are kept on the phone', await natTip.page.evaluate(() => Object.keys(JSON.parse(localStorage.getItem('crewzy-tips-seen') || '{}')).sort().join(',')), 'home-switch,lobby-now,tab-map');
+    await natTip.ctx.close();
+  }
+  if (process.env.TIPS_ONLY) throw new Error('TIPS_ONLY: stopping after the tips');
 
   /* ---------- the native Sesh tab ---------- */
   const sesh = path.join(out, 'native-sesh');
