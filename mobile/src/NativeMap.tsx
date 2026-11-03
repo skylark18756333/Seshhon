@@ -13,6 +13,10 @@ import { C, F, fade, themed, useLook } from './theme';
 const BLUE = '#1F7BFF', GOAL = '#FF4757', FAR = '#8A90A0', HEAT = '#FF7A1A', RADAR = '#3DDC84', GOLD = '#FFC53D';
 const GLOW_SIZE = [0, 62, 80, 104];   // busy 0..3: the glow behind a bubble grows with how many are heading there
 const NAMES_BELOW_DELTA = 0.02;       // about zoom 15 and closer, as the web map's "names" class
+// From this radius up the map is zoomed out far enough that 30 full bubbles (a 116 x 88 box each, all of it tappable
+// on Android) cover most of the screen, so a tap meant for the map opened a venue instead of dropping the pin. Out
+// there a bubble is just its round icon in a small box, and the venue's name is on its card below the map.
+const COMPACT_FROM_KM = 3;
 
 // A dark map to match the app (Google's own style JSON; only used with the Google provider).
 const DARK_STYLE = [
@@ -38,7 +42,7 @@ const LIGHT_STYLE = [
   { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#CFE0F0' }] }
 ];
 
-function Bubble({ m }: { m: MapMarker }) {
+function Bubble({ m, compact }: { m: MapMarker; compact: boolean }) {
   const colour = m.kind === 'goal' ? GOAL : m.kind === 'far' ? FAR : m.kind === 'mid' ? GOLD : BLUE;
   if (m.stop) {
     return (
@@ -51,6 +55,18 @@ function Bubble({ m }: { m: MapMarker }) {
     );
   }
   const glow = GLOW_SIZE[Math.min(3, m.busy)];
+  if (compact && m.kind !== 'goal') {
+    const g = glow ? SMALL : 0;
+    return (
+      <View style={styles.small}>
+        {g ? <View style={[styles.glow, { top: 0, left: 0, width: g, height: g, borderRadius: g / 2, backgroundColor: fade(HEAT, 0.28 + 0.08 * m.busy) }]} /> : null}
+        <View style={[styles.disc, { borderColor: colour }]}>
+          <Icon name={m.glyph} size={20} colour={C.ink} />
+          {m.open !== null ? <View style={[styles.badge, { backgroundColor: m.open ? C.on : C.off }]} /> : null}
+        </View>
+      </View>
+    );
+  }
   return (
     <View style={styles.cell}>
       {glow ? <View style={[styles.glow, { top: TOP + DISC / 2 - glow / 2, left: CELL_W / 2 - glow / 2, width: glow, height: glow, borderRadius: glow / 2, backgroundColor: fade(HEAT, 0.28 + 0.08 * m.busy) }]} /> : null}
@@ -87,7 +103,7 @@ function Pin({ children, sig, ...rest }: React.ComponentProps<typeof Marker> & {
 
 // One venue on the map. Drawn again only when its own bubble changes, so the rest of the screen redrawing (a friend
 // going green, the five-second refresh) never makes the map update all 60 markers at once.
-const VenuePin = memo(function VenuePin({ m, sig, onPick }: { m: MapMarker; sig: string; onPick: (id: string) => void }) {
+const VenuePin = memo(function VenuePin({ m, sig, compact, onPick }: { m: MapMarker; sig: string; compact: boolean; onPick: (id: string) => void }) {
   const press = useCallback((e: { stopPropagation: () => void }) => { e.stopPropagation(); onPick(m.id); }, [m.id, onPick]);
   const coordinate = { latitude: m.at[0], longitude: m.at[1] };
   return (
@@ -99,10 +115,10 @@ const VenuePin = memo(function VenuePin({ m, sig, onPick }: { m: MapMarker; sig:
       zIndex={m.kind === 'goal' ? 1000 : m.stop ? 500 - m.stop.n : m.busy * 100 + (m.tag ? 50 : 0)}
       onPress={press}
     >
-      <Bubble m={m} />
+      <Bubble m={m} compact={compact} />
     </Pin>
   );
-}, (a, b) => a.sig === b.sig && a.onPick === b.onPick && a.m.id === b.m.id && a.m.at[0] === b.m.at[0] && a.m.at[1] === b.m.at[1] && a.m.name === b.m.name);
+}, (a, b) => a.sig === b.sig && a.onPick === b.onPick && a.compact === b.compact && a.m.id === b.m.id && a.m.at[0] === b.m.at[0] && a.m.at[1] === b.m.at[1] && a.m.name === b.m.name);
 // (Everything else a bubble shows is in sig, so a change there redraws the same marker.)
 
 /* ---------- the radar sweep (Map tab) ---------- */
@@ -234,6 +250,7 @@ function NativeMap(p: MapView) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [p.focus && p.focus.key]);
 
+  const compact = p.radiusKm >= COMPACT_FROM_KM;
   const padding = useMemo(() => (p.pad ? { top: p.pad.top, bottom: p.pad.bottom, left: 0, right: 0 } : undefined), [p.pad]);
   const onRegion = (r: Region) => {
     const near = r.latitudeDelta < NAMES_BELOW_DELTA;
@@ -254,6 +271,8 @@ function NativeMap(p: MapView) {
       customMapStyle={Platform.OS === 'android' ? (C.dark ? DARK_STYLE : LIGHT_STYLE) : undefined}
       initialRegion={{ latitude: p.centre[0], longitude: p.centre[1], latitudeDelta: 0.12, longitudeDelta: 0.12 }}
       onPress={(e) => { const c = e.nativeEvent.coordinate; p.onMapPress([c.latitude, c.longitude]); }}
+      // A long press drops the pin too, even on top of a venue bubble.
+      onLongPress={(e) => { const c = e.nativeEvent.coordinate; p.onMapPress([c.latitude, c.longitude]); }}
       onRegionChangeComplete={onRegion}
       mapPadding={padding}
       onRegionChange={radarOn ? onMove : undefined}
@@ -287,8 +306,9 @@ function NativeMap(p: MapView) {
       {p.markers.map((m) => (
         <VenuePin
           key={m.id}
-          sig={[look, m.kind, m.tag, m.busy, m.open, m.names, m.stop ? m.stop.n + (m.stop.done ? 'd' : '') : ''].join(':')}
+          sig={[look, m.kind, m.tag, m.busy, m.open, m.names, compact ? 'c' : '', m.stop ? m.stop.n + (m.stop.done ? 'd' : '') : ''].join(':')}
           m={m}
+          compact={compact}
           onPick={onPick}
         />
       ))}
@@ -302,12 +322,13 @@ function NativeMap(p: MapView) {
   );
 }
 
-const CELL_W = 116, TOP = 24, DISC = 40, BOTTOM = 24, BLIP = 30;
+const CELL_W = 116, TOP = 24, DISC = 40, BOTTOM = 24, BLIP = 30, SMALL = 48;
 const styles = themed(() => StyleSheet.create({
   map: { flex: 1 },
   blip: { position: 'absolute', width: BLIP, height: BLIP, borderRadius: BLIP / 2, borderWidth: 2, borderColor: RADAR, backgroundColor: fade(RADAR, 0.25) },
   // The bubble is centred in a fixed box so the marker's anchor (0.5, 0.5) sits on the middle of the round icon.
   cell: { width: CELL_W, height: TOP + DISC + BOTTOM, alignItems: 'center' },
+  small: { width: SMALL, height: SMALL, alignItems: 'center', justifyContent: 'center' },
   glow: { position: 'absolute' },
   top: { height: TOP, justifyContent: 'flex-end', alignItems: 'center' },
   bottom: { height: BOTTOM, justifyContent: 'flex-start', alignItems: 'center' },
