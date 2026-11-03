@@ -5,6 +5,8 @@
 // is deleted there. The history you see is kept on this phone only (AsyncStorage). Lose the phone, lose the chat.
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { joinTyping, SHOW_FOR_MS, type TypingLink } from './typing';
+import TypingLights from './TypingLights';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Crypto from 'expo-crypto';
 import * as SecureStore from 'expo-secure-store';
@@ -108,6 +110,29 @@ export default function Messages({ f, onBack, onSesh }: { f: Frendzy; onBack: ()
   const [busy, setBusy] = useState(false);
   const live = useRef({ hist, uid });
   live.current = { hist, uid };
+
+  // Typing lights in an open chat: the Crewzy bubble shows while your friend types (Realtime broadcast on a channel
+  // for the two of you, nothing stored; see typing.ts). They go when the message arrives or they stop.
+  const typingLink = useRef<TypingLink | null>(null);
+  const [theyTypeUntil, setTheyTypeUntil] = useState(0);
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    setTheyTypeUntil(0);
+    if (!uid || !open) return;
+    const pair = [uid, open].sort().join('-');
+    const l = joinTyping('dm-' + pair, uid, {
+      onTyping: (id) => { if (id === open) setTheyTypeUntil(Date.now() + SHOW_FOR_MS); },
+      onStopped: (id) => { if (id === open) setTheyTypeUntil(0); }
+    });
+    typingLink.current = l;
+    const t = setInterval(() => setTick((n) => n + 1), 1000);
+    return () => { clearInterval(t); l.stopped(); l.close(); if (typingLink.current === l) typingLink.current = null; };
+  }, [uid, open]);
+  const theyType = theyTypeUntil > Date.now();
+  const onText = (v: string) => {
+    setText(v);
+    if (typingLink.current) { if (v.trim()) typingLink.current.typing(); else typingLink.current.stopped(); }
+  };
   const scroll = useRef<ScrollView>(null);
 
   // Load the history kept on this phone, then check for new messages every few seconds while this screen is open.
@@ -139,6 +164,7 @@ export default function Messages({ f, onBack, onSesh }: { f: Frendzy; onBack: ()
     const body = text.trim();
     if (!open || !body || busy) return;
     setBusy(true);
+    if (typingLink.current) typingLink.current.stopped();
     lockAndSend(uid, open, body.slice(0, 1000)).then((m) => {
       setText('');
       setHist((h) => { const n = add(h, open, m); saveHistory(uid, n); return n; });
@@ -195,12 +221,18 @@ export default function Messages({ f, onBack, onSesh }: { f: Frendzy; onBack: ()
                 </View>
               ))}
               {!(hist.chats[friend.id] || []).length ? <Text style={styles.muted}>No messages yet. Say hi.</Text> : null}
+              {theyType ? (
+                <View style={styles.typingRow} accessibilityLabel={first(friend.name) + ' is typing'} testID="dm-typing">
+                  <TypingLights />
+                  <Text style={[styles.muted, styles.small]}>{first(friend.name)} is typing...</Text>
+                </View>
+              ) : null}
             </ScrollView>
             <View style={styles.compose}>
               <TextInput
                 style={[styles.input, styles.grow]}
                 value={text}
-                onChangeText={setText}
+                onChangeText={onText}
                 placeholder="Message"
                 placeholderTextColor={C.muted}
                 maxLength={1000}
@@ -258,6 +290,7 @@ export default function Messages({ f, onBack, onSesh }: { f: Frendzy; onBack: ()
 }
 
 const styles = themed(() => StyleSheet.create({
+  typingRow: { flexDirection: 'row', alignItems: 'center', gap: 8, alignSelf: 'flex-start' },
   fill: { flex: 1 },
   top: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingTop: 12, paddingBottom: 6, maxWidth: 440, width: '100%', alignSelf: 'center' },
   backBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
