@@ -85,12 +85,12 @@ export default function SpotPicker({ v, meName, busy, green, onGo, onCancel }: {
       <View style={styles.mapBox}>
         <NativeMap
           centre={centre} radiusKm={area} chosen mine={mine} meName={meName}
-          markers={markers} route={[]} fit={fit} focus={focus} onPick={onPickPin} onMapPress={onMapPress} onZoom={setNames}
+          markers={markers} route={[]} fit={fit} focus={focus} onPick={onPickPin} onMapPress={onMapPress} onMapTap={() => setPick(null)} onZoom={setNames}
         />
       </View>
       <Text style={[styles.muted, styles.small]}>
         {spot ? 'Showing around the spot you tapped. ' : mine ? 'Around you. Your location stays on this phone. ' : 'Around the city centre. '}
-        Tap the map to look somewhere else.
+        Double tap the map to look somewhere else.
       </Text>
       <View style={styles.chips}>
         {AREAS.map((a) => (

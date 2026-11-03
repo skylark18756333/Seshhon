@@ -77,6 +77,7 @@ export default function CrawlMap({ stops, v, canAdd, meName, onVenue, onAdd }: {
           focus={null}
           onPick={onPick}
           onMapPress={onMapPress}
+          onMapTap={() => setPick(null)}
           onZoom={noZoom}
         />
       </View>
@@ -89,7 +90,7 @@ export default function CrawlMap({ stops, v, canAdd, meName, onVenue, onAdd }: {
           <Button small label={'Add as stop ' + (stops.length + 1)} testID="crawl-map-add" onPress={() => { onAdd(pickVen.id); setPick(null); }} />
         </View>
       ) : canAdd ? (
-        <Text style={styles.muted}>Tap a venue on the map to add it as the next stop. Tap anywhere else to see what's near there.</Text>
+        <Text style={styles.muted}>Tap a venue on the map to add it as the next stop. Double tap anywhere else to see what's near there.</Text>
       ) : null}
     </View>
   );

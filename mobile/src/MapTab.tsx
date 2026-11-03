@@ -2,7 +2,7 @@
 // swipe-cards and radar designs, 2026-11-02, mock-up https://claude.ai/artifact/Luhz2ceLfXDUzdGNcemZxU).
 //  - Up top: Around me / Middle, search, the km buttons (1 to 25 km) and filter chips.
 //  - On the map: venue bubbles (busy glow from api_buzz), the glowing green radius circle, the Sesh Map's numbered
-//    stops. Tap anywhere to drop a pin there and search around it; the arrow goes back to you.
+//    stops. Double tap (or long press) anywhere to drop a pin there and search around it; the arrow goes back to you.
 //  - Along the bottom: the venues inside the circle as cards you swipe sideways. Tap one to find it on the map and
 //    open its card (ratings, vote, add to the Sesh Map).
 //  - Middle (in a live sesh): Meet in the middle (migration 0037). Everyone who switches it on shares roughly where
@@ -255,6 +255,7 @@ export default function MapTab({ f, onVenue, onOpenWeb, onWebMap }: {
   const refit = (coords: LatLng[]) => setFit((o) => ({ key: o.key + 1, coords }));
   const choose = useCallback((at: LatLng, isMine: boolean) => setGeo({ centre: at, mine: isMine, busy: false, chosen: true }), []);
   const modeNow = useRef(mode); modeNow.current = mode;
+  const onMapTap = useCallback(() => setPick(null), []);
   const onMapPress = useCallback((at: LatLng) => {
     if (modeNow.current === 'mid') { setPick(null); return; }
     choose(at, false); setPick(null); setNote('');
@@ -273,7 +274,7 @@ export default function MapTab({ f, onVenue, onOpenWeb, onWebMap }: {
       if (!quiet) setNote('Your location stays on this phone and is never saved or shown to friends.');
     } else {
       setGeo((g) => ({ ...g, busy: false }));
-      if (!quiet) setNote('Could not get your location. Tap the map to pick a spot instead.');
+      if (!quiet) setNote('Could not get your location. Double tap the map to pick a spot instead.');
     }
   };
   // The map starts on where you are, showing the venues within the radius.
@@ -337,7 +338,7 @@ export default function MapTab({ f, onVenue, onOpenWeb, onWebMap }: {
         <NativeMap
           centre={geo.centre} radiusKm={radius} chosen={geo.chosen && mode === 'me'} mine={geo.mine} meName={me.name}
           markers={markers} route={route} fit={fit} focus={focus} onPick={onPickPin}
-          onMapPress={onMapPress} onZoom={noZoom} radar
+          onMapPress={onMapPress} onMapTap={onMapTap} onZoom={noZoom} radar
           pad={pad}
         />
 
@@ -444,7 +445,7 @@ export default function MapTab({ f, onVenue, onOpenWeb, onWebMap }: {
                 ) : hits && !query ? (
                   <Text style={styles.countTag}>{hits.length} {filterName.toLowerCase()}</Text>
                 ) : !geo.chosen ? (
-                  <Text style={styles.countTag}>{geo.busy ? 'Finding you...' : 'Tap the map to pick a spot'}</Text>
+                  <Text style={styles.countTag}>{geo.busy ? 'Finding you...' : 'Double tap the map to pick a spot'}</Text>
                 ) : null}
               </View>
               {note ? <Text style={[styles.countTag, styles.noteTag]} testID="map-note">{note}</Text> : null}
