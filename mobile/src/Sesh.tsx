@@ -1371,6 +1371,50 @@ function nameMap(members: Member[]): Record<string, string> {
   return out;
 }
 
+// One chat message. Memoised, so typing in the box (which redraws the chat) doesn't redraw up to 200 bubbles.
+type RowOn = {
+  react: (m: Message, e: string) => void; hold: (id: string) => void; openBar: (id: string) => void; closeBar: () => void;
+  ask: (c: string | null) => void; report: (m: Message) => void; block: (m: Message) => void;
+};
+const ChatRow = React.memo(function ChatRow({ m, mine: mineMsg, photos, reacting, confirm, on }: {
+  m: Message; mine: boolean; photos: Frendzy['photos']; reacting: boolean; confirm: 'report' | 'block' | null; on: RowOn;
+}) {
+  return (
+    <View style={[styles.msgRow, mineMsg && styles.msgRowMe]}>
+      {mineMsg ? null : <View style={{ marginBottom: 18 }}><Avatar id={m.sender} name={m.name} photos={photos} size={36} /></View>}
+      <View style={styles.msgWrap}>
+        {mineMsg ? null : <Text style={styles.who}>{first(m.name)}</Text>}
+        {reacting ? <ReactBar mine={m.my_reaction} right={mineMsg} onPick={(e) => on.react(m, e)} onClose={on.closeBar} /> : null}
+        <Pressable style={[styles.msg, mineMsg ? styles.msgMe : styles.msgThem]} onLongPress={() => on.hold(m.id)}
+          delayLongPress={300} accessibilityHint="Hold to react" accessibilityActions={[{ name: 'longpress', label: 'React' }]}
+          onAccessibilityAction={() => on.openBar(m.id)} testID={'msg-' + m.id}>
+          <Text style={[styles.msgText, mineMsg && { color: C.accentInk }]}>{m.body}</Text>
+          <Text style={[styles.when, mineMsg ? { textAlign: 'right', color: C.mineWhen } : null]}>{fmtTime(m.at)}</Text>
+          {mineMsg ? null : confirm === 'report' ? (
+            <View style={styles.acts}>
+              <Text style={[styles.small, styles.body]}>Report this message?</Text>
+              <LinkBtn label="Report" onPress={() => on.report(m)} />
+              <LinkBtn label="Cancel" onPress={() => on.ask(null)} />
+            </View>
+          ) : confirm === 'block' ? (
+            <View style={styles.acts}>
+              <Text style={[styles.small, styles.body]}>Block {first(m.name)}?</Text>
+              <LinkBtn label="Block" onPress={() => on.block(m)} />
+              <LinkBtn label="Cancel" onPress={() => on.ask(null)} />
+            </View>
+          ) : (
+            <View style={styles.acts}>
+              <LinkBtn label="Report" onPress={() => on.ask('report:' + m.id)} />
+              <LinkBtn label="Block" onPress={() => on.ask('block:' + m.sender)} />
+            </View>
+          )}
+        </Pressable>
+        <ReactChips counts={m.reactions || {}} mine={m.my_reaction} right={mineMsg} onPick={(e) => on.react(m, e)} />
+      </View>
+    </View>
+  );
+});
+
 function Chat({ f, seshId, myId, confirm, setConfirm, onLatest, names, onTyping, onFocusInput, fill }: {
   fill?: boolean;   // full-screen chat: the list takes the space, newest messages at the bottom above the typing box
   f: Frendzy; seshId: string; myId: string; confirm: string | null; setConfirm: (c: string | null) => void; onLatest?: (ms: Message[]) => void;
@@ -1463,6 +1507,26 @@ function Chat({ f, seshId, myId, confirm, setConfirm, onLatest, names, onTyping,
     rpc('react_message', { p_message: m.id, p_emoji: e }).then(() => refresh(true),
       (x: ApiError) => f.say(/react_message/.test(x.message || '') ? 'Reactions are on the way.' : /check constraint/.test(x.message || '') ? "That emoji can't be used yet." : x.message));
   };
+  // The rows only redraw when their own message changes, not on every key press in the typing box. They call
+  // through this one stable object, which always points at the newest handlers.
+  const rowFns = { react, setReacting, setConfirm, refresh, f };
+  const rowLatest = useRef(rowFns);
+  rowLatest.current = rowFns;
+  const rowOn = useRef<RowOn>({
+    react: (m, e) => rowLatest.current.react(m, e),
+    hold: (id) => rowLatest.current.setReacting((r) => (r === id ? null : id)),
+    openBar: (id) => rowLatest.current.setReacting(id),
+    closeBar: () => rowLatest.current.setReacting(null),
+    ask: (c) => rowLatest.current.setConfirm(c),
+    report: (m) => {
+      rowLatest.current.setConfirm(null);
+      reportMessage(m.id).then(() => rowLatest.current.f.say('Reported. Thanks for telling us.'), (e: ApiError) => rowLatest.current.f.say(e.message));
+    },
+    block: (m) => {
+      rowLatest.current.setConfirm(null);
+      rowLatest.current.f.act('block_user', { p_user: m.sender }, 'Blocked.').then(() => rowLatest.current.refresh(true));
+    }
+  }).current;
   const onScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const { contentSize, contentOffset, layoutMeasurement } = e.nativeEvent;
     nearEnd.current = contentSize.height - contentOffset.y - layoutMeasurement.height < 60;
@@ -1487,49 +1551,10 @@ function Chat({ f, seshId, myId, confirm, setConfirm, onLatest, names, onTyping,
         testID="chat-list"
       >
         {!messages.length ? <Text style={[styles.muted, styles.small]}>No messages yet. Say where you're heading.</Text> : null}
-        {messages.map((m) => {
-          const mineMsg = m.sender === myId;
-          return (
-            <View key={m.id} style={[styles.msgRow, mineMsg && styles.msgRowMe]}>
-              {mineMsg ? null : <View style={{ marginBottom: 18 }}><Avatar id={m.sender} name={m.name} photos={f.photos} size={36} /></View>}
-              <View style={styles.msgWrap}>
-                {mineMsg ? null : <Text style={styles.who}>{first(m.name)}</Text>}
-                {reacting === m.id ? <ReactBar mine={m.my_reaction} right={mineMsg} onPick={(e) => react(m, e)} onClose={() => setReacting(null)} /> : null}
-                <Pressable style={[styles.msg, mineMsg ? styles.msgMe : styles.msgThem]} onLongPress={() => setReacting(reacting === m.id ? null : m.id)}
-                  delayLongPress={300} accessibilityHint="Hold to react" accessibilityActions={[{ name: 'longpress', label: 'React' }]}
-                  onAccessibilityAction={() => setReacting(m.id)} testID={'msg-' + m.id}>
-                  <Text style={[styles.msgText, mineMsg && { color: C.accentInk }]}>{m.body}</Text>
-                  <Text style={[styles.when, mineMsg ? { textAlign: 'right', color: C.mineWhen } : null]}>{fmtTime(m.at)}</Text>
-                  {mineMsg ? null : confirm === 'report:' + m.id ? (
-                    <View style={styles.acts}>
-                      <Text style={[styles.small, styles.body]}>Report this message?</Text>
-                      <LinkBtn label="Report" onPress={() => {
-                        setConfirm(null);
-                        reportMessage(m.id).then(() => f.say('Reported. Thanks for telling us.'), (e: ApiError) => f.say(e.message));
-                      }} />
-                      <LinkBtn label="Cancel" onPress={() => setConfirm(null)} />
-                    </View>
-                  ) : confirm === 'block:' + m.sender ? (
-                    <View style={styles.acts}>
-                      <Text style={[styles.small, styles.body]}>Block {first(m.name)}?</Text>
-                      <LinkBtn label="Block" onPress={() => {
-                        setConfirm(null);
-                        f.act('block_user', { p_user: m.sender }, 'Blocked.').then(() => refresh(true));
-                      }} />
-                      <LinkBtn label="Cancel" onPress={() => setConfirm(null)} />
-                    </View>
-                  ) : (
-                    <View style={styles.acts}>
-                      <LinkBtn label="Report" onPress={() => setConfirm('report:' + m.id)} />
-                      <LinkBtn label="Block" onPress={() => setConfirm('block:' + m.sender)} />
-                    </View>
-                  )}
-                </Pressable>
-                <ReactChips counts={m.reactions || {}} mine={m.my_reaction} right={mineMsg} onPick={(e) => react(m, e)} />
-              </View>
-            </View>
-          );
-        })}
+        {messages.map((m) => (
+          <ChatRow key={m.id} m={m} mine={m.sender === myId} photos={f.photos} reacting={reacting === m.id}
+            confirm={confirm === 'report:' + m.id ? 'report' : confirm === 'block:' + m.sender ? 'block' : null} on={rowOn} />
+        ))}
         {typingNames.length ? (
           <View style={[styles.msgRow, styles.typingRow]} accessibilityLabel={typingLine(typingNames)}>
             <TypingLights />
