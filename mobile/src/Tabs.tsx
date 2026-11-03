@@ -59,7 +59,7 @@ export default function Tabs({ tab, requests, colour, onPick, onColour }: {
   const fan = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     if (open) setShown(true);
-    Animated.spring(fan, { toValue: open ? 1 : 0, useNativeDriver: true, friction: 7, tension: 90 }).start(({ finished }) => {
+    Animated.spring(fan, { toValue: open ? 1 : 0, useNativeDriver: false, friction: 7, tension: 90 }).start(({ finished }) => {
       if (finished && !open) setShown(false);
     });
   }, [open, fan]);
