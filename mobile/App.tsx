@@ -13,6 +13,7 @@ import * as Updates from 'expo-updates';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { BackHandler, Linking, Platform, Pressable, Share, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { CrashGuard } from './src/CrashGuard';
 import { WebView, type WebViewMessageEvent, type WebViewNavigation } from 'react-native-webview';
 import type { Colour } from './src/api';
 import MapTab from './src/MapTab';
@@ -31,6 +32,7 @@ import { Shown } from './src/Shown';
 import Swipe from './src/Swipe';
 import Tabs from './src/Tabs';
 import EventsTab from './src/EventsTab';
+import VenuePage from './src/VenuePage';
 import Tour from './src/Tour';
 import { TipHost } from './src/Tip';
 import TwoStep from './src/TwoStep';
@@ -48,7 +50,8 @@ const AGE_CHECK_HOSTS = ['https://verify.didit.me/', 'https://age.yoti.com'];
 // Runs in the page before its own script: the page's "share" button uses the phone's share sheet, the page
 // starts on the tab the app asked for, and it starts signed in as whoever the app is signed in as.
 const PAGE_TABS = ['home', 'sesh', 'map', 'venues', 'events', 'you'];
-const BASE_TABS = ['home', 'sesh', 'you', 'crews', 'messages', 'friends', 'events'];   // 'events' is the native Events screen (EventsTab), themed by You > Look   // the tabs with a native screen ('crews' is opened from You or Home, and shows You in the tab bar)
+const BASE_TABS = ['home', 'sesh', 'you', 'crews', 'messages', 'friends', 'events', 'venue'];   // 'venue' is the native venue page (VenuePage)
+   // 'events' is the native Events screen (EventsTab), themed by You > Look   // the tabs with a native screen ('crews' is opened from You or Home, and shows You in the tab bar)
 // venue: open the page on that venue's page (from the native Sesh tab); closing it goes back to the Sesh tab.
 function bridge(tab: string | null, venue: string | null): string {
   const saved = sessionForPage();
@@ -157,7 +160,7 @@ function Shell() {
   // Home and the native Map stay loaded once opened (hidden while another tab is on show), so switching back is
   // instant: Home keeps its place and the map isn't built from scratch, re-zoomed and re-fetched every time.
   const onMap = tab === 'map' && nativeMap;
-  const onHome = !onWeb && !onMap && tab !== 'you' && tab !== 'messages' && tab !== 'friends' && tab !== 'crews';
+  const onHome = !onWeb && !onMap && tab !== 'you' && tab !== 'messages' && tab !== 'friends' && tab !== 'crews' && tab !== 'events' && tab !== 'venue';
   const [mapSeen, setMapSeen] = useState(false);
   const [homeSeen, setHomeSeen] = useState(false);
   if (onMap && !mapSeen) setMapSeen(true);
@@ -200,6 +203,7 @@ function Shell() {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
       if (onWeb && canGoBack && web.current) { web.current.goBack(); return true; }
       if (onWeb && native) { setTab(tab === 'venue' ? venueFrom.current : 'home'); return true; }
+      if (native && tab === 'venue') { setTab(venueFrom.current); setVenue(null); return true; }
       if (native && (tab === 'you' || tab === 'crews')) { setTab(before); return true; }
       if (native && (tab === 'messages' || tab === 'friends')) { setTab('home'); return true; }
       return false;
@@ -279,15 +283,14 @@ function Shell() {
     setPage(WEB_URL); setOpens((n) => n + 1);
   }, []);
 
-  // A venue from the native Sesh tab: the packed page opens on that venue's page (it has the map and the
-  // venue's details); its back button returns to the Sesh tab.
+  // A venue from Home, a sesh or the Map: its native page opens (VenuePage); back returns to where it came from.
   const openVenue = useCallback((id: string, from?: string) => {
     venueFrom.current = from || 'home';
-    setFailed(false);
     setVenue(id);
     setTab('venue');
-    setPage(WEB_URL); setOpens((n) => n + 1);
   }, []);
+  const closeVenue = useCallback(() => { setTab(venueFrom.current); setVenue(null); }, []);
+  const venueToSesh = useCallback(() => { setTab('home'); setVenue(null); }, []);
 
   const openMapVenue = useCallback((id: string) => openVenue(id, 'map'), [openVenue]);
   const goHome = useCallback(() => setTab('home'), []);
@@ -467,7 +470,8 @@ function Shell() {
           </Shown.Provider>
         </View>
       ) : null}
-      {tab === 'events' ? <EventsTab /> : null}
+      {tab === 'events' ? <EventsTab f={f} /> : null}
+      {tab === 'venue' && venue ? <VenuePage key={venue} f={f} id={venue} onClose={closeVenue} onSesh={venueToSesh} /> : null}
       {tab === 'you' ? <You f={f} onOpenWeb={pickTab} onSignedOut={signedOut} />
         : tab === 'messages' ? <Messages key={chatOpens} f={f} onBack={goHome} onSesh={goHome} />
         : tab === 'friends' ? <Friends f={f} onBack={goHome} onOpenWeb={pickTab} />
@@ -476,7 +480,8 @@ function Shell() {
       </Swipe>
       {/* On the Map tab the map runs under the tab bar, which floats over it. */}
       <View style={onMap ? [styles.floatTabs, { paddingBottom: inset.bottom }] : null} pointerEvents="box-none">
-        <Tabs tab={tab === 'venue' ? 'home' : tab === 'crews' ? 'you' : tab === 'messages' || tab === 'friends' ? 'home' : tab} requests={f.state ? f.state.requests_in.length : 0} onPick={pickTab} />
+        <Tabs tab={tab === 'venue' ? 'home' : tab === 'crews' ? 'you' : tab === 'friends' ? 'home' : tab} requests={f.state ? f.state.requests_in.length : 0}
+          colour={f.state && f.state.me ? f.state.me.colour : null} onPick={pickTab} onColour={f.setColour} />
       </View>
       <FriendProfileHost f={f} onMessages={openChatWith} />
       <TipHost />
@@ -490,6 +495,7 @@ export default function App() {
   // The web app's fonts, as .ttf files a phone can load (see assets/fonts).
   const [fontsReady] = useFonts({
     'TiltNeon-Regular': require('./assets/fonts/TiltNeon-Regular.ttf'),
+    'Baloo2-ExtraBold': require('./assets/fonts/Baloo2-ExtraBold.ttf'),   // the Cr logo
     'Montserrat-Bold': require('./assets/fonts/Montserrat-Bold.ttf'),
     'Montserrat-ExtraBold': require('./assets/fonts/Montserrat-ExtraBold.ttf'),
     'Inter-Regular': require('./assets/fonts/Inter-Regular.ttf'),
@@ -501,7 +507,7 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <StatusBar style={C.dark ? 'light' : 'dark'} />
-      {fontsReady ? <Shell /> : <Layer><View style={styles.fill} /></Layer>}
+      <CrashGuard>{fontsReady ? <Shell /> : <Layer><View style={styles.fill} /></Layer>}</CrashGuard>
     </SafeAreaProvider>
   );
 }

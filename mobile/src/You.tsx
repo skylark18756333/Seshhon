@@ -7,6 +7,7 @@
 // Left out on purpose: "Put Crewzy on your home screen" (this is the app on the home screen already) and the
 // staff deal-code card (deals are switched off in docs/config.js).
 import Constants from 'expo-constants';
+import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
 import React, { useEffect, useState } from 'react';
 import { KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, Share, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
@@ -25,7 +26,7 @@ import { enablePush, pushPermission, type PushPermission } from './push';
 import Tour from './Tour';
 import { resetTips } from './tips';
 import type { Frendzy } from './useFrendzy';
-import { C, COLOURS, F, LABELS, LOOKS, currentLook, first, setLook, themed } from './theme';
+import { C, COLOURS, F, LABELS, LOOKS, currentLook, fade, first, setLook, themed } from './theme';
 
 const WEB_URL: string = (Constants.expoConfig?.extra?.webUrl as string) || 'https://frendzy.au/';
 const INVITE_BASE = 'https://frendzy.au/';
@@ -288,16 +289,22 @@ export default function You({ f, onOpenWeb, onSignedOut }: { f: Frendzy; onOpenW
   return (
     <View style={styles.fill}>
       <TopBar f={f} onOpenWeb={onOpenWeb} />
-      <KeyboardAvoidingView style={styles.fill} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardAvoidingView style={styles.fill} behavior="padding">
         <ScrollView style={styles.fill} contentContainerStyle={styles.view} keyboardShouldPersistTaps="handled">
-          <View style={styles.row}>
-            <Avatar id={me.id} name={me.name} photos={f.photos} ring={COLOURS[me.colour]} size={56} font={18} />
+          <Pressable style={[styles.hero, { borderColor: fade(COLOURS[me.colour], 0.55) }]} onPress={() => openFriend(me.id)} accessibilityRole="button"
+            accessibilityLabel="See and customise your profile" testID="you-hero">
+            <LinearGradient colors={[fade(COLOURS[me.colour], 0.28), 'transparent']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
+            <Avatar id={me.id} name={me.name} photos={f.photos} ring={COLOURS[me.colour]} size={64} font={20} />
             <View style={styles.grow}>
-              <Text style={styles.h1} accessibilityRole="header">{me.name}</Text>
-              <Text style={[styles.muted, styles.small]}>Status: {LABELS[me.colour]}</Text>
-              <Text style={[styles.muted, styles.small, styles.link]} onPress={() => openFriend(me.id)} accessibilityRole="button">See and customise your profile</Text>
+              <Text style={styles.h1} accessibilityRole="header" numberOfLines={1}>{me.name}</Text>
+              <View style={styles.statusPill}>
+                <View style={[styles.statusDot, { backgroundColor: COLOURS[me.colour] }]} />
+                <Text style={styles.statusText}>{LABELS[me.colour]}</Text>
+              </View>
+              <Text style={[styles.muted, styles.small]}>See and customise your profile</Text>
             </View>
-          </View>
+            <View style={styles.chevronRight} />
+          </Pressable>
 
           <Pressable style={styles.crewsRow} onPress={() => onOpenWeb('crews')} accessibilityRole="button" accessibilityLabel="Crews and besties" testID="open-crews">
             <View style={styles.grow}>
@@ -307,9 +314,9 @@ export default function You({ f, onOpenWeb, onSignedOut }: { f: Frendzy; onOpenW
             <View style={styles.chevronRight} />
           </Pressable>
 
-          <Text style={styles.pill}>Settings</Text>
+          <Text style={styles.group}>Your profile</Text>
 
-          <Section k="photo" title="Your photo" hint={myPhoto ? 'Added' : 'None yet'} force={photoBusy} onToggle={toggle}>
+          <Section k="photo" icon="you" tint="#FF4FA3" title="Your photo" hint={myPhoto ? 'Added' : 'None yet'} force={photoBusy} onToggle={toggle}>
             <View style={styles.row}>
               <View style={[styles.mePic, { borderColor: COLOURS[me.colour] }]}>
                 <Face id={me.id} name={me.name} photos={f.photos} size={64} font={22} />
@@ -323,7 +330,7 @@ export default function You({ f, onOpenWeb, onSignedOut }: { f: Frendzy; onOpenW
           </Section>
 
           {typeof about === 'string' ? (
-            <Section k="about" title="About you" hint={about ? 'Added' : 'None yet'} onToggle={toggle}>
+            <Section k="about" icon="chat" tint="#7C4DFF" title="About you" hint={about ? 'Added' : 'None yet'} onToggle={toggle}>
               <Text style={[styles.muted, styles.small]}>A line friends see on your profile.</Text>
               <TextInput
                 style={styles.input}
@@ -338,7 +345,8 @@ export default function You({ f, onOpenWeb, onSignedOut }: { f: Frendzy; onOpenW
             </Section>
           ) : null}
 
-          <Section k="add" title="Add a friend" force={!friends.length} onToggle={toggle}>
+          <Text style={styles.group}>Friends</Text>
+          <Section k="add" icon="plus" tint="#3DDC84" title="Add a friend" force={!friends.length} onToggle={toggle}>
             {account !== 'off' ? (
               <View style={styles.stack8}>
                 <View style={styles.field}>
@@ -377,7 +385,7 @@ export default function You({ f, onOpenWeb, onSignedOut }: { f: Frendzy; onOpenW
           </Section>
 
           {friends.length || requestsOut.length ? (
-            <Section k="friends" title="Your friends" hint={String(friends.length)} force={/^(unfriend|block):/.test(confirm || '')} onToggle={toggle}>
+            <Section k="friends" icon="sesh" tint="#2F7BFF" title="Your friends" hint={String(friends.length)} force={/^(unfriend|block):/.test(confirm || '')} onToggle={toggle}>
               {friends.map((fr) => {
                 const asking = confirm === 'unfriend:' + fr.friendship, blocking = confirm === 'block:' + fr.id;
                 return (
@@ -428,8 +436,9 @@ export default function You({ f, onOpenWeb, onSignedOut }: { f: Frendzy; onOpenW
             </Section>
           ) : null}
 
+          <Text style={styles.group}>Safety and alerts</Text>
           {sf ? (
-            <Section k="safety" title="Safety" hint={sf.women_only ? 'Women only on' : ''} onToggle={toggle}>
+            <Section k="safety" icon="lock" tint="#F0524B" title="Safety" hint={sf.women_only ? 'Women only on' : ''} onToggle={toggle}>
               <Text style={[styles.muted, styles.small]}>Your gender is private. It is never shown to anyone, and you don't have to say.</Text>
               <View style={[styles.row, styles.wrapRow]}>
                 {[['woman', 'Woman'], ['man', 'Man'], ['nonbinary', 'Non-binary'], ['', 'Rather not say']].map(([v, label]) => {
@@ -454,7 +463,7 @@ export default function You({ f, onOpenWeb, onSignedOut }: { f: Frendzy; onOpenW
           ) : null}
 
           {push && push !== 'off' && push.kinds.length ? (
-            <Section k="notifications" title="Notifications" hint={permission === 'granted' && push.registered ? 'On' : 'Off'} onToggle={toggle}>
+            <Section k="notifications" icon="bolt" tint="#F5C542" title="Notifications" hint={permission === 'granted' && push.registered ? 'On' : 'Off'} onToggle={toggle}>
               <Text style={[styles.muted, styles.small]}>
                 Choose what Crewzy can ping you about. Notifications only say who it is from. They never show where anyone is, and nothing is sent about someone who has hidden their status from you.
               </Text>
@@ -490,7 +499,7 @@ export default function You({ f, onOpenWeb, onSignedOut }: { f: Frendzy; onOpenW
           ) : null}
 
           {blocked.length ? (
-            <Section k="blocked" title="Blocked people" hint={String(blocked.length)} onToggle={toggle}>
+            <Section k="blocked" icon="cross" tint="#9B9EA8" title="Blocked people" hint={String(blocked.length)} onToggle={toggle}>
               {blocked.map((b) => (
                 <View key={b.id} style={styles.row}>
                   <Text style={[styles.body, styles.grow]}>{b.name}</Text>
@@ -500,6 +509,7 @@ export default function You({ f, onOpenWeb, onSignedOut }: { f: Frendzy; onOpenW
             </Section>
           ) : null}
 
+          <Text style={styles.group}>Login and account</Text>
           {/* ---------- accountCards ---------- */}
           {account !== 'off' && account !== undefined ? (
             emailStep ? (
@@ -519,7 +529,7 @@ export default function You({ f, onOpenWeb, onSignedOut }: { f: Frendzy; onOpenW
               </View>
             ) : a && !editAccount ? (
               <>
-              <Section k="login" title="Username and password" hint={a.username} onToggle={toggle}>
+              <Section k="login" icon="arrow" tint="#2F7BFF" title="Username and password" hint={a.username} onToggle={toggle}>
                 <Text style={[styles.muted, styles.small]}>You're logged in as <Text style={styles.strong}>{a.username}</Text>. Use it to log in on another phone.</Text>
                 {a.email && !changeEmail ? (
                   <Text style={[styles.muted, styles.small]}>New logins also need a code sent to <Text style={styles.strong}>{a.email}</Text>.</Text>
@@ -543,7 +553,7 @@ export default function You({ f, onOpenWeb, onSignedOut }: { f: Frendzy; onOpenW
                   <Button small ghost label="Log out" onPress={logOut} />
                 </View>
               </Section>
-              <Section k="app" title="Authenticator app" hint={a.app ? 'On' : appSetup ? undefined : 'Off'} force={!!appSetup || confirm === 'app-off'} onToggle={toggle}>
+              <Section k="app" icon="clock" tint="#3DDC84" title="Authenticator app" hint={a.app ? 'On' : appSetup ? undefined : 'Off'} force={!!appSetup || confirm === 'app-off'} onToggle={toggle}>
                 {a.app ? (
                   <>
                     <Text style={[styles.muted, styles.small]}>On. New logins ask for the 6-digit code your authenticator app shows for Crewzy{a.email ? ', or you can get a code by email instead.' : '.'}</Text>
@@ -604,7 +614,7 @@ export default function You({ f, onOpenWeb, onSignedOut }: { f: Frendzy; onOpenW
             )
           ) : null}
 
-          <Section k="account" title="Your account" force={confirm === 'delete'} onToggle={toggle}>
+          <Section k="account" icon="query" tint="#9B9EA8" title="Your account" force={confirm === 'delete'} onToggle={toggle}>
             <Text style={[styles.muted, styles.small]}>{a ? 'You can log in on any phone with your username and password.' : 'Your account lives in this app on this phone.'} If Crewzy staff ask for your account ID, it's this:</Text>
             <Text selectable style={styles.linkbox}>{me.id}</Text>
             {confirm === 'delete' ? (
@@ -618,8 +628,9 @@ export default function You({ f, onOpenWeb, onSignedOut }: { f: Frendzy; onOpenW
             ) : <Button ghost label="Delete my account" onPress={() => setConfirm('delete')} />}
           </Section>
 
-          <Section k="look" title="Look" hint={(LOOKS.find((l) => l.id === currentLook()) || LOOKS[0]).name} onToggle={toggle}>
-            <Text style={[styles.muted, styles.small]}>Pick how Crewzy looks on this phone. The map, venues and events tabs keep the dark look for now.</Text>
+          <Text style={styles.group}>App</Text>
+          <Section k="look" icon="eye" tint="#FF4FA3" title="Look" hint={(LOOKS.find((l) => l.id === currentLook()) || LOOKS[0]).name} onToggle={toggle}>
+            <Text style={[styles.muted, styles.small]}>Pick how Crewzy looks on this phone.</Text>
             {LOOKS.map((l) => {
               const here = l.id === currentLook();
               return (
@@ -641,14 +652,14 @@ export default function You({ f, onOpenWeb, onSignedOut }: { f: Frendzy; onOpenW
             })}
           </Section>
 
-          <Section k="tour" title="How Crewzy works" onToggle={toggle}>
+          <Section k="tour" icon="tick" tint="#F5C542" title="How Crewzy works" onToggle={toggle}>
             <Text style={[styles.muted, styles.small]}>A quick look at your switch, the party lobby, seshes, the map and your friends.</Text>
             <View style={styles.start}><Button small ghost label="Show the tour" onPress={() => setTour(true)} /></View>
             <Text style={[styles.muted, styles.small]}>Tips pop up the first time you tap each button. Seen them all, or turned them off? Bring them back here.</Text>
             <View style={styles.start}><Button small ghost label="Show tips again" onPress={() => { resetTips(); f.say("Tips are back on. They'll pop up as you tap around."); }} /></View>
           </Section>
 
-          <Section k="info" title="About" onToggle={toggle}>
+          <Section k="info" icon="search" tint="#7C4DFF" title="About" onToggle={toggle}>
             <Pressable accessibilityRole="link" onPress={() => Linking.openURL(WEB_URL + 'privacy.html').catch(() => {})}>
               <Text style={[styles.body, styles.small, styles.link]}>Privacy Policy</Text>
             </Pressable>
@@ -666,12 +677,12 @@ export default function You({ f, onOpenWeb, onSignedOut }: { f: Frendzy; onOpenW
 }
 
 // A drop-down settings section (sec() in docs/app.js): tap the title to open or close it.
-function Section({ k, title, hint, force, onToggle, children }: {
-  k: string; title: string; hint?: string; force?: boolean; onToggle: (k: string) => void; children: React.ReactNode;
+function Section({ k, title, hint, icon, tint, force, onToggle, children }: {
+  k: string; title: string; hint?: string; icon?: string; tint?: string; force?: boolean; onToggle: (k: string) => void; children: React.ReactNode;
 }) {
   const open = !!(force || openSets[k]);
   return (
-    <View style={styles.card0}>
+    <View style={[styles.card0, open && styles.card0On]}>
       <Pressable
         style={styles.summary}
         onPress={() => onToggle(k)}
@@ -680,6 +691,7 @@ function Section({ k, title, hint, force, onToggle, children }: {
         aria-expanded={open}
         testID={'set-' + k}
       >
+        {icon ? <View style={[styles.setIcon, { backgroundColor: fade(tint || C.muted, 0.18) }]}><Icon name={icon} size={17} colour={tint || C.fg} /></View> : null}
         <Text style={[styles.h2, styles.summaryTitle]} numberOfLines={2}>{title}</Text>
         {hint ? <Text style={[styles.muted, styles.small, styles.hint]} numberOfLines={1}>{hint}</Text> : null}
         <View style={[styles.chevron, open && styles.chevronOpen]} />
@@ -729,7 +741,7 @@ const styles = themed(() => StyleSheet.create({
   lookBar: { width: 40, height: 7, borderRadius: 4 },
   lookName: { fontFamily: F.bodyBold },
   fill: { flex: 1 },
-  view: { paddingHorizontal: 18, paddingTop: 20, paddingBottom: 24, gap: 20, maxWidth: 440, width: '100%', alignSelf: 'center' },
+  view: { paddingHorizontal: 18, paddingTop: 20, paddingBottom: 24, gap: 10, maxWidth: 440, width: '100%', alignSelf: 'center' },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   wrapRow: { flexWrap: 'wrap', rowGap: 8, columnGap: 8 },
   between: { justifyContent: 'space-between' },
@@ -749,8 +761,15 @@ const styles = themed(() => StyleSheet.create({
   pill: { alignSelf: 'flex-start', marginTop: 4, fontFamily: F.bodyBold, fontSize: 12, letterSpacing: 0.8, textTransform: 'uppercase', paddingVertical: 5, paddingHorizontal: 10, borderRadius: 999, borderWidth: 1, borderColor: C.line, color: C.muted, overflow: 'hidden' },
   card: { backgroundColor: C.surface, borderRadius: 18, padding: 14, gap: 10, borderWidth: 1, borderColor: 'transparent' },
   cardOn: { borderColor: C.on },
-  card0: { backgroundColor: C.surface, borderRadius: 18 },
-  summary: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 56, paddingHorizontal: 16 },
+  card0: { backgroundColor: C.surface, borderRadius: 20, borderWidth: 1, borderColor: C.line },
+  card0On: { borderColor: C.fg },
+  summary: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 58, paddingHorizontal: 14 },
+  setIcon: { width: 34, height: 34, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
+  group: { marginTop: 14, marginLeft: 4, fontFamily: F.bodyBold, fontSize: 12, letterSpacing: 1, textTransform: 'uppercase', color: C.muted },
+  hero: { flexDirection: 'row', alignItems: 'center', gap: 14, padding: 16, borderRadius: 24, borderWidth: 1, backgroundColor: C.surface, overflow: 'hidden' },
+  statusPill: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 3, borderRadius: 999, backgroundColor: C.surface2, marginVertical: 3 },
+  statusDot: { width: 8, height: 8, borderRadius: 4 },
+  statusText: { fontFamily: F.bodyBold, fontSize: 12, color: C.fg },
   summaryTitle: { flex: 1, minWidth: 0, fontSize: 17 },
   hint: { maxWidth: '45%' },
   chevron: { width: 9, height: 9, borderRightWidth: 2, borderBottomWidth: 2, borderColor: C.muted, transform: [{ rotate: '45deg' }], marginTop: -4 },

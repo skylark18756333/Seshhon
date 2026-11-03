@@ -16,7 +16,9 @@ const path = require('path');
 module.exports = ({ config }) => {
   let out = config;
 
-  const fromEnv = process.env.GOOGLE_SERVICES_JSON;
+  // The name is matched whatever its capitals (Expo's dashboard once saved it as Google_services_json).
+  const envName = Object.keys(process.env).find((k) => k.toUpperCase() === 'GOOGLE_SERVICES_JSON');
+  const fromEnv = envName ? process.env[envName] : undefined;
   const local = path.join(__dirname, 'google-services.json');
   const file = fromEnv && fs.existsSync(fromEnv) ? fromEnv : fs.existsSync(local) ? './google-services.json' : null;
   if (file) out = { ...out, android: { ...out.android, googleServicesFile: file } };

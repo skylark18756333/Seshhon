@@ -52,6 +52,20 @@ export default function Friends({ f, onBack, onOpenWeb }: { f: Frendzy; onBack: 
         <Text style={[styles.muted, styles.small]}>{friends.length}{greens ? ', ' + greens + ' green' : ''}</Text>
       </View>
       <ScrollView style={styles.fill} contentContainerStyle={styles.view} keyboardShouldPersistTaps="handled">
+        {/* You, first: your own profile is one tap away. */}
+        <Pressable style={({ pressed }) => [styles.meCard, { borderColor: fade(COLOURS[me.colour] || C.line, 0.55) }, pressed && { opacity: 0.85 }]}
+          onPress={() => openFriend(me.id)} accessibilityRole="button" accessibilityLabel="Your profile" testID="friends-me">
+          <View style={[styles.meRing, { borderColor: COLOURS[me.colour] || C.line, shadowColor: COLOURS[me.colour] || C.line }]}>
+            <Face id={me.id} name={me.name} photos={f.photos} size={52} font={18} />
+          </View>
+          <View style={styles.grow}>
+            <Text style={styles.group}>You</Text>
+            <Text style={styles.meName} numberOfLines={1}>{me.name}</Text>
+            <Text style={[styles.muted, styles.small]} numberOfLines={1}>See and customise your profile</Text>
+          </View>
+          <View style={styles.flip}><Icon name="back" size={18} colour={C.muted} /></View>
+        </Pressable>
+
         {requests.length ? (
           <View style={styles.stack}>
             <Text style={styles.group}>Wants to add you</Text>
@@ -159,6 +173,10 @@ const styles = themed(() => StyleSheet.create({
   small: { fontSize: 14, lineHeight: 20 },
   group: { fontFamily: F.bodyBold, fontSize: 12, letterSpacing: 1.4, textTransform: 'uppercase', color: C.muted },
   request: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: C.surface, borderRadius: 20, borderWidth: 1.5, borderColor: fade(C.on, 0.5), padding: 12 },
+  meCard: { flexDirection: 'row', alignItems: 'center', gap: 14, padding: 14, borderRadius: 22, borderWidth: 1.5, backgroundColor: C.surface },
+  meRing: { padding: 3, borderWidth: 2.5, borderRadius: 34, shadowOpacity: C.dark ? 0.8 : 0.3, shadowRadius: 10, shadowOffset: { width: 0, height: 0 } },
+  meName: { fontFamily: F.display, fontSize: 20, color: C.fg },
+  flip: { transform: [{ scaleX: -1 }] },
   addRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   input: { height: 50, borderRadius: 16, borderWidth: 1, borderColor: C.line, backgroundColor: C.surface, paddingHorizontal: 16, color: C.fg, fontFamily: F.body, fontSize: 16 },
   chipRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },

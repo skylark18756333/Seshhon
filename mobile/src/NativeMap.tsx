@@ -9,11 +9,14 @@ import Icon from './Icon';
 import type { LatLng, MapMarker, MapView } from './mapShared';
 import { useShown } from './Shown';
 import { C, F, fade, themed, useLook } from './theme';
-import { useWalkRoute } from './walkRoute';
 
 const BLUE = '#1F7BFF', GOAL = '#FF4757', FAR = '#8A90A0', HEAT = '#FF7A1A', RADAR = '#3DDC84', GOLD = '#FFC53D';
 const GLOW_SIZE = [0, 62, 80, 104];   // busy 0..3: the glow behind a bubble grows with how many are heading there
 const NAMES_BELOW_DELTA = 0.02;       // about zoom 15 and closer, as the web map's "names" class
+// From this radius up the map is zoomed out far enough that 30 full bubbles (a 116 x 88 box each, all of it tappable
+// on Android) cover most of the screen, so a tap meant for the map opened a venue instead of dropping the pin. Out
+// there a bubble is just its round icon in a small box, and the venue's name is on its card below the map.
+const COMPACT_FROM_KM = 3;
 
 // A dark map to match the app (Google's own style JSON; only used with the Google provider).
 const DARK_STYLE = [
@@ -39,7 +42,7 @@ const LIGHT_STYLE = [
   { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#CFE0F0' }] }
 ];
 
-function Bubble({ m }: { m: MapMarker }) {
+function Bubble({ m, compact }: { m: MapMarker; compact: boolean }) {
   const colour = m.kind === 'goal' ? GOAL : m.kind === 'far' ? FAR : m.kind === 'mid' ? GOLD : BLUE;
   if (m.stop) {
     return (
@@ -52,6 +55,18 @@ function Bubble({ m }: { m: MapMarker }) {
     );
   }
   const glow = GLOW_SIZE[Math.min(3, m.busy)];
+  if (compact && m.kind !== 'goal') {
+    const g = glow ? SMALL : 0;
+    return (
+      <View style={styles.small}>
+        {g ? <View style={[styles.glow, { top: 0, left: 0, width: g, height: g, borderRadius: g / 2, backgroundColor: fade(HEAT, 0.28 + 0.08 * m.busy) }]} /> : null}
+        <View style={[styles.disc, { borderColor: colour }]}>
+          <Icon name={m.glyph} size={20} colour={C.ink} />
+          {m.open !== null ? <View style={[styles.badge, { backgroundColor: m.open ? C.on : C.off }]} /> : null}
+        </View>
+      </View>
+    );
+  }
   return (
     <View style={styles.cell}>
       {glow ? <View style={[styles.glow, { top: TOP + DISC / 2 - glow / 2, left: CELL_W / 2 - glow / 2, width: glow, height: glow, borderRadius: glow / 2, backgroundColor: fade(HEAT, 0.28 + 0.08 * m.busy) }]} /> : null}
@@ -78,30 +93,33 @@ function SpotMark({ mine, name }: { mine: boolean; name: string }) {
 
 // A custom marker has to be drawn once before the map can freeze it into a picture; frozen straight away, Android
 // shows a bare default pin. So it tracks its view for a moment, then stops (which keeps 60 of them fast).
-function Pin({ children, ...rest }: React.ComponentProps<typeof Marker>) {
+// sig: what the bubble shows. When it changes the same marker tracks again briefly to redraw its picture, instead of
+// being thrown away and made again (remounting markers on Android was a likely cause of the map closing the app).
+function Pin({ children, sig, ...rest }: React.ComponentProps<typeof Marker> & { sig?: string }) {
   const [track, setTrack] = useState(true);
-  useEffect(() => { const t = setTimeout(() => setTrack(false), 800); return () => clearTimeout(t); }, []);
+  useEffect(() => { setTrack(true); const t = setTimeout(() => setTrack(false), 800); return () => clearTimeout(t); }, [sig]);
   return <Marker {...rest} tracksViewChanges={track}>{children}</Marker>;
 }
 
 // One venue on the map. Drawn again only when its own bubble changes, so the rest of the screen redrawing (a friend
 // going green, the five-second refresh) never makes the map update all 60 markers at once.
-const VenuePin = memo(function VenuePin({ m, onPick }: { m: MapMarker; onPick: (id: string) => void }) {
+const VenuePin = memo(function VenuePin({ m, sig, compact, onPick }: { m: MapMarker; sig: string; compact: boolean; onPick: (id: string) => void }) {
   const press = useCallback((e: { stopPropagation: () => void }) => { e.stopPropagation(); onPick(m.id); }, [m.id, onPick]);
   const coordinate = { latitude: m.at[0], longitude: m.at[1] };
   return (
     <Pin
+      sig={sig}
       coordinate={coordinate}
       anchor={CENTRE}
       title={m.name}
       zIndex={m.kind === 'goal' ? 1000 : m.stop ? 500 - m.stop.n : m.busy * 100 + (m.tag ? 50 : 0)}
       onPress={press}
     >
-      <Bubble m={m} />
+      <Bubble m={m} compact={compact} />
     </Pin>
   );
-}, (a, b) => a.onPick === b.onPick && a.m.id === b.m.id && a.m.at[0] === b.m.at[0] && a.m.at[1] === b.m.at[1] && a.m.name === b.m.name);
-// (Everything else a bubble shows is in its key below, so a change there draws a new marker anyway.)
+}, (a, b) => a.sig === b.sig && a.compact === b.compact && a.onPick === b.onPick && a.m.id === b.m.id && a.m.at[0] === b.m.at[0] && a.m.at[1] === b.m.at[1] && a.m.name === b.m.name);
+// (Everything else a bubble shows is in sig, so a change there redraws the same marker.)
 
 /* ---------- the radar sweep (Map tab) ---------- */
 // A green beam goes round the radius circle every few seconds, and each venue blips (a glowing ring that pops and
@@ -109,7 +127,7 @@ const VenuePin = memo(function VenuePin({ m, onPick }: { m: MapMarker; onPick: (
 // stays easy and nothing on the map is redrawn. Everything moves on the native animation driver from one value, so
 // the JS thread does no work per frame. The layer is worked out again only when the map stops moving, and hidden
 // while it moves.
-const SWEEP_MS = 4000, FAN = 9, FAN_DEG = 4.5, FADE = 0.65, BLIPS_MAX = 16, SETTLE_MS = 180;
+const SWEEP_MS = 4000, FAN = 9, FAN_DEG = 4.5, FADE = 0.65, BLIPS_MAX = 12, SETTLE_MS = 180;
 type Px = { x: number; y: number };
 type Blip = { id: string; x: number; y: number; at: number };   // at: where round the circle, 0 to 1 clockwise from east
 
@@ -136,7 +154,7 @@ const Radar = memo(function Radar({ centre, r, blips, active }: { centre: Px; r:
   }, [active, turn]);
   // Made once (and once per set of blips), so a redraw never swaps the nodes the turning value drives.
   const spin = useMemo(() => turn.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] }), [turn]);
-  const anims = useMemo(() => blips.map((b) => ({ b, op: turn.interpolate(blipCurve(b.at, 1, 0.12)), sc: turn.interpolate(blipCurve(b.at, 1.5, 0.8)) })), [blips, turn]);
+  const anims = useMemo(() => blips.map((b) => ({ b, op: turn.interpolate(blipCurve(b.at, 1, 0.12)), sc: turn.interpolate(blipCurve(b.at, 1.5, 0.8)) })), []); // eslint-disable-line react-hooks/exhaustive-deps
   const box = { position: 'absolute' as const, left: centre.x - r, top: centre.y - r, width: r * 2, height: r * 2 };
   // Fades in once the map has settled, so it never pops in at the wrong place.
   const shownIn = useRef(new Animated.Value(0)).current;
@@ -160,6 +178,11 @@ const Radar = memo(function Radar({ centre, r, blips, active }: { centre: Px; r:
 });
 
 const CENTRE = { x: 0.5, y: 0.5 };
+// Nothing phones close the app as soon as the Google map opens (Adam, 2026-11-03), while other Android phones are
+// fine. Those phones use Google's older map drawing engine; every other phone keeps the current one.
+const maker = String(((Platform.constants || {}) as { Manufacturer?: string; Brand?: string }).Manufacturer || ((Platform.constants || {}) as { Brand?: string }).Brand || '').toLowerCase();
+const RENDERER: 'LATEST' | 'LEGACY' = Platform.OS === 'android' && maker.indexOf('nothing') >= 0 ? 'LEGACY' : 'LATEST';
+
 const edge = { top: 60, right: 40, bottom: 60, left: 40 };
 
 // Memoised: the map is only touched when what it shows changes.
@@ -170,14 +193,13 @@ function NativeMap(p: MapView) {
   const onPick = useCallback((id: string) => onPickRef.current(id), []);
   const names = useRef<boolean | null>(null);
   const first = useRef(true);
-  const walk = useWalkRoute(p.route);   // the stops joined along footpaths, not through buildings
   const look = useLook();   // markers are drawn once and frozen, so a new look draws them again
 
   // The radar layer: where the circle and the venues are on the screen, read when the map stops moving.
   const shown = useShown();
   const moving = useRef(false);
   const settle = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [geom, setGeom] = useState<{ c: Px; r: number; blips: Blip[] } | null>(null);
+  const [geom, setGeom] = useState<{ key: string; c: Px; r: number; blips: Blip[] } | null>(null);
   const [calm, setCalm] = useState(false);   // the phone asks for less motion
   useEffect(() => { AccessibilityInfo.isReduceMotionEnabled().then(setCalm, () => {}); }, []);
   const radarOn = !!p.radar && p.chosen && !calm;
@@ -200,7 +222,7 @@ function NativeMap(p: MapView) {
         const a = Math.atan2(pts[i].y - c.y, pts[i].x - c.x);
         return { id: b.id, x: pts[i].x, y: pts[i].y, at: ((a / (2 * Math.PI)) + 1) % 1 };
       });
-      if (!moving.current) setGeom({ c, r, blips });   // a move that started meanwhile wins: it is read again when it stops
+      if (!moving.current) setGeom({ key: [Math.round(c.x), Math.round(c.y), Math.round(r)].map(String).concat(blips.map((b) => b.id + Math.round(b.x) + ',' + Math.round(b.y))).join('|'), c, r, blips });   // a move that started meanwhile wins: it is read again when it stops
     } catch (err) { /* the map isn't ready yet: the next stop tries again */ }
   }, [radarOn, p.radiusKm, p.centre, blipList]);
   const measureSoon = useCallback(() => {
@@ -233,6 +255,7 @@ function NativeMap(p: MapView) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [p.focus && p.focus.key]);
 
+  const compact = p.radiusKm >= COMPACT_FROM_KM;
   const padding = useMemo(() => (p.pad ? { top: p.pad.top, bottom: p.pad.bottom, left: 0, right: 0 } : undefined), [p.pad]);
   const onRegion = (r: Region) => {
     const near = r.latitudeDelta < NAMES_BELOW_DELTA;
@@ -250,9 +273,16 @@ function NativeMap(p: MapView) {
       ref={map}
       style={styles.map}
       provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
+      googleRenderer={RENDERER}
       customMapStyle={Platform.OS === 'android' ? (C.dark ? DARK_STYLE : LIGHT_STYLE) : undefined}
       initialRegion={{ latitude: p.centre[0], longitude: p.centre[1], latitudeDelta: 0.12, longitudeDelta: 0.12 }}
-      onPress={(e) => { const c = e.nativeEvent.coordinate; p.onMapPress([c.latitude, c.longitude]); }}
+      // Sarah: a single tap shouldn't move your spot (too easy to do by accident). A double tap moves the pin there
+      // (instead of zooming in), and so does a long press, even on top of a venue bubble. A single tap just closes
+      // whatever card is open.
+      onPress={() => { if (p.onMapTap) p.onMapTap(); }}
+      onDoublePress={(e) => { const c = e.nativeEvent && e.nativeEvent.coordinate; if (c) p.onMapPress([c.latitude, c.longitude]); }}
+      onLongPress={(e) => { const c = e.nativeEvent && e.nativeEvent.coordinate; if (c) p.onMapPress([c.latitude, c.longitude]); }}
+      zoomTapEnabled={false}
       onRegionChangeComplete={onRegion}
       mapPadding={padding}
       onRegionChange={radarOn ? onMove : undefined}
@@ -275,8 +305,8 @@ function NativeMap(p: MapView) {
         <Circle key={'r2-' + p.radiusKm + '-' + p.centre.join(',')} center={{ latitude: p.centre[0], longitude: p.centre[1] }} radius={p.radiusKm * 667} strokeColor={fade(RADAR, 0.35)} strokeWidth={1} fillColor={fade(RADAR, 0.04)} />,
         <Circle key={'r1-' + p.radiusKm + '-' + p.centre.join(',')} center={{ latitude: p.centre[0], longitude: p.centre[1] }} radius={p.radiusKm * 333} strokeColor={fade(RADAR, 0.35)} strokeWidth={1} fillColor={fade(RADAR, 0.05)} />
       ] : null}
-      {walk.length >= 2 ? (
-        <Polyline coordinates={walk.map((c) => ({ latitude: c[0], longitude: c[1] }))} strokeColor={BLUE} strokeWidth={4} lineDashPattern={[1, 10]} lineCap="round" />
+      {p.route.length >= 2 ? (
+        <Polyline coordinates={p.route.map((c) => ({ latitude: c[0], longitude: c[1] }))} strokeColor={BLUE} strokeWidth={4} lineDashPattern={[1, 10]} lineCap="round" />
       ) : null}
       {p.chosen ? (
         <Pin key={'spot-' + look + p.mine} coordinate={{ latitude: p.centre[0], longitude: p.centre[1] }} anchor={{ x: 0.5, y: 0.5 }} tappable={false} zIndex={1}>
@@ -285,23 +315,32 @@ function NativeMap(p: MapView) {
       ) : null}
       {p.markers.map((m) => (
         <VenuePin
-          key={[look, m.id, m.kind, m.tag, m.busy, m.open, m.names, m.stop ? m.stop.n + (m.stop.done ? 'd' : '') : ''].join(':')}
+          // A marker whose picture changes size (the small zoomed-out box, or a picked venue's full bubble) is made
+          // again; changing a custom marker's size in place on Android closed the app. Same-size changes redraw in place.
+          key={m.id + (compact && m.kind !== 'goal' && !m.stop ? ':s' : ':f')}
+          sig={[look, m.kind, m.tag, m.busy, m.open, m.names, m.stop ? m.stop.n + (m.stop.done ? 'd' : '') : ''].join(':')}
           m={m}
+          compact={compact}
           onPick={onPick}
         />
       ))}
     </RNMapView>
-    {radarOn && geom ? <Radar centre={geom.c} r={geom.r} blips={geom.blips} active={shown} /> : null}
+    {radarOn && geom ? (
+      // Keyed on the picture: new blips make a fresh radar (new value, new nodes) rather than re-wiring the animated
+      // nodes of one whose loop is running on the native side, which can close the app on Android.
+      <Radar key={geom.key} centre={geom.c} r={geom.r} blips={geom.blips} active={shown} />
+    ) : null}
     </View>
   );
 }
 
-const CELL_W = 116, TOP = 24, DISC = 40, BOTTOM = 24, BLIP = 30;
+const CELL_W = 116, TOP = 24, DISC = 40, BOTTOM = 24, BLIP = 30, SMALL = 48;
 const styles = themed(() => StyleSheet.create({
   map: { flex: 1 },
   blip: { position: 'absolute', width: BLIP, height: BLIP, borderRadius: BLIP / 2, borderWidth: 2, borderColor: RADAR, backgroundColor: fade(RADAR, 0.25) },
   // The bubble is centred in a fixed box so the marker's anchor (0.5, 0.5) sits on the middle of the round icon.
   cell: { width: CELL_W, height: TOP + DISC + BOTTOM, alignItems: 'center' },
+  small: { width: SMALL, height: SMALL, alignItems: 'center', justifyContent: 'center' },
   glow: { position: 'absolute' },
   top: { height: TOP, justifyContent: 'flex-end', alignItems: 'center' },
   bottom: { height: BOTTOM, justifyContent: 'flex-start', alignItems: 'center' },

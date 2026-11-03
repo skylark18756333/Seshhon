@@ -2,7 +2,7 @@
 // swipe-cards and radar designs, 2026-11-02, mock-up https://claude.ai/artifact/Luhz2ceLfXDUzdGNcemZxU).
 //  - Up top: Around me / Middle, search, the km buttons (1 to 25 km) and filter chips.
 //  - On the map: venue bubbles (busy glow from api_buzz), the glowing green radius circle, the Sesh Map's numbered
-//    stops. Tap anywhere to drop a pin there and search around it; the arrow goes back to you.
+//    stops. Double tap (or long press) anywhere to drop a pin there and search around it; the arrow goes back to you.
 //  - Along the bottom: the venues inside the circle as cards you swipe sideways. Tap one to find it on the map and
 //    open its card (ratings, vote, add to the Sesh Map).
 //  - Middle (in a live sesh): Meet in the middle (migration 0037). Everyone who switches it on shares roughly where
@@ -34,7 +34,8 @@ import { findMe, fmtKm, hoursLine, km, myPlace, openState, refreshVenues, useVen
 
 const CRAWL_MAX = 12;
 const SEARCH_MAX = 30, SEARCH_LIST = 6;   // pins on the map for a search, rows under the search box
-const NEAR_MAX = 30;                      // the most bubbles drawn at once from the circle (busiest and nearest first)
+const NEAR_MAX = 30, NEAR_FAR_MAX = 18;   // fewer when zoomed out wide (10 km and up): easier to tap the map, less for the phone to draw
+                      // the most bubbles drawn at once from the circle (busiest and nearest first)
 const NAMED = 8;                          // the first few bubbles always carry their name (no redraw of every marker on zoom)
 const BUZZ_MS = 60000;                    // api_buzz is asked again after a minute
 const MEET_MS = 15000;                    // Middle asks again this often while it is on show, so a mate's share shows up
@@ -222,7 +223,7 @@ export default function MapTab({ f, onVenue, onOpenWeb, onWebMap }: {
     });
     // A crowded circle shows the busiest and nearest.
     near.sort((a, b) => busyOf(b.ven) - busyOf(a.ven) || (tagOf(b.ven) ? 1 : 0) - (tagOf(a.ven) ? 1 : 0) || (a.d as number) - (b.d as number));
-    return out.concat(near.slice(0, NEAR_MAX));
+    return out.concat(near.slice(0, radius >= 10 ? NEAR_FAR_MAX : NEAR_MAX));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [v.list, pins, geo, radius, filter, query, pick, buzz, mode, midIds]);
 
@@ -255,6 +256,7 @@ export default function MapTab({ f, onVenue, onOpenWeb, onWebMap }: {
   const refit = (coords: LatLng[]) => setFit((o) => ({ key: o.key + 1, coords }));
   const choose = useCallback((at: LatLng, isMine: boolean) => setGeo({ centre: at, mine: isMine, busy: false, chosen: true }), []);
   const modeNow = useRef(mode); modeNow.current = mode;
+  const onMapTap = useCallback(() => setPick(null), []);
   const onMapPress = useCallback((at: LatLng) => {
     if (modeNow.current === 'mid') { setPick(null); return; }
     choose(at, false); setPick(null); setNote('');
@@ -273,7 +275,7 @@ export default function MapTab({ f, onVenue, onOpenWeb, onWebMap }: {
       if (!quiet) setNote('Your location stays on this phone and is never saved or shown to friends.');
     } else {
       setGeo((g) => ({ ...g, busy: false }));
-      if (!quiet) setNote('Could not get your location. Tap the map to pick a spot instead.');
+      if (!quiet) setNote('Could not get your location. Double tap the map to pick a spot instead.');
     }
   };
   // The map starts on where you are, showing the venues within the radius.
@@ -337,7 +339,7 @@ export default function MapTab({ f, onVenue, onOpenWeb, onWebMap }: {
         <NativeMap
           centre={geo.centre} radiusKm={radius} chosen={geo.chosen && mode === 'me'} mine={geo.mine} meName={me.name}
           markers={markers} route={route} fit={fit} focus={focus} onPick={onPickPin}
-          onMapPress={onMapPress} onZoom={noZoom} radar
+          onMapPress={onMapPress} onMapTap={onMapTap} onZoom={noZoom} radar
           pad={pad}
         />
 
@@ -450,7 +452,7 @@ export default function MapTab({ f, onVenue, onOpenWeb, onWebMap }: {
                 ) : hits && !query ? (
                   <Text style={styles.countTag}>{hits.length} {filterName.toLowerCase()}</Text>
                 ) : !geo.chosen ? (
-                  <Text style={styles.countTag}>{geo.busy ? 'Finding you...' : 'Tap the map to pick a spot'}</Text>
+                  <Text style={styles.countTag}>{geo.busy ? 'Finding you...' : 'Double tap the map to pick a spot'}</Text>
                 ) : null}
               </View>
               {note ? <Text style={[styles.countTag, styles.noteTag]} testID="map-note">{note}</Text> : null}
@@ -481,7 +483,7 @@ export default function MapTab({ f, onVenue, onOpenWeb, onWebMap }: {
 
 /* ---------- pieces ---------- */
 const CARD_W = 228;
-const TABS_H = 80;   // the floating tab bar (App.tsx) sits over the bottom of the map
+const TABS_H = 112;   // the floating thumb dock (its status orb rises above the bar) (App.tsx) sits over the bottom of the map
 // One venue in the cards along the bottom.
 function VenueCard({ s, mid, first, pinFrom, voted, canVote, onShow, onVote }: {
   s: Spot; mid: boolean; first: boolean; pinFrom: boolean; voted: boolean; canVote: boolean; onShow: (id: string) => void; onVote: (id: string) => void;

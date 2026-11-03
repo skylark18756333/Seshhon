@@ -26,7 +26,8 @@ export type Sesh = {
   votes: Vote[];
 };
 // A sesh chat message, as get_messages() sends it.
-export type Message = { id: string; sender: string; name: string; body: string; at: string };
+export type Message = { id: string; sender: string; name: string; body: string; at: string;
+  reactions?: Record<string, number>; my_reaction?: string | null };   // reactions: 0046
 // One stop of the Sesh Map (pub crawl), as sesh_crawl() sends it.
 export type CrawlStop = { venue_id: string; position: number; done: boolean; mine: boolean };
 // A venue, as api_venues() sends it.
@@ -86,8 +87,9 @@ export function addFriendByUsername(username: string): Promise<{ ok: boolean; me
 }
 
 // Friends' photos, when they added one and you're allowed to see it: { user id: picture address }.
-export function friendPhotos(): Promise<Record<string, string>> {
-  return rpc('friend_photos').then((p: any) => (p && typeof p === 'object' ? p : {}), () => ({}));
+// null when the read failed (say a weak signal), so the photos already on screen are kept, not wiped.
+export function friendPhotos(): Promise<Record<string, string> | null> {
+  return rpc('friend_photos').then((p: any) => (p && typeof p === 'object' ? p : {}), () => null);
 }
 
 // Your username, shown in the "add your friends" card. An older database has no such function.

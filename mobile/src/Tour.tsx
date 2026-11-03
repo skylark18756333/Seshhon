@@ -34,7 +34,7 @@ function steps(name: string): Step[] {
       title: 'Your switch',
       body: (
         <Text>
-          Drag the glowing circle or tap a light. <Text style={[styles.strong, { color: C.on }]}>Green</Text> means you're keen to go out.{' '}
+          Tap the glowing orb in the middle of the bottom bar, or push it sideways. <Text style={[styles.strong, { color: C.on }]}>Green</Text> means you're keen to go out.{' '}
           <Text style={[styles.strong, { color: C.thinking }]}>Amber</Text> means you're thinking about it, and only friends you allow see it.{' '}
           <Text style={[styles.strong, { color: C.off }]}>Red</Text> means you're off and hidden. Green and amber go back to red by themselves later.
         </Text>
@@ -78,12 +78,11 @@ function steps(name: string): Step[] {
           ))}
           <View style={styles.headBtns}>
             <View style={styles.headBtn}><Icon name="sesh" size={16} colour={C.fg} /></View>
-            <View style={styles.headBtn}><Icon name="chat" size={16} colour={C.fg} /></View>
           </View>
         </View>
       ),
       title: 'Friends and messages',
-      body: 'The two buttons at the top right open your friends and your messages. Friends show as round photos lit in their colour. Messages are locked and deleted once read or after 7 days.'
+      body: 'The button at the top right opens your friends, shown as round photos lit in their colour. Chats on the bottom bar holds your messages, locked end to end and deleted once read or after 7 days.'
     },
     {
       art: (

@@ -51,7 +51,7 @@ const send = (res, status, body) => {
   res.writeHead(status, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': '*', 'Access-Control-Allow-Methods': 'POST, GET, OPTIONS' });
   res.end(JSON.stringify(body));
 };
-http.createServer(async (req, res) => {
+const server = http.createServer(async (req, res) => {
   if (req.method === 'OPTIONS') return send(res, 204, {});
   let raw = ''; for await (const c of req) raw += c;
   const body = raw ? JSON.parse(raw) : {};
@@ -168,4 +168,54 @@ http.createServer(async (req, res) => {
     return res.end(json || 'null');
   }
   send(res, 404, { message: 'Not found' });
-}).listen(Number(listen), '127.0.0.1', () => console.log('fake supabase on ' + listen));
+});
+server.listen(Number(listen), '127.0.0.1', () => console.log('fake supabase on ' + listen));
+
+// Realtime broadcast, as /realtime/v1/websocket does it (Phoenix protocol, vsn 1.0.0): phx_join a topic,
+// heartbeat, and "broadcast" messages passed on to the others on the same topic (not back to the sender,
+// as with config.broadcast.self = false). Used by the sesh chat's typing lights. Text frames only.
+const rooms = new Map(); // topic -> Set of sockets
+function wsSend(sock, obj) {
+  const data = Buffer.from(JSON.stringify(obj));
+  const head = data.length < 126 ? Buffer.from([0x81, data.length])
+    : data.length < 65536 ? Buffer.from([0x81, 126, data.length >> 8, data.length & 255])
+    : (() => { const b = Buffer.alloc(10); b[0] = 0x81; b[1] = 127; b.writeBigUInt64BE(BigInt(data.length), 2); return b; })();
+  try { sock.write(Buffer.concat([head, data])); } catch (e) {}
+}
+server.on('upgrade', (req, sock) => {
+  const url = new URL(req.url, 'http://x');
+  if (url.pathname !== '/realtime/v1/websocket' || url.searchParams.get('apikey') !== KEY) { sock.destroy(); return; }
+  const accept = crypto.createHash('sha1').update(req.headers['sec-websocket-key'] + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11').digest('base64');
+  sock.write('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ' + accept + '\r\n\r\n');
+  const mine = new Set();
+  let buf = Buffer.alloc(0);
+  sock.on('data', (chunk) => {
+    buf = Buffer.concat([buf, chunk]);
+    while (buf.length >= 2) {
+      const op = buf[0] & 15, masked = buf[1] & 128;
+      let len = buf[1] & 127, at = 2;
+      if (len === 126) { if (buf.length < 4) return; len = buf.readUInt16BE(2); at = 4; }
+      else if (len === 127) { if (buf.length < 10) return; len = Number(buf.readBigUInt64BE(2)); at = 10; }
+      const need = at + (masked ? 4 : 0) + len;
+      if (buf.length < need) return;
+      const mask = masked ? buf.subarray(at, at + 4) : null;
+      const body = Buffer.from(buf.subarray(at + (masked ? 4 : 0), need));
+      if (mask) for (let i = 0; i < body.length; i++) body[i] ^= mask[i & 3];
+      buf = buf.subarray(need);
+      if (op === 8) { sock.end(); return; }
+      if (op !== 1) continue;
+      let m; try { m = JSON.parse(body.toString()); } catch (e) { continue; }
+      if (m.event === 'phx_join') {
+        if (!rooms.has(m.topic)) rooms.set(m.topic, new Set());
+        rooms.get(m.topic).add(sock); mine.add(m.topic);
+        wsSend(sock, { topic: m.topic, event: 'phx_reply', payload: { status: 'ok', response: {} }, ref: m.ref });
+      } else if (m.event === 'heartbeat') {
+        wsSend(sock, { topic: 'phoenix', event: 'phx_reply', payload: { status: 'ok', response: {} }, ref: m.ref });
+      } else if (m.event === 'broadcast' && mine.has(m.topic)) {
+        for (const other of rooms.get(m.topic) || []) if (other !== sock) wsSend(other, { topic: m.topic, event: 'broadcast', payload: m.payload, ref: null });
+      }
+    }
+  });
+  const gone = () => { for (const t of mine) { const r = rooms.get(t); if (r) r.delete(sock); } };
+  sock.on('close', gone); sock.on('error', gone);
+});

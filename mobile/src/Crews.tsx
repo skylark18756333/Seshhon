@@ -10,6 +10,7 @@ import {
   type Bestie, type CatchUp, type Crew, type CrewsState, type FreeTime, type ShareSettings
 } from './api';
 import Icon from './Icon';
+import { useOnShow } from './Shown';
 import { Button, Toast } from './Parts';
 import { rpc, type ApiError } from './session';
 import type { Frendzy } from './useFrendzy';
@@ -33,6 +34,7 @@ export function CatchUpCards({ f, onPlanned }: { f: Frendzy; onPlanned?: () => v
     const timer = setInterval(load, 30000);
     return () => { alive.current = false; clearInterval(timer); };
   }, [load]);
+  useOnShow(load);   // and again whenever Home comes back on screen (after setting free time in Crews, say)
   if (!list.length) return null;
   const key = (c: CatchUp) => c.target + c.day + c.part;
   const plan = (c: CatchUp) => {
@@ -115,7 +117,7 @@ export default function Crews({ f, onBack, onPlanned }: { f: Frendzy; onBack: ()
         </Pressable>
         <Text style={[styles.h1, styles.grow]} numberOfLines={1} accessibilityRole="header">{view.t === 'crew' && crew ? crew.name : view.t === 'bestie' && bestie ? bestie.name : title}</Text>
       </View>
-      <KeyboardAvoidingView style={styles.fill} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardAvoidingView style={styles.fill} behavior="padding">
         <ScrollView style={styles.fill} contentContainerStyle={styles.view} keyboardShouldPersistTaps="handled">
           {data === null ? <Text style={styles.muted}>Loading...</Text>
             : data === 'off' ? (

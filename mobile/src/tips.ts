@@ -12,7 +12,6 @@ export type TipCopy = { title: string; body: string; go?: string };
 export const TIPS: Record<string, TipCopy> = {
   /* ---------- seen on arriving (TipSpot), they don't wait for a tap ---------- */
   'home-switch': { title: 'Your switch', body: "Drag the glowing circle, or tap a light. Green: you're keen to go out. Amber: you're thinking about it, and only friends you allow see it. Red: you're off and hidden. Green and amber go back to red by themselves later." },
-  'sesh-card': { title: "You're in a sesh", body: 'This card is the sesh: who\'s in, the newest chat line and the crawl. Tap Chat, Vote, Crawl or More along the bottom. When it ends, its chat and votes are deleted.' },
 
   /* ---------- the tab bar and the header ---------- */
   'tab-map': { title: 'The Map', body: 'Venues around you on a radar. Pick how far you\'ll go with the km buttons, swipe the cards along the bottom, and tap a pin for hours, ratings and deals.', go: 'Open the Map' },
@@ -21,25 +20,18 @@ export const TIPS: Record<string, TipCopy> = {
   'tab-chats': { title: 'Chats', body: 'Your messages and tonight\'s sesh chat in one place. Friend chats are locked end to end and deleted once read or after 7 days.', go: 'Open chats' },
   'dock-status': { title: 'Your status orb', body: "Tap it to change your status. Green: you're keen to go out. Amber: you're thinking about it, and only friends you allow see it. Red: you're off and hidden.", go: 'Change it' },
   'top-friends': { title: 'Your friends', body: 'Everyone you\'ve added, as a wall of photos lit in their colour. Add people by username, send your invite link, or set up crews and besties.', go: 'Open friends' },
-  'top-messages': { title: 'Messages', body: 'Private chats with one friend at a time. They\'re locked end to end and deleted once read or after 7 days. Tonight\'s sesh chat sits at the top.', go: 'Open messages' },
   'top-you': { title: 'You', body: 'Your photo, username, look, safety settings and badges. This tour and these tips are there too.', go: 'Open my page' },
 
   /* ---------- the party lobby on Home (not in a sesh) ---------- */
-  'lobby-now': { title: 'Go now', body: 'Start a sesh right now. You go green, and friends on green and amber can join and help pick a spot.', go: "Let's go" },
+  'lobby-now': { title: 'Go now', body: 'Pick a popular spot near you and start a sesh there now. You go green, and friends on green and amber can join.', go: "Let's go" },
   'lobby-crawl': { title: 'Crewzy crawl', body: 'A few spots a short walk apart. Everyone in the sesh sees the route on the Sesh Map and ticks off each stop.', go: 'Plan a crawl' },
-  'lobby-plan': { title: 'Plan for later', body: 'Pick a day in the next 2 weeks, a time and who to invite. It shows up under Coming up, and you can start it early.', go: 'Plan one' },
+  'lobby-plan': { title: 'Plan for later', body: 'Pick a day on your calendar, a time and who to invite. It shows up under Coming up, and you can start it early.', go: 'Plan one' },
   'lobby-private': { title: 'Invite only', body: 'Only the friends you pick can see this sesh and join it. Nobody else knows it\'s on.', go: 'Pick friends' },
   'lobby-events': { title: "What's on", body: 'Jumps to the Events tab: gigs, comedy and food events near you to build a night around.', go: 'Show events' },
   'lobby-crews': { title: 'Crew catch-up', body: 'See when your crews are free and plan something that suits everyone.', go: 'Open crews' },
   'lobby-seat': { title: 'Fill your seats', body: 'Pick friends for a private sesh. Hosting earns you XP for each friend who joins.', go: 'Pick friends' },
   'join-sesh': { title: 'Join a sesh', body: 'Hop into a friend\'s sesh to chat, vote on where to go and follow the crawl.', go: 'Join' },
 
-  /* ---------- in a sesh ---------- */
-  'sesh-chat': { title: 'Sesh chat', body: 'Everyone in the sesh, one chat. It\'s deleted when the sesh ends.' },
-  'sesh-where': { title: 'Where to', body: 'Vote for a spot, or see the one that\'s locked in. The starter can lock the winner.' },
-  'sesh-crawl': { title: 'The crawl', body: 'The stops in order. Add them from the Map and tick each one off as you go.' },
-  'sesh-more': { title: 'More', body: 'The pres address, inviting more friends, reporting and leaving.' },
-  'sesh-end': { title: 'End the sesh', body: 'This ends it for everyone, and its chat and votes are deleted straight away.', go: 'End it' },
 
   /* ---------- the Map ---------- */
   'map-mode': { title: 'Around me or Middle', body: 'Around me shows venues near you. Middle shows spots halfway between everyone in your sesh who chooses to share a rough area. Nobody\'s exact spot is shown.' },
