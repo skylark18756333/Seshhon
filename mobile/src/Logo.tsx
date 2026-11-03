@@ -12,7 +12,7 @@ function Light({ c, status, onPick }: { c: Colour; status?: Colour; onPick?: (c:
   const lit = !status || c === status;
   const grow = useRef(new Animated.Value(c === status ? 1 : 0)).current;
   useEffect(() => {
-    Animated.spring(grow, { toValue: c === status ? 1 : 0, useNativeDriver: true, friction: 6, tension: 120 }).start();
+    Animated.spring(grow, { toValue: c === status ? 1 : 0, useNativeDriver: false, friction: 6, tension: 120 }).start();
   }, [c, status, grow]);
   const dot = (
     <View style={styles.slot}>
