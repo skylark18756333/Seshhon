@@ -15,7 +15,11 @@ import {
   type NativeScrollEvent, type NativeSyntheticEvent
 } from 'react-native';
 import { addCrawlStops, getMessages, reportMessage, seshCrawl, sendMessage, type CrawlStop, type Friend, type Member, type Message, type Sesh as SeshT } from './api';
-import { CHAT_POLL_MS, RADIUS_KM } from './config';
+import { CHAT_POLL_MS, PLAN_AHEAD_DAYS, RADIUS_KM } from './config';
+import { joinTyping, SHOW_FOR_MS, type TypingLink } from './typing';
+import TypingLights from './TypingLights';
+import { addToCalendar } from './calendar';
+import CalendarView from './CalendarView';
 import { openFriend } from './FriendProfile';
 import { CrawlBuilder } from './Crawl';
 import CrawlMap from './CrawlMap';
@@ -56,6 +60,7 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
   const [seshId, setSeshId] = useState<string | null>(null);
   const [picker, setPicker] = useState<Picker | null>(null);
   const [plan, setPlan] = useState<Plan | null>(null);
+  const [calendar, setCalendar] = useState(false);   // the in-app calendar of planned seshes
   const [presEdit, setPresEdit] = useState<string | null>(null);
   const [presAddress, setPresAddress] = useState('');
   const [presMin, setPresMin] = useState<number | null>(null);
@@ -67,6 +72,8 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
   // A live sesh shows as a card on Home; tapping it opens the sesh itself (chat, vote, crawl, more).
   const [inside, setInside] = useState(false);
   const [lastMsg, setLastMsg] = useState<{ sesh: string; ms: Message[] } | null>(null);
+  // Who's typing in the sesh chat right now (first names), for the line on the sesh card.
+  const [typers, setTypers] = useState<{ sesh: string; names: string[] } | null>(null);
   const [making, setMaking] = useState(false);
   // Go now: picking where to go before the sesh starts.
   const [going, setGoing] = useState(false);
@@ -198,6 +205,7 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
           crawlOption
           onChange={setPlan}
           onCancel={() => { setPlan(null); top(); }}
+          onMoreDates={() => { setPlan(null); setCalendar(true); top(); }}
           onGo={() => {
             const ids = Object.keys(plan.picked);
             if (plan.pick && !ids.length) return;
@@ -214,12 +222,18 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
     );
   }
 
-  const startPlan = () => {   // starts at the next half hour, at least an hour from now
+  // Starts at the next half hour, at least an hour from now; on a later day picked from the calendar, 7 pm that day.
+  const startPlan = (day?: Date) => {
     const t = new Date(Date.now() + 3600000);
     t.setMinutes(t.getMinutes() < 30 ? 30 : 60, 0, 0);
+    if (day) {
+      const evening = new Date(day.getFullYear(), day.getMonth(), day.getDate(), 19, 0, 0, 0);
+      if (evening.getTime() > t.getTime()) t.setTime(evening.getTime());
+    }
     setPlan({ at: t.getTime(), pick: false, picked: {} });
     top();
   };
+  const openCalendar = () => { setCalendar(true); top(); };
   const planned = (
     <PlannedList
       seshes={seshes}
@@ -228,9 +242,25 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
       v={v}
       onOpen={(id) => { setSeshId(id); setPanel(null); top(); }}
       onJoin={(id) => f.act('join_sesh', { p_sesh: id }, "You're in. It goes live at the planned time.")}
-      onPlan={startPlan}
+      onPlan={() => startPlan()}
+      onCalendar={openCalendar}
     />
   );
+
+  if (calendar) {
+    return (
+      <Frame f={f} onOpenWeb={onOpenWeb} scroll={scroll}>
+        <CalendarView
+          seshes={seshes.filter((s) => isPlanned(s))}
+          v={v}
+          onBack={() => { setCalendar(false); top(); }}
+          onOpen={(id) => { setCalendar(false); setSeshId(id); setPanel(null); top(); }}
+          onJoin={(id) => f.act('join_sesh', { p_sesh: id }, "You're in. It goes live at the planned time.")}
+          onPlanDay={(d) => { setCalendar(false); startPlan(d); }}
+        />
+      </Frame>
+    );
+  }
 
   /* ---------- not in a sesh: the party lobby. Join a friend's sesh, or start or plan your own from the tiles ---------- */
   if (!mine) {
@@ -247,7 +277,7 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
         onPress: () => { setGoing(true); top(); } },
       ...(crawl.off ? [] : [{ key: 'crawl', emoji: '📍', title: 'Crewzy crawl', note: 'A few spots a short walk apart', colours: ['#21C6A4', '#2A7FD4'] as [string, string],
         onPress: () => goGreen(() => { setMake({ target: null }); top(); }) }]),
-      { key: 'plan', emoji: '🗓', title: 'Plan for later', note: 'Any day in the next 2 weeks', colours: ['#5B8CFF', '#9B5BFF'], onPress: startPlan },
+      { key: 'plan', emoji: '🗓', title: 'Plan for later', note: 'Pick a day on your calendar', colours: ['#5B8CFF', '#9B5BFF'], onPress: openCalendar },
       { key: 'private', emoji: '🔒', title: 'Invite only', note: 'Only friends you pick see it', colours: ['#C04BD8', '#5E3BD1'],
         onPress: () => goGreen(() => { setPicker({ mode: 'start', picked: {} }); top(); }) },
       { key: 'events', emoji: '🎶', title: "What's on", note: 'Gigs and events near you', colours: ['#F5A623', '#D4572A'], onPress: () => onOpenWeb('events') },
@@ -308,6 +338,7 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
   const full = !later && inside && !!panel;
   const showPanel = later || full;
   const cur: Panel = later ? open : (panel && (panel !== 'crawl' || !crawl.off) ? panel : 'chat');
+  const typingNow = typers && typers.sesh === mine.id ? typers.names : [];
   const go = (p: Panel) => { setPanel(p); setInside(true); top(); };
   const enter = () => { setPanel(null); setInside(true); top(); };
   const endIt = () => {
@@ -351,6 +382,7 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
         myId={me.id}
         photos={f.photos}
         latest={latest}
+        typing={typingNow}
         panel={later ? open : null}
         crawlOn={!crawl.off}
         onPanel={later ? setPanel : go}
@@ -381,7 +413,7 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
           { key: 'find', emoji: '🔎', title: 'Find venues', note: 'Map of spots near you', colours: ['#FF7A45', '#E0407A'], onPress: () => onOpenWeb('map') },
           ...(crawl.off ? [] : [{ key: 'crawl', emoji: '📍', title: 'Crewzy crawl', note: isCrawl ? 'See your trail' : 'Add stops a short walk apart', colours: ['#21C6A4', '#2A7FD4'] as [string, string],
             onPress: () => go('crawl') }]),
-          { key: 'plan', emoji: '🗓', title: 'Plan for later', note: 'Any day in the next 2 weeks', colours: ['#5B8CFF', '#9B5BFF'], onPress: startPlan },
+          { key: 'plan', emoji: '🗓', title: 'Plan for later', note: 'Pick a day on your calendar', colours: ['#5B8CFF', '#9B5BFF'], onPress: openCalendar },
           { key: 'events', emoji: '🎶', title: "What's on", note: 'Gigs and events near you', colours: ['#F5A623', '#D4572A'], onPress: () => onOpenWeb('events') },
           { key: 'crews', emoji: '🤝', title: 'Crew catch-up', note: 'See when your crews are free', colours: ['#7AA52F', '#2E8F6A'], onPress: () => onOpenWeb('crews') }
         ]} />
@@ -425,7 +457,8 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
 
       {/* The chat stays mounted while another part is open, so the card can show the newest line. */}
       <View style={showPanel && cur === 'chat' ? null : styles.hidden}>
-        <Chat f={f} seshId={mine.id} myId={me.id} confirm={confirm} setConfirm={setConfirm} onLatest={(ms) => setLastMsg({ sesh: mine.id, ms })} />
+        <Chat f={f} seshId={mine.id} myId={me.id} confirm={confirm} setConfirm={setConfirm} onLatest={(ms) => setLastMsg({ sesh: mine.id, ms })}
+          names={nameMap(mine.members)} onTyping={(names) => setTypers({ sesh: mine.id, names })} />
       </View>
 
       {showPanel && cur === 'more' ? (
@@ -472,6 +505,17 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
                 .then((r) => { if (r) setPresEdit(null); });
             }}
           />
+          {later && mine.starts_at ? (
+            <Button ghost icon="clock" label="Add to calendar" testID="add-to-calendar" onPress={() => {
+              const lv = mine.locked_venue && v.byId[mine.locked_venue] ? v.byId[mine.locked_venue] : null;
+              addToCalendar({
+                title: (stops.length > 1 ? 'Crewzy crawl' : 'Crewzy sesh') + (creator && !mine.mine ? ' with ' + creator : ''),
+                start: new Date(mine.starts_at as string),
+                place: lv ? lv.name : null,
+                note: mine.pres && mine.pres.address ? 'Pres: ' + mine.pres.address : null
+              }, f.say);
+            }} />
+          ) : null}
             {mine.mine ? (
               <>
                 <Button
@@ -666,13 +710,14 @@ const VIBES: { key: string; emoji: string; label: string; h: number; m: number }
   { key: 'late', emoji: '✨', label: 'Late', h: 22, m: 0 }
 ];
 const SHORT_DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-export function PlanView({ plan, friends, photos, crawlOption, onChange, onCancel, onGo }: {
+const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+export function PlanView({ plan, friends, photos, crawlOption, onChange, onCancel, onGo, onMoreDates }: {
   plan: Plan; friends: Friend[]; photos: Record<string, string>; crawlOption?: boolean;
-  onChange: (p: Plan) => void; onCancel: () => void; onGo: () => void;
+  onChange: (p: Plan) => void; onCancel: () => void; onGo: () => void; onMoreDates?: () => void;
 }) {
   const n = Object.keys(plan.picked).length;
-  const min = Date.now() + 10 * 60000, max = Date.now() + 14 * DAY;
-  // Keep it on a quarter hour, between ten minutes from now and two weeks ahead.
+  const min = Date.now() + 10 * 60000, max = Date.now() + PLAN_AHEAD_DAYS * DAY;
+  // Keep it on a quarter hour, between ten minutes from now and a year ahead.
   const setAt = (at: number) => {
     const d = new Date(Math.min(max, Math.max(min, at))); d.setMinutes(Math.round(d.getMinutes() / 15) * 15, 0, 0);
     let t = d.getTime();
@@ -684,6 +729,10 @@ export function PlanView({ plan, friends, photos, crawlOption, onChange, onCance
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const days = Array.from({ length: 15 }, (_, i) => { const d = new Date(today); d.setDate(d.getDate() + i); return d; });
   const sameDay = (a: Date, b: Date) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  // A day picked further ahead on the calendar gets its own card at the start of the row, so it's in view.
+  const curDay = new Date(cur); curDay.setHours(0, 0, 0, 0);
+  const farDay = !days.some((d) => sameDay(d, curDay));
+  if (farDay) days.unshift(curDay);
   const pickDay = (d: Date) => { const t = new Date(d); t.setHours(cur.getHours(), cur.getMinutes(), 0, 0); setAt(t.getTime()); };
   const pickVibe = (h: number, m: number) => { const t = new Date(cur); t.setHours(h, m, 0, 0); setAt(t.getTime()); };
   const hour = cur.getHours();
@@ -708,7 +757,9 @@ export function PlanView({ plan, friends, photos, crawlOption, onChange, onCance
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dayRow}>
           {days.map((d, i) => {
             const on = sameDay(d, cur);
-            const name = i === 0 ? 'Today' : i === 1 ? 'Tmrw' : SHORT_DAYS[d.getDay()];
+            const far = farDay && i === 0;
+            const k = farDay ? i - 1 : i;   // 0 is today, 1 tomorrow
+            const name = far ? MONTH_SHORT[d.getMonth()] : k === 0 ? 'Today' : k === 1 ? 'Tmrw' : SHORT_DAYS[d.getDay()];
             const weekend = d.getDay() === 5 || d.getDay() === 6;
             const body = (
               <>
@@ -719,12 +770,21 @@ export function PlanView({ plan, friends, photos, crawlOption, onChange, onCance
             );
             return (
               <Pressable key={i} onPress={() => pickDay(d)} accessibilityRole="button" accessibilityState={{ selected: on }}
-                accessibilityLabel={i === 0 ? 'Today' : i === 1 ? 'Tomorrow' : LONG_DAY[d.getDay()] + ' ' + d.getDate()}>
+                accessibilityLabel={far ? LONG_DAY[d.getDay()] + ' ' + d.getDate() + ' ' + MONTH_SHORT[d.getMonth()] : k === 0 ? 'Today' : k === 1 ? 'Tomorrow' : LONG_DAY[d.getDay()] + ' ' + d.getDate()}>
                 {on ? <LinearGradient colors={PLAN_GRAD} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[styles.day, styles.dayOn]}>{body}</LinearGradient>
                   : <View style={styles.day}>{body}</View>}
               </Pressable>
             );
           })}
+          {onMoreDates ? (
+            <Pressable onPress={onMoreDates} accessibilityRole="button" accessibilityLabel="More dates, up to a year ahead" testID="plan-more-dates">
+              <View style={styles.day}>
+                <Text style={styles.dayName}>More</Text>
+                <Icon name="clock" size={20} colour={C.fg} />
+                <View style={styles.dayDotSpace} />
+              </View>
+            </Pressable>
+          ) : null}
         </ScrollView>
       </View>
 
@@ -832,9 +892,9 @@ function Round({ icon, label, onPress, disabled, pressed, flip, size }: { icon: 
 }
 
 /* ---------- Coming up: planned seshes as a row of small cards you swipe sideways (plannedHtml) ---------- */
-function PlannedList({ seshes, skipId, canPlan, v, onOpen, onJoin, onPlan }: {
+function PlannedList({ seshes, skipId, canPlan, v, onOpen, onJoin, onPlan, onCalendar }: {
   seshes: SeshT[]; skipId: string | null; canPlan: boolean; v: Venues;
-  onOpen: (id: string) => void; onJoin: (id: string) => void; onPlan: () => void;
+  onOpen: (id: string) => void; onJoin: (id: string) => void; onPlan: () => void; onCalendar: () => void;
 }) {
   const list = seshes.filter((s) => isPlanned(s) && s.id !== skipId)
     .sort((a, b) => new Date(a.starts_at || 0).getTime() - new Date(b.starts_at || 0).getTime());
@@ -843,7 +903,10 @@ function PlannedList({ seshes, skipId, canPlan, v, onOpen, onJoin, onPlan }: {
     <View style={styles.stack}>
       <View style={[styles.row, styles.between]}>
         <Text style={styles.h2}>Coming up</Text>
-        <Text style={[styles.muted, styles.small]}>{list.length ? list.length + ' planned' : 'Nothing yet'}</Text>
+        <Pressable onPress={onCalendar} style={styles.calLink} accessibilityRole="button" accessibilityLabel="Open your calendar" testID="open-calendar">
+          <Icon name="clock" size={14} colour={C.fg} />
+          <Text style={styles.calLinkText}>{list.length ? list.length + ' planned · ' : ''}Calendar</Text>
+        </Pressable>
       </View>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
         {list.map((s) => {
@@ -870,9 +933,9 @@ function PlannedList({ seshes, skipId, canPlan, v, onOpen, onJoin, onPlan }: {
 }
 
 /* ---------- the sesh card: who's in, where, the crawl trail, the newest chat line, and the parts to open ---------- */
-function SeshCard({ s, later, startMs, creator, isCrawl, stops, v, myId, photos, latest, panel, crawlOn, onPanel, onOpen, onStarted, room, look, onEnd, onEdit }: {
+function SeshCard({ s, later, startMs, creator, isCrawl, stops, v, myId, photos, latest, typing, panel, crawlOn, onPanel, onOpen, onStarted, room, look, onEnd, onEdit }: {
   s: SeshT; later: boolean; startMs: number; creator: string; isCrawl: boolean; stops: CrawlStop[]; v: Venues; myId: string;
-  photos: Record<string, string>; latest: Message | null; panel: Panel | null; crawlOn: boolean; onPanel: (p: Panel) => void;
+  photos: Record<string, string>; latest: Message | null; typing: string[]; panel: Panel | null; crawlOn: boolean; onPanel: (p: Panel) => void;
   onOpen?: () => void;   // on Home: tapping the card opens the sesh
   onStarted: () => void;
   room?: boolean;        // in the sesh's room the Chat tile and tiles are below, so the card leaves out its preview and tabs
@@ -944,7 +1007,12 @@ function SeshCard({ s, later, startMs, creator, isCrawl, stops, v, myId, photos,
         </Pressable>
       ) : null}
       {room ? null : <Pressable style={styles.peek} onPress={() => onPanel('chat')} accessibilityRole="button" accessibilityLabel="Open the sesh chat">
-        {latest ? (
+        {typing.length ? (
+          <View style={styles.row}>
+            <TypingLights size={0.85} />
+            <Text style={styles.peekText} numberOfLines={1}><Text style={styles.peekWho}>{typingLine(typing)}</Text></Text>
+          </View>
+        ) : latest ? (
           <View style={styles.row}>
             <Face id={latest.sender} name={latest.name} photos={photos} size={22} font={9} />
             <Text style={styles.peekText} numberOfLines={1}><Text style={styles.peekWho}>{latest.sender === myId ? 'You' : first(latest.name)}</Text> {latest.body}</Text>
@@ -1280,7 +1348,25 @@ function StopNum({ n, done }: { n: number; done: boolean }) {
 }
 
 /* ---------- the chat (chatHtml, chatItems, paintChat, refreshChat) ---------- */
-function Chat({ f, seshId, myId, confirm, setConfirm, onLatest }: { f: Frendzy; seshId: string; myId: string; confirm: string | null; setConfirm: (c: string | null) => void; onLatest?: (ms: Message[]) => void }) {
+// One-tap replies under the chat, for when you're walking and don't want to type.
+const QUICK_REPLIES = ['On my way', '10 min', 'Running late', "I'm here", 'Where are you?'];
+
+// "Mia is typing", "Mia and Josh are typing", "3 people are typing".
+function typingLine(names: string[]): string {
+  if (names.length === 1) return names[0] + ' is typing...';
+  if (names.length === 2) return names[0] + ' and ' + names[1] + ' are typing...';
+  return names.length + ' people are typing...';
+}
+function nameMap(members: Member[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const m of members) out[m.id] = first(m.name);
+  return out;
+}
+
+function Chat({ f, seshId, myId, confirm, setConfirm, onLatest, names, onTyping }: {
+  f: Frendzy; seshId: string; myId: string; confirm: string | null; setConfirm: (c: string | null) => void; onLatest?: (ms: Message[]) => void;
+  names: Record<string, string>; onTyping?: (names: string[]) => void;
+}) {
   const latestCb = useRef(onLatest);
   latestCb.current = onLatest;
   const [messages, setMessages] = useState<Message[]>([]);
@@ -1292,6 +1378,35 @@ function Chat({ f, seshId, myId, confirm, setConfirm, onLatest }: { f: Frendzy; 
   const stick = useRef(false);
   const nearEnd = useRef(true);
   current.current = seshId;
+
+  // Typing: tell the others while you type, and show the lights while they do. Each typer is shown until a few
+  // seconds after their last note, or until they send (their message turns up) or clear the box.
+  const link = useRef<TypingLink | null>(null);
+  const [typers, setTypers] = useState<Record<string, number>>({});
+  const typingCb = useRef(onTyping);
+  typingCb.current = onTyping;
+  useEffect(() => {
+    setTypers({});
+    const l = joinTyping(seshId, myId, {
+      onTyping: (id) => setTypers((t) => ({ ...t, [id]: Date.now() + SHOW_FOR_MS })),
+      onStopped: (id) => setTypers((t) => { if (!(id in t)) return t; const n = { ...t }; delete n[id]; return n; })
+    });
+    link.current = l;
+    const tidy = setInterval(() => setTypers((t) => {
+      const now = Date.now();
+      const keep = Object.keys(t).filter((id) => t[id] > now);
+      return keep.length === Object.keys(t).length ? t : Object.fromEntries(keep.map((id) => [id, t[id]]));
+    }), 1000);
+    return () => { clearInterval(tidy); l.stopped(); l.close(); if (link.current === l) link.current = null; };
+  }, [seshId, myId]);
+  const typingNames = Object.keys(typers).map((id) => names[id] || 'Someone');
+  const typingKey = typingNames.join('|');
+  useEffect(() => { if (typingCb.current) typingCb.current(typingNames); }, [typingKey]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const onDraft = (text: string) => {
+    setDraft(text);
+    if (!link.current) return;
+    if (text.trim()) link.current.typing(); else link.current.stopped();
+  };
 
   // Reads the chat; repaints only when the messages changed (or when asked to), as refreshChat does.
   const refresh = useCallback((force: boolean) => {
@@ -1322,11 +1437,12 @@ function Chat({ f, seshId, myId, confirm, setConfirm, onLatest }: { f: Frendzy; 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seshId, refresh]);
 
-  const send = () => {
-    const text = draft.trim();
+  const send = (quick?: string) => {
+    const text = (quick || draft).trim();
     if (!text || sending) return;
     setSending(true);
-    sendMessage(seshId, text).then(() => { setDraft(''); return refresh(true); })
+    if (link.current) link.current.stopped();
+    sendMessage(seshId, text).then(() => { if (!quick) setDraft(''); return refresh(true); })
       .catch((e: ApiError) => { f.say(e.message); })
       .then(() => setSending(false));
   };
@@ -1392,24 +1508,38 @@ function Chat({ f, seshId, myId, confirm, setConfirm, onLatest }: { f: Frendzy; 
             </View>
           );
         })}
+        {typingNames.length ? (
+          <View style={[styles.msgRow, styles.typingRow]} accessibilityLabel={typingLine(typingNames)}>
+            <TypingLights />
+            <Text style={[styles.muted, styles.tiny]} numberOfLines={1}>{typingLine(typingNames)}</Text>
+          </View>
+        ) : null}
+      </ScrollView>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.quickRow}>
+        {QUICK_REPLIES.map((q) => (
+          <Pressable key={q} style={({ pressed }) => [styles.quick, (pressed || sending) && styles.quickDown]} onPress={() => send(q)} disabled={sending}
+            accessibilityRole="button" accessibilityLabel={'Send: ' + q} testID={'quick-' + q}>
+            <Text style={styles.quickText}>{q}</Text>
+          </Pressable>
+        ))}
       </ScrollView>
       <View style={styles.chatForm}>
         <TextInput
           style={styles.chatInput}
           value={draft}
-          onChangeText={setDraft}
+          onChangeText={onDraft}
           maxLength={500}
           autoComplete="off"
           placeholder="Type a message..."
           placeholderTextColor={C.muted}
           accessibilityLabel="Message your mates"
           returnKeyType="send"
-          onSubmitEditing={send}
+          onSubmitEditing={() => send()}
           submitBehavior="submit"
         />
         <Pressable
           style={[styles.send, sending && styles.sendOff]}
-          onPress={send}
+          onPress={() => send()}
           disabled={sending}
           accessibilityRole="button"
           accessibilityLabel="Send"
@@ -1588,6 +1718,13 @@ const styles = themed(() => StyleSheet.create({
   doneTitle: { color: C.muted, textDecorationLine: 'line-through' },
 
   chat: { maxHeight: 440, minHeight: 80 },
+  calLink: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, minHeight: 36, borderRadius: 18, backgroundColor: C.surface2, borderWidth: 1, borderColor: C.line },
+  calLinkText: { fontFamily: F.bodyBold, fontSize: 13, color: C.fg },
+  typingRow: { alignItems: 'center', gap: 8, paddingLeft: 4, paddingTop: 2 },
+  quickRow: { gap: 8, paddingVertical: 2, paddingRight: 8 },
+  quick: { paddingHorizontal: 14, minHeight: 40, justifyContent: 'center', borderRadius: 20, backgroundColor: C.surface2, borderWidth: 1, borderColor: C.line },
+  quickDown: { opacity: 0.6 },
+  quickText: { fontFamily: F.bodyMid, fontSize: 14, color: C.fg },
   chatInner: { gap: 14, paddingVertical: 4 },
   msgRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 10, maxWidth: '88%' },
   msgRowMe: { alignSelf: 'flex-end' },
