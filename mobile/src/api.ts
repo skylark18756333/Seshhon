@@ -86,8 +86,9 @@ export function addFriendByUsername(username: string): Promise<{ ok: boolean; me
 }
 
 // Friends' photos, when they added one and you're allowed to see it: { user id: picture address }.
-export function friendPhotos(): Promise<Record<string, string>> {
-  return rpc('friend_photos').then((p: any) => (p && typeof p === 'object' ? p : {}), () => ({}));
+// null when the read failed (say a weak signal), so the photos already on screen are kept, not wiped.
+export function friendPhotos(): Promise<Record<string, string> | null> {
+  return rpc('friend_photos').then((p: any) => (p && typeof p === 'object' ? p : {}), () => null);
 }
 
 // Your username, shown in the "add your friends" card. An older database has no such function.

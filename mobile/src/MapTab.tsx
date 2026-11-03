@@ -33,7 +33,8 @@ import { findMe, fmtKm, hoursLine, km, myPlace, openState, refreshVenues, useVen
 
 const CRAWL_MAX = 12;
 const SEARCH_MAX = 30, SEARCH_LIST = 6;   // pins on the map for a search, rows under the search box
-const NEAR_MAX = 30;                      // the most bubbles drawn at once from the circle (busiest and nearest first)
+const NEAR_MAX = 30, NEAR_FAR_MAX = 18;   // fewer when zoomed out wide (10 km and up): easier to tap the map, less for the phone to draw
+                      // the most bubbles drawn at once from the circle (busiest and nearest first)
 const NAMED = 8;                          // the first few bubbles always carry their name (no redraw of every marker on zoom)
 const BUZZ_MS = 60000;                    // api_buzz is asked again after a minute
 const MEET_MS = 15000;                    // Middle asks again this often while it is on show, so a mate's share shows up
@@ -221,7 +222,7 @@ export default function MapTab({ f, onVenue, onOpenWeb, onWebMap }: {
     });
     // A crowded circle shows the busiest and nearest.
     near.sort((a, b) => busyOf(b.ven) - busyOf(a.ven) || (tagOf(b.ven) ? 1 : 0) - (tagOf(a.ven) ? 1 : 0) || (a.d as number) - (b.d as number));
-    return out.concat(near.slice(0, NEAR_MAX));
+    return out.concat(near.slice(0, radius >= 10 ? NEAR_FAR_MAX : NEAR_MAX));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [v.list, pins, geo, radius, filter, query, pick, buzz, mode, midIds]);
 
