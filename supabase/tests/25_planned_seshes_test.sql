@@ -27,7 +27,11 @@ select public.set_status('on') \g /dev/null
 select set_config('request.jwt.claim.sub', :p, false) \g /dev/null
 select public.set_status('thinking') \g /dev/null
 select public.expect_error($$select public.plan_sesh(now() - interval '1 hour')$$, 'not in the past');
-select public.expect_error($$select public.plan_sesh(now() + interval '15 days')$$, 'not more than 2 weeks ahead');
+select public.expect_error($$select public.plan_sesh(now() + interval '367 days')$$, 'not more than a year ahead (0043)');
+select id as far from public.plan_sesh(now() + interval '200 days') \gset
+select public.expect(exists (select 1 from public.seshes where id = :'far'), 'months ahead is fine (0043)');
+select public.end_sesh(:'far') \g /dev/null
+select public.expect(not exists (select 1 from public.seshes where id = :'far'), 'and cancelling it deletes it');
 select id as planned from public.plan_sesh(now() + interval '2 days') \gset
 select public.expect((public.api_state() -> 'seshes' -> 0 ->> 'planned') = 'true', 'Pia sees her sesh as planned');
 select public.expect((public.api_state() -> 'seshes' -> 0 ->> 'private') = 'false', 'open to all her friends');

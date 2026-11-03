@@ -1284,9 +1284,9 @@
   function planHtml() {
     var p = ui.plan, n = Object.keys(p.picked).length, t = now();
     var h = '<div class="stack" style="gap:6px"><div class="eyebrow">' + svg('clock', 14) + ' Plan a sesh</div><h1>When\'s it on?</h1>' +
-      '<p class="muted">Up to 2 weeks ahead. Friends can say they\'re in, vote on where to go and chat about it before it starts. It goes live at this time.</p></div>' +
+      '<p class="muted">Up to a year ahead. Friends can say they\'re in, vote on where to go and chat about it before it starts. It goes live at this time.</p></div>' +
       '<div class="field"><label for="plan-at">Date and time</label><input id="plan-at" data-keep type="datetime-local" step="900" value="' + esc(p.at) + '"' +
-      ' min="' + localInput(t + 10 * 60000) + '" max="' + localInput(t + 14 * 86400000) + '"></div>' +
+      ' min="' + localInput(t + 10 * 60000) + '" max="' + localInput(t + 365 * 86400000) + '"></div>' +
       '<div class="stack" style="gap:8px"><h2>Who\'s it for?</h2><div class="row">' +
       '<button class="btn small-btn' + (p.pick ? ' ghost' : '') + '" data-act="plan-who" data-v="all" aria-pressed="' + !p.pick + '">All my friends</button>' +
       '<button class="btn small-btn' + (p.pick ? '' : ' ghost') + '" data-act="plan-who" data-v="pick" aria-pressed="' + !!p.pick + '">' + svg('lock', 14) + ' Pick friends</button></div>';
