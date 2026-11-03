@@ -9,7 +9,7 @@ import { C, F, themed } from './theme';
 // One of the full-screen steps: the logo, then the content, centred when it is short and scrolling when it is long.
 export function Page({ children }: { children: React.ReactNode }) {
   return (
-    <KeyboardAvoidingView style={styles.fill} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <KeyboardAvoidingView style={styles.fill} behavior="padding">
       <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
         <Logo />
         {children}
