@@ -19,7 +19,6 @@ import type { Colour } from './src/api';
 import MapTab from './src/MapTab';
 import { NATIVE_MAP } from './src/config';
 import { MapGuard } from './src/MapGuard';
-import { mapCrashedBefore } from './src/mapCrash';
 import AgeCheck from './src/AgeCheck';
 import Auth, { type AuthDone, type AuthStart } from './src/Auth';
 import Crews from './src/Crews';
@@ -115,9 +114,6 @@ function Layer({ glow, edge, children }: { glow?: Colour; edge?: boolean; childr
   );
 }
 
-// An update that downloads later than this after opening waits for the next open instead of restarting the app.
-const RELOAD_WITHIN_MS = 4000;
-
 function Shell() {
   const web = useRef<WebView>(null);
   const inset = useSafeAreaInsets();
@@ -153,8 +149,6 @@ function Shell() {
   // failed; otherwise it is the packed web map, as before.
   const [mapFailed, setMapFailed] = useState(false);
   const nativeMap = NATIVE_MAP && !mapFailed;
-  // A phone where the native map closed the app last time (mapCrash.ts) starts on the simple web map instead.
-  useEffect(() => { if (NATIVE_MAP) mapCrashedBefore().then((off) => { if (off) setMapFailed(true); }); }, []);
   const NATIVE_TABS = nativeMap ? BASE_TABS.concat('map') : BASE_TABS;
   const signedIn = !!session;
   const sessionKey = session ? session.user_id || 'in' : 'out';
@@ -308,15 +302,12 @@ function Shell() {
   const [tapTab, setTapTab] = useState<string | null>(null);
   useEffect(() => watchNotificationTaps(setTapTab), []);
 
-  // Over-the-air updates: on opening, fetch the latest screens and code if there are any. If they arrive within the
-  // first few seconds, restart into them straight away; later than that you're already using the app, and a restart
-  // then looks like a crash, so the update waits for the next time the app is opened. Nothing happens in a build
-  // without updates.
+  // Over-the-air updates: on opening, fetch the latest screens and code if there are any and restart into them,
+  // so a merged change reaches this phone without a new build. Nothing happens in a build without updates.
   useEffect(() => {
     if (Platform.OS !== 'android' || !Updates.isEnabled) return;
-    const opened = Date.now();
     Updates.checkForUpdateAsync()
-      .then((u) => (u.isAvailable ? Updates.fetchUpdateAsync().then((r) => (r.isNew && Date.now() - opened < RELOAD_WITHIN_MS ? Updates.reloadAsync() : undefined)) : undefined))
+      .then((u) => (u.isAvailable ? Updates.fetchUpdateAsync().then((r) => (r.isNew ? Updates.reloadAsync() : undefined)) : undefined))
       .catch(() => {});
   }, []);
   useEffect(() => {
