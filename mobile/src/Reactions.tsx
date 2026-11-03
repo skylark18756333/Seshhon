@@ -1,25 +1,58 @@
-// Emoji reactions on chat messages (Sarah, 2026-11-03): hold a message to pick one, tap a reaction under a message
-// to add yours or take it off. One reaction each per message. Fun emojis only, never drinks (WA liquor rules).
-// The same six are checked by the database (react_message, migration 0046).
-import React from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+// Emoji reactions on chat messages (Sarah, 2026-11-03): hold a message and a small bar pops up just above it, like
+// Messenger. Tap one of the six, or + to pick any emoji from your phone's keyboard. One reaction each per message;
+// tap a reaction under a message to add yours or take it off. Never drinks (WA liquor rules): the quick six are fun ones.
+// The database checks a reaction is a short emoji (react_message, migrations 0046 and 0047).
+import React, { useState } from 'react';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { C, F, fade, themed } from './theme';
 
 export const REACTIONS = ['❤️', '😂', '🔥', '👍', '😮', '🙌'];
 
-// The row of emojis that pops up over a message you hold.
-export function ReactBar({ mine, onPick, onClose }: { mine?: string | null; onPick: (e: string) => void; onClose: () => void }) {
+// Keeps only an emoji typed on the phone's keyboard: no letters, numbers or spaces, and short (one emoji, maybe with
+// a skin tone or a joined family). Returns '' for anything else.
+export function cleanEmoji(text: string): string {
+  const t = text.trim();
+  if (!t || t.length > 16 || /[A-Za-z0-9\s]/.test(t) || /^[\x20-\x7E]+$/.test(t)) return '';
+  return t;
+}
+
+// The bar that pops up above a message you hold.
+export function ReactBar({ mine, right, onPick, onClose }: { mine?: string | null; right?: boolean; onPick: (e: string) => void; onClose: () => void }) {
+  const [typing, setTyping] = useState(false);
+  const [bad, setBad] = useState(false);
   return (
-    <View style={styles.bar} testID="react-bar">
-      {REACTIONS.map((e) => (
-        <Pressable key={e} onPress={() => onPick(e)} style={[styles.pick, mine === e && styles.pickOn]}
-          accessibilityRole="button" accessibilityState={{ selected: mine === e }} accessibilityLabel={'React ' + e} testID={'react-' + e}>
-          <Text style={styles.pickText}>{e}</Text>
-        </Pressable>
-      ))}
-      <Pressable onPress={onClose} style={styles.pick} accessibilityRole="button" accessibilityLabel="Close reactions">
-        <Text style={styles.close}>✕</Text>
-      </Pressable>
+    <View style={[styles.bar, right && styles.barRight]} testID="react-bar">
+      {typing ? (
+        <View style={styles.typeRow}>
+          <TextInput
+            style={styles.typeBox}
+            autoFocus
+            placeholder={bad ? 'Emojis only' : 'Any emoji'}
+            placeholderTextColor={bad ? C.off : C.muted}
+            onChangeText={(t) => {
+              const e = cleanEmoji(t);
+              if (e) onPick(e); else if (t.trim()) setBad(true);
+            }}
+            onBlur={onClose}
+            maxLength={16}
+            accessibilityLabel="Pick any emoji from your keyboard"
+            testID="react-any-input"
+          />
+        </View>
+      ) : (
+        <>
+          {REACTIONS.map((e) => (
+            <Pressable key={e} onPress={() => onPick(e)} style={[styles.pick, mine === e && styles.pickOn]} hitSlop={2}
+              accessibilityRole="button" accessibilityState={{ selected: mine === e }} accessibilityLabel={'React ' + e} testID={'react-' + e}>
+              <Text style={styles.pickText}>{e}</Text>
+            </Pressable>
+          ))}
+          <Pressable onPress={() => setTyping(true)} style={[styles.pick, styles.plus]} accessibilityRole="button"
+            accessibilityLabel="Pick any emoji from your keyboard" testID="react-any">
+            <Text style={styles.plusText}>+</Text>
+          </Pressable>
+        </>
+      )}
     </View>
   );
 }
@@ -28,7 +61,7 @@ export function ReactBar({ mine, onPick, onClose }: { mine?: string | null; onPi
 export function ReactChips({ counts, mine, right, onPick }: {
   counts: Record<string, number>; mine?: string | null; right?: boolean; onPick: (e: string) => void;
 }) {
-  const list = REACTIONS.filter((e) => counts[e] > 0);
+  const list = Object.keys(counts).filter((e) => counts[e] > 0).sort((a, b) => counts[b] - counts[a]);
   if (!list.length) return null;
   return (
     <View style={[styles.chips, right && styles.chipsRight]}>
@@ -43,12 +76,18 @@ export function ReactChips({ counts, mine, right, onPick }: {
 }
 
 const styles = themed(() => StyleSheet.create({
-  bar: { flexDirection: 'row', alignItems: 'center', gap: 2, alignSelf: 'flex-start', paddingHorizontal: 6, paddingVertical: 4, borderRadius: 24,
-    backgroundColor: C.surface, borderWidth: 1, borderColor: C.line, marginTop: 4 },
-  pick: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
+  // A small floating pill with a shadow, sitting just above the message it belongs to.
+  bar: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', paddingHorizontal: 4, paddingVertical: 2, borderRadius: 22,
+    backgroundColor: C.surface, borderWidth: 1, borderColor: C.line, marginBottom: 4,
+    shadowColor: '#000', shadowOpacity: 0.3, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 6 },
+  barRight: { alignSelf: 'flex-end' },
+  pick: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
   pickOn: { backgroundColor: fade(C.on, 0.2) },
   pickText: { fontSize: 22 },
-  close: { fontFamily: F.bodyBold, fontSize: 14, color: C.muted },
+  plus: { backgroundColor: fade(C.fg, 0.08) },
+  plusText: { fontFamily: F.bodyBold, fontSize: 20, color: C.fg, marginTop: -2 },
+  typeRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 6 },
+  typeBox: { minWidth: 150, height: 36, fontSize: 20, color: C.fg, fontFamily: F.body, paddingVertical: 0 },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 4 },
   chipsRight: { justifyContent: 'flex-end' },
   chip: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 12, backgroundColor: C.surface, borderWidth: 1, borderColor: C.line },

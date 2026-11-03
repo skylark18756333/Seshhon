@@ -11,7 +11,7 @@ import { GreenRow, HomeBottom, HomeTop } from './Home';
 import { useHomeTapAgain, useOnShow, useShownRef } from './Shown';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  AppState, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
+  AppState, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
   type NativeScrollEvent, type NativeSyntheticEvent
 } from 'react-native';
 import { addCrawlStops, getMessages, reportMessage, seshCrawl, sendMessage, type CrawlStop, type Friend, type Member, type Message, type Sesh as SeshT } from './api';
@@ -27,6 +27,7 @@ import Icon from './Icon';
 import MeetMiddle from './MeetMiddle';
 import SpotPicker from './SpotPicker';
 import { ReactBar, ReactChips } from './Reactions';
+import KeyboardSafe from './KeyboardSafe';
 import { ChatTile, CoverBehind, EndPill, RoomTiles, SeshSettings, SeshStrip, TimeLeft, VotesMap, seshColours, useSeshDetails, type SeshLook } from './SeshDetails';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Avatar, Button, Face, Toast, TopBar } from './Parts';
@@ -354,7 +355,7 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
   const leadVen = tally.best && v.byId[tally.best] ? v.byId[tally.best] : null;
 
   return (
-    <Frame f={f} onOpenWeb={onOpenWeb} scroll={scroll} home compact={!later}>
+    <Frame f={f} onOpenWeb={onOpenWeb} scroll={scroll} home compact={!later} fixed={full && cur === 'chat'}>
       {room || later ? (
         <Pressable style={styles.linkRow} onPress={() => { setSeshId(null); setPanel(null); setInside(false); top(); }} accessibilityRole="button" accessibilityLabel="Back to Home" testID="sesh-back">
           <Icon name="back" size={16} colour={C.muted} /><Text style={styles.linkText}>Back to Home</Text>
@@ -457,8 +458,8 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
       ) : null}
 
       {/* The chat stays mounted while another part is open, so the card can show the newest line. */}
-      <View style={showPanel && cur === 'chat' ? null : styles.hidden}>
-        <Chat f={f} seshId={mine.id} myId={me.id} confirm={confirm} setConfirm={setConfirm} onLatest={(ms) => setLastMsg({ sesh: mine.id, ms })}
+      <View style={showPanel && cur === 'chat' ? (full ? styles.fill : null) : styles.hidden}>
+        <Chat f={f} fill={full} seshId={mine.id} myId={me.id} confirm={confirm} setConfirm={setConfirm} onLatest={(ms) => setLastMsg({ sesh: mine.id, ms })}
           onFocusInput={() => setTimeout(() => scroll.current?.scrollToEnd({ animated: true }), 250)}
           names={nameMap(mine.members)} onTyping={(names) => setTypers({ sesh: mine.id, names })} />
       </View>
@@ -598,19 +599,23 @@ function toggle(picked: Picked, id: string): Picked {
    Kept as their own pieces so the header can later carry more about the sesh, and each member row can later
    carry more about that person, without touching the rest of the screen. */
 /* ---------- the page around every Sesh view: header, glow, scrolling body, toast ---------- */
-function Frame({ f, onOpenWeb, scroll, home, compact, children }: { f: Frendzy; onOpenWeb: (tab: string) => void; scroll: React.RefObject<ScrollView | null>; home?: boolean; compact?: boolean; children: React.ReactNode }) {
-  const me = f.state && f.state.me;
+function Frame({ f, onOpenWeb, scroll, home, compact, fixed, children }: { f: Frendzy; onOpenWeb: (tab: string) => void; scroll: React.RefObject<ScrollView | null>; home?: boolean; compact?: boolean; fixed?: boolean; children: React.ReactNode }) {
   return (
-    // Android draws under the keyboard (edge to edge), so the screen is padded up by the keyboard's height on both.
-    <KeyboardAvoidingView style={styles.fill} behavior="padding">
+    // Android draws under the keyboard (edge to edge), so KeyboardSafe pads exactly the part the keyboard covers.
+    // fixed: the full-screen chat. Nothing scrolls but the messages, which sit at the bottom just above the typing box.
+    <KeyboardSafe style={styles.fill}>
       <TopBar f={f} onOpenWeb={onOpenWeb} />
-      <ScrollView ref={scroll} style={styles.fill} contentContainerStyle={styles.view} keyboardShouldPersistTaps="handled">
-        {home ? <HomeTop f={f} onOpenWeb={onOpenWeb} compact={compact} /> : null}
-        {children}
-        {home ? <HomeBottom f={f} onOpenWeb={onOpenWeb} /> : null}
-      </ScrollView>
+      {fixed ? (
+        <View style={[styles.view, styles.fixedView]}>{children}</View>
+      ) : (
+        <ScrollView ref={scroll} style={styles.fill} contentContainerStyle={styles.view} keyboardShouldPersistTaps="handled">
+          {home ? <HomeTop f={f} onOpenWeb={onOpenWeb} compact={compact} /> : null}
+          {children}
+          {home ? <HomeBottom f={f} onOpenWeb={onOpenWeb} /> : null}
+        </ScrollView>
+      )}
       <Toast text={f.toast} />
-    </KeyboardAvoidingView>
+    </KeyboardSafe>
   );
 }
 
@@ -1366,7 +1371,8 @@ function nameMap(members: Member[]): Record<string, string> {
   return out;
 }
 
-function Chat({ f, seshId, myId, confirm, setConfirm, onLatest, names, onTyping, onFocusInput }: {
+function Chat({ f, seshId, myId, confirm, setConfirm, onLatest, names, onTyping, onFocusInput, fill }: {
+  fill?: boolean;   // full-screen chat: the list takes the space, newest messages at the bottom above the typing box
   f: Frendzy; seshId: string; myId: string; confirm: string | null; setConfirm: (c: string | null) => void; onLatest?: (ms: Message[]) => void;
   names: Record<string, string>; onTyping?: (names: string[]) => void;
   onFocusInput?: () => void;   // the page scrolls down so the typing box sits just above the keyboard
@@ -1455,7 +1461,7 @@ function Chat({ f, seshId, myId, confirm, setConfirm, onLatest, names, onTyping,
   const react = (m: Message, e: string) => {
     setReacting(null);
     rpc('react_message', { p_message: m.id, p_emoji: e }).then(() => refresh(true),
-      (x: ApiError) => f.say(/react_message/.test(x.message || '') ? 'Reactions are on the way.' : x.message));
+      (x: ApiError) => f.say(/react_message/.test(x.message || '') ? 'Reactions are on the way.' : /check constraint/.test(x.message || '') ? "That emoji can't be used yet." : x.message));
   };
   const onScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const { contentSize, contentOffset, layoutMeasurement } = e.nativeEvent;
@@ -1463,14 +1469,15 @@ function Chat({ f, seshId, myId, confirm, setConfirm, onLatest, names, onTyping,
   };
 
   return (
-    <View style={styles.stack}>
-      <Text style={[styles.muted, styles.small]}>Messages disappear when the sesh ends. Friends can still screenshot, so only send what you're happy for them to keep.</Text>
+    <View style={[styles.stack, fill && styles.fill]}>
+      <Text style={[styles.muted, styles.small]} numberOfLines={fill ? 2 : undefined}>Messages disappear when the sesh ends. Friends can still screenshot, so only send what you're happy for them to keep.</Text>
       <ScrollView
         ref={list}
-        style={styles.chat}
-        contentContainerStyle={styles.chatInner}
+        style={fill ? styles.chatFill : styles.chat}
+        contentContainerStyle={fill ? [styles.chatInner, styles.chatInnerFill] : styles.chatInner}
         nestedScrollEnabled
         onScroll={onScroll}
+        onScrollBeginDrag={() => setReacting(null)}
         scrollEventThrottle={100}
         onContentSizeChange={() => {
           if (stick.current || nearEnd.current) list.current?.scrollToEnd({ animated: false });
@@ -1487,6 +1494,7 @@ function Chat({ f, seshId, myId, confirm, setConfirm, onLatest, names, onTyping,
               {mineMsg ? null : <View style={{ marginBottom: 18 }}><Avatar id={m.sender} name={m.name} photos={f.photos} size={36} /></View>}
               <View style={styles.msgWrap}>
                 {mineMsg ? null : <Text style={styles.who}>{first(m.name)}</Text>}
+                {reacting === m.id ? <ReactBar mine={m.my_reaction} right={mineMsg} onPick={(e) => react(m, e)} onClose={() => setReacting(null)} /> : null}
                 <Pressable style={[styles.msg, mineMsg ? styles.msgMe : styles.msgThem]} onLongPress={() => setReacting(reacting === m.id ? null : m.id)}
                   delayLongPress={300} accessibilityHint="Hold to react" accessibilityActions={[{ name: 'longpress', label: 'React' }]}
                   onAccessibilityAction={() => setReacting(m.id)} testID={'msg-' + m.id}>
@@ -1518,7 +1526,6 @@ function Chat({ f, seshId, myId, confirm, setConfirm, onLatest, names, onTyping,
                   )}
                 </Pressable>
                 <ReactChips counts={m.reactions || {}} mine={m.my_reaction} right={mineMsg} onPick={(e) => react(m, e)} />
-                {reacting === m.id ? <ReactBar mine={m.my_reaction} onPick={(e) => react(m, e)} onClose={() => setReacting(null)} /> : null}
               </View>
             </View>
           );
@@ -1530,7 +1537,7 @@ function Chat({ f, seshId, myId, confirm, setConfirm, onLatest, names, onTyping,
           </View>
         ) : null}
       </ScrollView>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.quickRow}>
+      <ScrollView horizontal style={styles.noGrow} showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.quickRow}>
         {QUICK_REPLIES.map((q) => (
           <Pressable key={q} style={({ pressed }) => [styles.quick, (pressed || sending) && styles.quickDown]} onPress={() => send(q)} disabled={sending}
             accessibilityRole="button" accessibilityLabel={'Send: ' + q} testID={'quick-' + q}>
@@ -1548,7 +1555,7 @@ function Chat({ f, seshId, myId, confirm, setConfirm, onLatest, names, onTyping,
           placeholder="Type a message..."
           placeholderTextColor={C.muted}
           accessibilityLabel="Message your mates"
-          onFocus={onFocusInput}
+          onFocus={() => { onFocusInput?.(); setTimeout(() => list.current?.scrollToEnd({ animated: true }), 300); }}
           returnKeyType="send"
           onSubmitEditing={() => send()}
           submitBehavior="submit"
@@ -1692,6 +1699,10 @@ const styles = themed(() => StyleSheet.create({
   tileNote: { fontFamily: F.body, fontSize: 12, lineHeight: 16, color: 'rgba(255, 255, 255, 0.9)' },
 
   fill: { flex: 1 },
+  fixedView: { flex: 1, paddingTop: 12, paddingBottom: 10, gap: 12 },
+  chatFill: { flex: 1 },
+  noGrow: { flexGrow: 0, flexShrink: 0 },
+  chatInnerFill: { flexGrow: 1, justifyContent: 'flex-end' },
   view: { paddingHorizontal: 18, paddingTop: 20, paddingBottom: 24, gap: 20, maxWidth: 440, width: '100%', alignSelf: 'center' },
   head: { gap: 6 },
   stack: { gap: 10 },

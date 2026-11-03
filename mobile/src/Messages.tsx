@@ -4,7 +4,7 @@
 // A message is locked here, sits in the database as scrambled text until your friend's phone collects it, then it
 // is deleted there. The history you see is kept on this phone only (AsyncStorage). Lose the phone, lose the chat.
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { joinTyping, SHOW_FOR_MS, type TypingLink } from './typing';
 import TypingLights from './TypingLights';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -16,6 +16,7 @@ import type { Friend } from './api';
 import Icon from './Icon';
 import { Button, Face, Toast, setWaiting } from './Parts';
 import { ReactBar, ReactChips } from './Reactions';
+import KeyboardSafe from './KeyboardSafe';
 import { rpc, type ApiError } from './session';
 import type { Frendzy } from './useFrendzy';
 import { C, COLOURS, F, LABELS, fade, first, fmtTime, themed } from './theme';
@@ -245,20 +246,21 @@ export default function Messages({ f, onBack, onSesh }: { f: Frendzy; onBack: ()
         </Pressable>
         <Text style={[styles.h1, styles.grow]} numberOfLines={1} accessibilityRole="header">{friend ? friend.name : 'Messages'}</Text>
       </View>
-      <KeyboardAvoidingView style={styles.fill} behavior="padding">
+      <KeyboardSafe style={styles.fill}>
         {friend ? (
           <>
-            <ScrollView ref={scroll} style={styles.fill} contentContainerStyle={styles.view} keyboardShouldPersistTaps="handled">
+            <ScrollView ref={scroll} style={styles.fill} contentContainerStyle={[styles.view, styles.bottomUp]} keyboardShouldPersistTaps="handled"
+              onScrollBeginDrag={() => setReacting(null)} onContentSizeChange={() => scroll.current?.scrollToEnd({ animated: false })}>
               <Text style={[styles.muted, styles.small]}>Locked: only you and {first(friend.name)} can read these. Crewzy never keeps them, they live on your phones.</Text>
               {(hist.chats[friend.id] || []).map((m) => (
                 <View key={m.id} style={m.me ? styles.mineWrap : styles.theirsWrap}>
+                  {reacting === m.id ? <ReactBar mine={m.myReact} right={m.me} onPick={(e) => react(m, e)} onClose={() => setReacting(null)} /> : null}
                   <Pressable style={[styles.bubble, m.me ? styles.mine : styles.theirs]} onLongPress={() => setReacting(reacting === m.id ? null : m.id)}
                     delayLongPress={300} accessibilityHint="Hold to react" accessibilityActions={[{ name: 'longpress', label: 'React' }]}
                     onAccessibilityAction={() => setReacting(m.id)} testID={'dm-msg-' + m.id}>
                     <Text style={[styles.body, m.me && styles.mineText]}>{m.text}</Text>
                   </Pressable>
                   <ReactChips counts={reactCounts(m)} mine={m.myReact} right={m.me} onPick={(e) => react(m, e)} />
-                  {reacting === m.id ? <ReactBar mine={m.myReact} onPick={(e) => react(m, e)} onClose={() => setReacting(null)} /> : null}
                 </View>
               ))}
               {!(hist.chats[friend.id] || []).length ? <Text style={styles.muted}>No messages yet. Say hi.</Text> : null}
@@ -278,6 +280,7 @@ export default function Messages({ f, onBack, onSesh }: { f: Frendzy; onBack: ()
                 placeholderTextColor={C.muted}
                 maxLength={1000}
                 multiline
+                onFocus={() => setTimeout(() => scroll.current?.scrollToEnd({ animated: true }), 300)}
                 accessibilityLabel="Message"
               />
               {/* A round send button with the paper plane, the same as the sesh chat's. */}
@@ -328,7 +331,7 @@ export default function Messages({ f, onBack, onSesh }: { f: Frendzy; onBack: ()
             </View>
           </ScrollView>
         )}
-      </KeyboardAvoidingView>
+      </KeyboardSafe>
       <Toast text={f.toast} />
     </View>
   );
@@ -363,6 +366,7 @@ const styles = themed(() => StyleSheet.create({
   seshIconIn: { position: 'absolute', top: 0, left: 0, right: 12, bottom: 12, borderRadius: 25, alignItems: 'center', justifyContent: 'center', width: 50, height: 50 },
   livePin: { fontFamily: F.bodyBold, fontSize: 10, letterSpacing: 1, color: '#fff', backgroundColor: C.off, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, overflow: 'hidden' },
   lockLine: { flexDirection: 'row', alignItems: 'center', gap: 6, justifyContent: 'center', marginTop: 10 },
+  bottomUp: { flexGrow: 1, justifyContent: 'flex-end' },   // newest messages sit at the bottom, by the typing box
   mineWrap: { alignItems: 'flex-end' },
   theirsWrap: { alignItems: 'flex-start' },
   bubble: { maxWidth: '82%', borderRadius: 18, paddingHorizontal: 14, paddingVertical: 10 },
