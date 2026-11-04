@@ -1566,6 +1566,12 @@ function Chat({ f, seshId, myId, confirm, setConfirm, onLatest, names, onTyping,
             <Text style={[styles.muted, styles.tiny]} numberOfLines={1}>{typingLine(typingNames)}</Text>
           </View>
         ) : null}
+        {/* Your own Crewzy dots while you type (Sarah, 2026-11-04): what your friends are seeing too. */}
+        {draft.trim() ? (
+          <View style={[styles.msgRow, styles.msgRowMe, styles.typingRow]} accessibilityLabel="You're typing" testID="my-typing">
+            <TypingLights />
+          </View>
+        ) : null}
       </ScrollView>
       <ScrollView horizontal style={styles.noGrow} showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.quickRow}>
         {QUICK_REPLIES.map((q) => (
