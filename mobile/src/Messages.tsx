@@ -29,12 +29,26 @@ type Msg = { id: string; me: boolean; text: string; at: string; myReact?: string
 // older app shows instead ("Reacted ❤️"). Nothing about it is stored anywhere but the two phones.
 const REACT = '\u2063R:';
 function reactText(id: string, emoji: string): string { return REACT + id + ':' + emoji + '\u2063 ' + (emoji ? 'Reacted ' + emoji : 'Took a reaction off'); }
+// Also reads one that lost its hidden marker, or that an older app saved as a plain message, so the raw
+// "R:<id>:🔥 Reacted 🔥" text never shows (Sarah, 2026-11-04).
+const REACT_RE = /^\u2063?R:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}):([^\u2063\s]*)/i;
 function readReact(text: string): { id: string; emoji: string } | null {
-  if (!text.startsWith(REACT)) return null;
-  const end = text.indexOf('\u2063', REACT.length);
-  const body = text.slice(REACT.length, end < 0 ? undefined : end);
-  const at = body.indexOf(':');
-  return at < 0 ? null : { id: body.slice(0, at), emoji: body.slice(at + 1) };
+  const m = REACT_RE.exec(text);
+  return m ? { id: m[1], emoji: m[2] } : null;
+}
+// Turn reactions saved as plain messages into reactions on the message they belong to, and drop the bubbles.
+function tidyReactions(h: History): History {
+  let next = h;
+  for (const friend of Object.keys(h.chats)) {
+    const list = h.chats[friend];
+    if (!list.some((x) => readReact(x.text))) continue;
+    next = { ...next, chats: { ...next.chats, [friend]: list.filter((x) => !readReact(x.text)) } };
+    for (const x of list) {
+      const re = readReact(x.text);
+      if (re) next = setReact(next, friend, re.id, x.me ? 'myReact' : 'theirReact', re.emoji);
+    }
+  }
+  return next;
 }
 function setReact(h: History, friend: string, id: string, field: 'myReact' | 'theirReact', emoji: string): History {
   const list = h.chats[friend];
@@ -67,7 +81,7 @@ async function ensureKey(uid: string): Promise<nacl.BoxKeyPair> {
 async function loadHistory(uid: string): Promise<History> {
   try {
     const raw = await AsyncStorage.getItem('dm-history-' + uid);
-    if (raw) { const h = JSON.parse(raw); return { chats: h.chats || {}, seen: h.seen || {} }; }
+    if (raw) { const h = JSON.parse(raw); return tidyReactions({ chats: h.chats || {}, seen: h.seen || {} }); }
   } catch (_) { /* start empty */ }
   return { chats: {}, seen: {} };
 }
