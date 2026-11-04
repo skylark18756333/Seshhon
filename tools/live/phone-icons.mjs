@@ -1,6 +1,6 @@
 // Draws the phone app's icon and splash images: node tools/live/phone-icons.mjs
 // The Crewzy mark (three status lights: red, amber, green) at the sizes the App Store and Play Store want.
-// The top of the app shows "Cr" with the same lights (mobile/src/Logo.tsx).
+// The top of the app shows "Crewzy" with the same lights over "ewzy" (mobile/src/Logo.tsx).
 import { chromium } from 'playwright';
 import fs from 'node:fs';
 import path from 'node:path';
