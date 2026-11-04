@@ -223,8 +223,9 @@ export function SeshSettings({ s, look, say, onEnd, children }: {
   const setPhoto = async (remove: boolean) => {
     let url: string | null = null;
     if (!remove) {
+      // allowsEditing opens the phone's own crop screen: move and zoom the photo to fit the wide cover box.
       let picked: ImagePicker.ImagePickerResult;
-      try { picked = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 1 }); } catch (e) { say('That photo could not be opened. Try a different one.'); return; }
+      try { picked = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 1, allowsEditing: true, aspect: [2, 1] }); } catch (e) { say('That photo could not be opened. Try a different one.'); return; }
       if (picked.canceled || !picked.assets || !picked.assets[0]) return;
       try { url = await shrinkCover(picked.assets[0]); } catch (e) { say('That photo could not be used. Try a different one.'); return; }
     }
