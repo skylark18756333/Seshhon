@@ -9,6 +9,7 @@ import Icon from './Icon';
 import type { LatLng, MapMarker, MapView } from './mapShared';
 import { useShown } from './Shown';
 import { C, F, fade, themed, useLook } from './theme';
+import { useWalkRoute } from './walkRoute';
 
 const BLUE = '#1F7BFF', GOAL = '#FF4757', FAR = '#8A90A0', HEAT = '#FF7A1A', RADAR = '#3DDC84', GOLD = '#FFC53D';
 const GLOW_SIZE = [0, 62, 80, 104];   // busy 0..3: the glow behind a bubble grows with how many are heading there
@@ -222,6 +223,12 @@ function NativeMap(p: MapView) {
   const onPick = useCallback((id: string) => onPickRef.current(id), []);
   const names = useRef<boolean | null>(null);
   const first = useRef(true);
+  // Google's map is ready. Until then the padding isn't set (setting it early crashed the app on Android, Sarah's
+  // Pixel bug report, 2026-11-04), the markers aren't added (some were lost, Sesh Map 2026-11-04) and the camera
+  // isn't moved (it was ignored, so the Sesh Map didn't show all its stops).
+  const [ready, setReady] = useState(false);
+  const onReady = useCallback(() => setReady(true), []);
+  const walk = useWalkRoute(p.route);   // the stops joined along footpaths and streets, not through buildings
   const look = useLook();   // markers are drawn once and frozen, so a new look draws them again
 
   // The radar layer: where the circle and the venues are on the screen, read when the map stops moving.
@@ -263,7 +270,7 @@ function NativeMap(p: MapView) {
 
   // Move to show the circle or the search hits when the screen asks for it.
   useEffect(() => {
-    if (!p.fit.coords.length) return;
+    if (!ready || !p.fit.coords.length) return;
     const t = setTimeout(() => {
       if (!map.current) return;
       if (p.fit.coords.length === 1) {
@@ -275,7 +282,7 @@ function NativeMap(p: MapView) {
     }, 50);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [p.fit.key]);
+  }, [p.fit.key, ready]);
 
   // A venue picked from the list: bring it into view without zooming out.
   useEffect(() => {
@@ -286,10 +293,6 @@ function NativeMap(p: MapView) {
 
   const compact = p.radiusKm >= COMPACT_FROM_KM;
   const padNow = useMemo(() => (p.pad ? { top: p.pad.top, bottom: p.pad.bottom, left: 0, right: 0 } : undefined), [p.pad]);
-  // The padding is only handed to the map once Google's map is ready: setting it before then crashes the app on
-  // Android ("GoogleMap.setPadding on a null object", Sarah's Pixel bug report, 2026-11-04).
-  const [ready, setReady] = useState(false);
-  const onReady = useCallback(() => setReady(true), []);
   const padding = ready ? padNow : undefined;
   const onRegion = (r: Region) => {
     const near = r.latitudeDelta < NAMES_BELOW_DELTA;
@@ -340,15 +343,15 @@ function NativeMap(p: MapView) {
         <Circle key={'r2-' + p.radiusKm + '-' + p.centre.join(',')} center={{ latitude: p.centre[0], longitude: p.centre[1] }} radius={p.radiusKm * 667} strokeColor={fade(RADAR, 0.35)} strokeWidth={1} fillColor={fade(RADAR, 0.04)} />,
         <Circle key={'r1-' + p.radiusKm + '-' + p.centre.join(',')} center={{ latitude: p.centre[0], longitude: p.centre[1] }} radius={p.radiusKm * 333} strokeColor={fade(RADAR, 0.35)} strokeWidth={1} fillColor={fade(RADAR, 0.05)} />
       ] : null}
-      {p.route.length >= 2 ? (
-        <Polyline coordinates={p.route.map((c) => ({ latitude: c[0], longitude: c[1] }))} strokeColor={BLUE} strokeWidth={4} lineDashPattern={[1, 10]} lineCap="round" />
+      {ready && walk.length >= 2 ? (
+        <Polyline coordinates={walk.map((c) => ({ latitude: c[0], longitude: c[1] }))} strokeColor={BLUE} strokeWidth={4} lineDashPattern={[1, 10]} lineCap="round" />
       ) : null}
       {p.chosen ? (
         <Pin key={'spot-' + look + p.mine} coordinate={{ latitude: p.centre[0], longitude: p.centre[1] }} anchor={{ x: 0.5, y: 0.5 }} tappable={false} zIndex={1}>
           <SpotMark mine={p.mine} name={p.meName} />
         </Pin>
       ) : null}
-      {p.markers.map((m) => (
+      {ready && p.markers.map((m) => (
         <VenuePin
           // A marker whose picture changes size (the small zoomed-out box, or a picked venue's full bubble) is made
           // again; changing a custom marker's size in place on Android closed the app. Same-size changes redraw in place.
