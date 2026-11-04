@@ -23,7 +23,7 @@ export const TIPS: Record<string, TipCopy> = {
   'top-you': { title: 'You', body: 'Your photo, username, look, safety settings and badges. This tour and these tips are there too.', go: 'Open my page' },
 
   /* ---------- the party lobby on Home (not in a sesh) ---------- */
-  'lobby-now': { title: 'Start a sesh now', body: 'Pick a spot near you and your sesh starts there straight away. You go green, and friends on green and amber can join.', go: "Let's go" },
+  'lobby-now': { title: 'Start a sesh now', body: 'Your sesh starts straight away, then you and your friends vote on where to go. You go green, and friends on green and amber can join.', go: "Let's go" },
   'lobby-crawl': { title: 'Crewzy crawl', body: 'A few spots a short walk apart. Everyone in the sesh sees the route on the Sesh Map and ticks off each stop.', go: 'Plan a crawl' },
   'lobby-plan': { title: 'Plan for later', body: 'Pick a day on your calendar, a time and who to invite. It shows up under Coming up, and you can start it early.', go: 'Plan one' },
   'lobby-private': { title: 'Invite only', body: 'Only the friends you pick can see this sesh and join it. Nobody else knows it\'s on.', go: 'Pick friends' },
@@ -153,7 +153,7 @@ export function addAnchor(id: string, a: Anchor): () => void {
 type GuideStep = { id: string; title: string; body: string; tap?: boolean };
 const GUIDE: GuideStep[] = [
   { id: 'dock-status', title: 'Your status orb', body: "This glowing orb is you. Tap it and red, amber and green pop up, or push it sideways. Green: keen to go out. Amber: thinking about it. Red: off and hidden. It's on every screen." },
-  { id: 'lobby-now', title: 'Start a sesh now', body: 'Pick a spot near you and your sesh starts there straight away. Friends on green and amber can jump in.' },
+  { id: 'lobby-now', title: 'Start a sesh now', body: 'Your sesh starts straight away, then you and your friends vote on where to go. Friends on green and amber can jump in.' },
   { id: 'lobby-crawl', title: 'Crewzy crawl', body: 'Plan a few spots a short walk apart. Everyone sees the route and ticks off each stop.' },
   { id: 'lobby-plan', title: 'Plan for later', body: 'Pick a day on the calendar, a time and who to invite.' },
   { id: 'lobby-seat', title: 'Fill your seats', body: 'Tap a seat to pick friends for an invite-only sesh. Hosting earns XP for every friend who joins.' },
