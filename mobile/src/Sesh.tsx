@@ -88,7 +88,15 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
   const mine = (seshId && seshes.filter((s) => s.am_member && s.id === seshId)[0]) || live;
   const mineId = mine ? mine.id : null;
   const sd = useSeshDetails(mineId);   // its name, emoji, colour, cover photo and invite-only (0044)
-  useEffect(() => { setInside(false); }, [mineId]);   // a new or ended sesh starts back on Home
+  // A new or ended sesh starts back on Home, except one you just started with "Start a sesh now": that opens
+  // on its settings, then inviting friends, then picking the spot (Sarah, 2026-11-04).
+  // Setting up a sesh you just started, in Sarah's order: 1 its settings, 2 invite friends, 3 pick a place.
+  const openVote = useRef(false);
+  const [setup, setSetup] = useState<null | 'settings' | 'invite'>(null);
+  useEffect(() => {
+    if (openVote.current && mineId) { openVote.current = false; setInside(true); setPanel('more'); setSetup('settings'); return; }
+    setInside(false); setSetup(null);
+  }, [mineId]);
   useHomeTapAgain(() => { setInside(false); setPanel(null); setSeshId(null); scroll.current?.scrollTo({ y: 0, animated: false }); });
   const top = () => scroll.current?.scrollTo({ y: 0, animated: false });
 
@@ -186,11 +194,11 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
           mine={mine}
           photos={f.photos}
           onPick={(id) => setPicker((p) => (p ? { ...p, picked: toggle(p.picked, id) } : p))}
-          onCancel={() => { setPicker(null); top(); }}
+          onCancel={() => { setPicker(null); if (setup === 'invite') { setSetup(null); setPanel('where'); } top(); }}
           onGo={() => {
             const ids = Object.keys(picker.picked);
             if (!ids.length) return;
-            const done = (r: unknown) => { if (r) { setPicker(null); top(); } };
+            const done = (r: unknown) => { if (r) { setPicker(null); if (setup === 'invite') { setSetup(null); setPanel('where'); } top(); } };
             if (picker.mode === 'invite' && mine) f.act('invite_to_sesh', { p_sesh: mine.id, p_friends: ids }, 'Invited. They can see the sesh now.').then(done);
             else f.act('start_private_sesh', { p_friends: ids }, 'Private sesh started. Only the friends you picked can see it.').then(done);
           }}
@@ -276,8 +284,14 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
       f.act('set_status', { new_colour: 'on' }, "You're green.").then((r) => { then(); });
     };
     const tiles: LobbyTile[] = [
-      { key: 'now', emoji: '⚡', title: 'Go now', note: 'Pick a spot near you. Friends on green can join', colours: ['#FF7A45', '#E0407A'],
-        onPress: () => { setGoing(true); top(); } },
+      { key: 'now', emoji: '⚡', title: 'Go now', note: 'Starts now. Then set it up, invite friends and pick a place', colours: ['#FF7A45', '#E0407A'],
+        onPress: () => goGreen(() => {
+          if (making) return;
+          setMaking(true);
+          openVote.current = true;
+          f.act('start_sesh', {}, "Sesh started. Set it up, then invite friends and pick a place.").then((r: any) => { if (!r || !r.id) openVote.current = false; else top(); })
+            .finally(() => setMaking(false));
+        }) },
       ...(crawl.off ? [] : [{ key: 'crawl', emoji: '📍', title: 'Crewzy crawl', note: 'A few spots a short walk apart', colours: ['#21C6A4', '#2A7FD4'] as [string, string],
         onPress: () => goGreen(() => { setMake({ target: null }); top(); }) }]),
       { key: 'plan', emoji: '🗓', title: 'Plan for later', note: 'Pick a day on your calendar', colours: ['#5B8CFF', '#9B5BFF'], onPress: openCalendar },
@@ -538,6 +552,14 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
             )}
           </>
         ) : (
+          <>
+          {setup === 'settings' ? (
+            <View style={[styles.card, styles.lead]} testID="setup-step1">
+              <Text style={styles.eyebrow}>Step 1 of 3</Text>
+              <Text style={styles.h2}>Set up your sesh</Text>
+              <Text style={[styles.muted, styles.small]}>Give it a name, emoji, colour and photo, and choose who can see it. Save, then invite friends.</Text>
+            </View>
+          ) : null}
           <SeshSettings s={mine} look={sd} say={f.say} onEnd={endIt}>
           {mine.private ? (
             <View style={styles.card}>
@@ -581,6 +603,16 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
             }}
           />
           </SeshSettings>
+          {setup === 'settings' ? (
+            <Button label="Next: invite friends" colour={C.on} ink testID="setup-next" onPress={() => {
+              const closed = !!((sd.details && sd.details.private) || mine.private);
+              if (closed) { setSetup('invite'); setPicker({ mode: 'invite', picked: {} }); top(); return; }
+              // An open sesh: every green and amber friend can already see it and join, so there's no one to pick.
+              setSetup(null); setPanel('where'); top();
+              f.say('Your green and amber friends can see it and join. Now pick a place.');
+            }} />
+          ) : null}
+          </>
         )
       ) : null}
 

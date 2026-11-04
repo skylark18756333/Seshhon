@@ -224,7 +224,7 @@ try {
     await natTip.page.waitForTimeout(500);
     // Go now: the first tap shows the tip, and nothing is started until "Let's go" on the tip.
     await natTip.page.getByTestId('lobby-now').click();
-    await has(natTip, 'Pick a spot near you and your sesh starts');
+    await has(natTip, 'Your sesh starts straight away');
     await tshot(natTip, '11-tip-go-now.png');
     expect('Go now waits for the tip', psql("select count(*) from public.seshes s join public.profiles p on p.id = s.creator where p.name = 'Ana'"), 0);
     await natTip.page.getByRole('button', { name: 'Not now', exact: true }).click();
@@ -289,14 +289,6 @@ try {
   await has(nat, 'Start a sesh now');
   await sshot(nat, '1-no-sesh.png');
 
-  // Go now opens "Where to?": a map and the popular spots around you. (Picking one is checked after this sesh ends.)
-  await nat.page.getByTestId('lobby-now').filter({ visible: true }).first().click();
-  await has(nat, 'Where to?');
-  await has(nat, 'Popular around here');
-  await has(nat, 'Pick a spot to start');
-  await sshot(nat, '1b-where-to.png');
-  await tap(nat, 'Back');
-  await has(nat, "What's the move?");
   // An open sesh to vote in: start_sesh as Ana's phone calls it (a sesh started without a spot, as Invite only does).
   const startAs = async (name, fn, args = {}) => {
     const tok = JSON.parse(sessions[name] || await nat.page.evaluate(() => localStorage.getItem('seshhon-session-v1'))).access_token;
@@ -808,22 +800,19 @@ try {
   await sshot(nat, '16-ended.png');
   await natJ.ctx.close();
 
-  // Go now, properly: pick the top popular spot and the sesh starts there, locked in (start_sesh, cast_vote, lock_sesh).
-  // The seeded venues are examples, which Go now never offers, so reopen the app to load the real ones added above.
-  await nat.page.reload();
-  await has(nat, "What's the move?", 20000);
+  // Start a sesh now: the sesh starts straight away (no spot yet), then 1 its settings, 2 invite friends, 3 pick a place.
+  await nat.page.getByRole('tab', { name: 'Home' }).click();
+  await has(nat, 'Start a sesh now', 20000);
   await nat.page.getByTestId('lobby-now').filter({ visible: true }).first().click();
-  await has(nat, 'Popular around here');
-  const firstSpot = nat.page.locator('[data-testid^="spot-"]:not([data-testid="spot-open"])').filter({ visible: true }).first();
-  const spotId = (await firstSpot.getAttribute('data-testid')).slice(5);
-  await firstSpot.click();
-  const spotName = psql(`select name from public.venues where id = '${spotId}'`);
-  await tap(nat, 'Start the sesh at ' + spotName);
-  await has(nat, 'LIVE SESH');
-  await has(nat, spotName);
-  await until(() => psql(`select count(*) from public.seshes where creator = '${anaId}' and locked_venue = '${spotId}'`) === '1');
-  expect('Go now sesh locked at the picked spot', psql(`select count(*) from public.seshes where creator = '${anaId}' and locked_venue = '${spotId}'`), 1);
-  await sshot(nat, '16b-go-now-spot.png');
+  await has(nat, 'Step 1 of 3');
+  const freshSesh = `select count(*) from public.seshes where creator = '${anaId}' and locked_venue is null and created_at > now() - interval '2 minutes' and created_at <= now()`;
+  await until(() => psql(freshSesh) === '1');
+  expect('Start a sesh now starts it with no spot yet', psql(freshSesh), 1);
+  await sshot(nat, '16a-start-now-settings.png');
+  await nat.page.getByTestId('setup-next').filter({ visible: true }).first().click();
+  await nat.page.waitForTimeout(600);
+  expect('after settings (open sesh) it goes to picking a place', await nat.page.getByTestId('sesh-where').filter({ visible: true }).count() > 0, true);
+  await sshot(nat, '16b-start-now-vote.png');
   await nat.page.getByTestId('sesh-more').filter({ visible: true }).first().click();
   await nat.page.getByTestId('sesh-end-big').filter({ visible: true }).first().click();
   await has(nat, 'Sesh ended.');
