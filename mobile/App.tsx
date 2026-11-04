@@ -34,6 +34,7 @@ import Tabs from './src/Tabs';
 import EventsTab from './src/EventsTab';
 import VenuePage from './src/VenuePage';
 import Tour from './src/Tour';
+import { TipHost } from './src/Tip';
 import TwoStep from './src/TwoStep';
 import You from './src/You';
 import { C, first, themed, useLook } from './src/theme';
@@ -483,6 +484,7 @@ function Shell() {
           colour={f.state && f.state.me ? f.state.me.colour : null} onPick={pickTab} onColour={f.setColour} />
       </View>
       <FriendProfileHost f={f} onMessages={openChatWith} />
+      <TipHost />
       {tour && me ? <Tour name={first(me.name)} onClose={() => { clearTour(); setTour(false); askAfterTour().catch(() => {}); }} /> : null}
     </Layer>
   );

@@ -26,8 +26,9 @@ function when(s: Sesh): string {
 // Seshes waiting on you: ones you're not in yet. Shared with the Chats tab's count.
 export function seshInvites(f: Frendzy, hidden: Record<string, true>): Sesh[] {
   const st = f.state;
-  if (!st || !st.me) return [];
-  return (st.seshes || []).filter((s) => !s.am_member && !hidden[s.id] && (st.me.colour !== 'off' || !!s.private || !!when(s)));
+  const me = st && st.me;
+  if (!st || !me) return [];
+  return (st.seshes || []).filter((s) => !s.am_member && !hidden[s.id] && (me.colour !== 'off' || !!s.private || !!when(s)));
 }
 
 const HIDDEN_KEY = 'notif-hidden-seshes';

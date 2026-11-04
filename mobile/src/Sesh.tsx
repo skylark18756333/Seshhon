@@ -25,6 +25,7 @@ import { CrawlBuilder } from './Crawl';
 import CrawlMap from './CrawlMap';
 import Icon from './Icon';
 import MeetMiddle from './MeetMiddle';
+import { Tip } from './Tip';
 import SpotPicker from './SpotPicker';
 import { ReactBar, ReactChips } from './Reactions';
 import KeyboardSafe from './KeyboardSafe';
@@ -305,7 +306,7 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
                       {s.members.length} in{s.locked_venue && v.byId[s.locked_venue] ? ', at ' + v.byId[s.locked_venue].name : ', picking a spot'}
                     </Text>
                   </View>
-                  <Button small label="Join" onPress={() => f.act('join_sesh', { p_sesh: s.id }, "You're in.")} />
+                  <Tip id="join-sesh" onPress={() => f.act('join_sesh', { p_sesh: s.id }, "You're in.")}>{(press) => <Button small label="Join" onPress={press} />}</Tip>
                 </View>
               </View>
             ))}
@@ -1061,16 +1062,19 @@ function Lobby({ f, tiles, note, onSeat }: { f: Frendzy; tiles: LobbyTile[]; not
           <Text style={styles.seatName}>You</Text>
         </View>
         {[0, 1, 2, 3].map((i) => (
-          <Pressable key={i} style={styles.seat} onPress={onSeat} accessibilityRole="button" accessibilityLabel="Pick friends for a private sesh">
+          <Tip key={i} id="lobby-seat" onPress={onSeat}>{(press) => (
+          <Pressable style={styles.seat} onPress={press} accessibilityRole="button" accessibilityLabel="Pick friends for a private sesh">
             <View style={styles.seatEmpty}><Icon name="plus" size={18} colour={C.muted} /></View>
             <Text style={[styles.seatName, { color: C.muted }]}>Invite</Text>
           </Pressable>
+          )}</Tip>
         ))}
       </View>
       {note ? <Text style={[styles.muted, styles.small]}>{note}</Text> : null}
       <View style={styles.tiles}>
         {tiles.map((t) => (
-          <Pressable key={t.key} style={({ pressed }) => [styles.tileWrap, pressed && { transform: [{ scale: 0.97 }] }]} onPress={t.onPress}
+          <Tip key={t.key} id={'lobby-' + t.key} onPress={t.onPress} style={styles.tileWrap}>{(press) => (
+          <Pressable style={({ pressed }) => [pressed && { transform: [{ scale: 0.97 }] }]} onPress={press}
             accessibilityRole="button" accessibilityLabel={t.title + '. ' + t.note} testID={'lobby-' + t.key}>
             <LinearGradient colors={t.colours} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.tile}>
               <Text style={styles.tileEmoji}>{t.emoji}</Text>
@@ -1080,6 +1084,7 @@ function Lobby({ f, tiles, note, onSeat }: { f: Frendzy; tiles: LobbyTile[]; not
               </View>
             </LinearGradient>
           </Pressable>
+          )}</Tip>
         ))}
       </View>
     </View>

@@ -20,6 +20,7 @@ import { loadBuzz, meetShare, meetStop, meetVenues, seshCrawl, type Buzz, type C
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from './Icon';
+import { Tip } from './Tip';
 import type { LatLng, MapMarker } from './mapShared';
 import NativeMap from './NativeMap';
 import { MAP_CENTRE, RADIUS_KM } from './config';
@@ -354,10 +355,12 @@ export default function MapTab({ f, onVenue, onOpenWeb, onWebMap }: {
             <View style={styles.row}>
               <View style={styles.seg} accessibilityRole="radiogroup" accessibilityLabel="Show">
                 {([['me', 'Around me'], ['mid', 'Middle']] as const).map(([k, name]) => (
-                  <Pressable key={k} onPress={() => { setMode(k); setPick(null); setNote(''); }} testID={'map-mode-' + k} accessibilityRole="button" accessibilityLabel={name}
+                  <Tip key={k} id="map-mode" onPress={() => { setMode(k); setPick(null); setNote(''); }}>{(press) => (
+                  <Pressable onPress={press} testID={'map-mode-' + k} accessibilityRole="button" accessibilityLabel={name}
                     accessibilityState={{ selected: mode === k }} style={[styles.segBtn, mode === k && (k === 'mid' ? styles.segMid : styles.segOn)]}>
                     <Text style={[styles.segText, mode === k && (k === 'mid' ? styles.segMidText : styles.segOnText)]}>{name}</Text>
                   </Pressable>
+                  )}</Tip>
                 ))}
               </View>
               {mode === 'me' ? (
@@ -379,18 +382,22 @@ export default function MapTab({ f, onVenue, onOpenWeb, onWebMap }: {
               <>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips} accessibilityRole="radiogroup" accessibilityLabel="How far" testID="radius">
                   {KMS.map((n) => (
-                    <Pressable key={n} onPress={() => setKm(n)} testID={'radius-' + n} accessibilityRole="button" accessibilityLabel={n + ' km'}
+                    <Tip key={n} id="map-km" onPress={() => setKm(n)}>{(press) => (
+                    <Pressable onPress={press} testID={'radius-' + n} accessibilityRole="button" accessibilityLabel={n + ' km'}
                       accessibilityState={{ selected: radius === n }} style={[styles.chip, styles.kmChip, radius === n && styles.kmOn]}>
                       <Text style={[styles.chipText, radius === n && styles.kmOnText]}>{n} km</Text>
                     </Pressable>
+                    )}</Tip>
                   ))}
                 </ScrollView>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips} accessibilityRole="radiogroup" accessibilityLabel="Show only">
                   {FILTERS.map(([key, name]) => (
-                    <Pressable key={key || 'near'} onPress={() => setFilter(filter === key ? '' : key)} testID={'chip-' + (key || 'near')} accessibilityRole="button" accessibilityLabel={name}
+                    <Tip key={key || 'near'} id="map-filter" onPress={() => setFilter(filter === key ? '' : key)}>{(press) => (
+                    <Pressable onPress={press} testID={'chip-' + (key || 'near')} accessibilityRole="button" accessibilityLabel={name}
                       accessibilityState={{ selected: filter === key }} style={[styles.chip, filter === key && styles.chipOn]}>
                       <Text style={[styles.chipText, filter === key && styles.chipTextOn]}>{name}</Text>
                     </Pressable>
+                    )}</Tip>
                   ))}
                 </ScrollView>
               </>

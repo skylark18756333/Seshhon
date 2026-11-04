@@ -8,6 +8,7 @@ import { Animated, PanResponder, Pressable, StyleSheet, Text, View } from 'react
 import Svg, { Circle, Path } from 'react-native-svg';
 import type { Colour } from './api';
 import { useWaiting } from './Parts';
+import { Tip } from './Tip';
 import { C, COLOURS, F, LABELS, fade, themed } from './theme';
 
 const TABS: [string, string][] = [['home', 'Home'], ['map', 'Map'], ['orb', ''], ['events', 'Events'], ['messages', 'Chats']];
@@ -124,19 +125,22 @@ export default function Tabs({ tab, requests, colour, onPick, onColour }: {
           if (key === 'orb') {
             return (
               <Animated.View key={key} {...orbSwipe.panHandlers} style={[styles.orbWrap, { transform: [{ translateX: lean }] }]}>
-                <Pressable onPress={() => setOpen((o) => !o)} disabled={!colour} accessibilityRole="button" testID="dock-orb"
+                <Tip id="dock-status" onPress={() => setOpen((o) => !o)}>{(press) => (
+                <Pressable onPress={open ? () => setOpen(false) : press} disabled={!colour} accessibilityRole="button" testID="dock-orb"
                   accessibilityLabel={colour ? 'Your status: ' + LABELS[colour] + '. Tap or swipe to change' : 'Your status'}
                   style={[styles.orb, { backgroundColor: glow, shadowColor: glow, borderColor: C.bg }]}>
                   <View style={styles.orbLights}>
                     {ORDER.map((c) => <View key={c} style={[styles.orbDot, c === colour ? styles.orbDotOn : null]} />)}
                   </View>
                 </Pressable>
+                )}</Tip>
               </Animated.View>
             );
           }
           const here = key === tab;
           return (
-            <Pressable key={key} style={styles.button} onPress={() => { if (Date.now() - swipedAt.current < 400) return; setOpen(false); if (here && key === 'home') tapHomeAgain(); onPick(key); }}
+            <Tip key={key} id={'tab-' + key} onPress={() => { setOpen(false); if (here && key === 'home') tapHomeAgain(); onPick(key); }}>{(press) => (
+            <Pressable style={styles.button} onPress={() => { if (Date.now() - swipedAt.current < 400) return; if (here) { setOpen(false); if (key === 'home') tapHomeAgain(); onPick(key); } else press(); }}
               accessibilityRole="tab" accessibilityLabel={key === 'messages' && waiting > 0 ? name + ', ' + waiting + ' new' : name} accessibilityState={{ selected: here }}>
               <DotIcon name={key} ink={here ? C.fg : C.muted} lit={here} light={colour ? glow : C.muted} />
               <Text style={[styles.label, here && { color: C.fg }]}>{name}</Text>
@@ -147,6 +151,7 @@ export default function Tabs({ tab, requests, colour, onPick, onColour }: {
                 <View style={styles.badge}><Text style={styles.badgeText}>{waiting > 9 ? '9+' : waiting}</Text></View>
               ) : null}
             </Pressable>
+            )}</Tip>
           );
         })}
       </View>

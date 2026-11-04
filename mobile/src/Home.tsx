@@ -6,6 +6,7 @@ import type { Colour, Friend } from './api';
 import { CatchUpCards } from './Crews';
 import { openFriend } from './FriendProfile';
 import { Button, Face } from './Parts';
+import { TipSpot } from './Tip';
 import type { Frendzy } from './useFrendzy';
 import { C, COLOURS, F, LABELS, STATUS_COPY, fade, first, fmtLeft, initials, themed } from './theme';
 
@@ -267,6 +268,7 @@ function StatusCard({ colour, word, note, onPick, compact }: { colour: Colour; w
         <Text style={[styles.statusWord, { color: mode }]}>{word}</Text>
         <Text style={[styles.muted, styles.small]}>{note}</Text>
       </View>
+      <TipSpot id="home-switch">
       <View style={[styles.track, { borderColor: fade(mode, 0.35) }]} onLayout={(e) => setW(e.nativeEvent.layout.width)} accessibilityLabel="Set your status" {...drag.panHandlers}>
         <View pointerEvents="none" style={styles.ticks}>
           {Array.from({ length: 24 }, (_, i) => <View key={i} style={[styles.tick, i % 4 === 0 && styles.tickBig]} />)}
@@ -293,6 +295,7 @@ function StatusCard({ colour, word, note, onPick, compact }: { colour: Colour; w
           );
         })}
       </View>
+      </TipSpot>
     </View>
   );
 }

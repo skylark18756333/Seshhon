@@ -24,6 +24,7 @@ import {
 } from './session';
 import { enablePush, pushPermission, type PushPermission } from './push';
 import Tour from './Tour';
+import { resetTips } from './tips';
 import type { Frendzy } from './useFrendzy';
 import { C, COLOURS, F, LABELS, LOOKS, currentLook, fade, first, setLook, themed } from './theme';
 
@@ -652,8 +653,10 @@ export default function You({ f, onOpenWeb, onSignedOut }: { f: Frendzy; onOpenW
           </Section>
 
           <Section k="tour" icon="tick" tint="#F5C542" title="How Crewzy works" onToggle={toggle}>
-            <Text style={[styles.muted, styles.small]}>A quick look at status, friends, seshes and the map.</Text>
+            <Text style={[styles.muted, styles.small]}>A quick look at your switch, the party lobby, seshes, the map and your friends.</Text>
             <View style={styles.start}><Button small ghost label="Show the tour" onPress={() => setTour(true)} /></View>
+            <Text style={[styles.muted, styles.small]}>Tips pop up the first time you tap each button. Seen them all, or turned them off? Bring them back here.</Text>
+            <View style={styles.start}><Button small ghost label="Show tips again" onPress={() => { resetTips(); f.say("Tips are back on. They'll pop up as you tap around."); }} /></View>
           </Section>
 
           <Section k="info" icon="search" tint="#7C4DFF" title="About" onToggle={toggle}>

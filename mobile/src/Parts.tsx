@@ -8,6 +8,7 @@ import type { Colour } from './api';
 import Icon from './Icon';
 import Logo from './Logo';
 import { rpc } from './session';
+import { Tip } from './Tip';
 import type { Frendzy } from './useFrendzy';
 import { C, COLOURS, F, fade, hue, initials, themed } from './theme';
 
@@ -61,13 +62,17 @@ export function TopBar({ f, onOpenWeb }: { f: Frendzy; onOpenWeb: (tab: string) 
       <Logo status={me.colour} onPick={(c) => { if (c !== me.colour) f.setColour(c); }} onHome={() => onOpenWeb('home')} />
       <View style={styles.topRight}>
         {f.offline ? <Text style={styles.pill}>Offline</Text> : null}
-        <Pressable onPress={() => onOpenWeb('friends')} accessibilityRole="button" accessibilityLabel={'Friends' + (requests ? ', ' + requests + ' new requests' : '')} style={styles.headBtn} testID="open-friends">
+        <Tip id="top-friends" onPress={() => onOpenWeb('friends')}>{(press) => (
+        <Pressable onPress={press} accessibilityRole="button" accessibilityLabel={'Friends' + (requests ? ', ' + requests + ' new requests' : '')} style={styles.headBtn} testID="open-friends">
           <Icon name="sesh" size={17} colour={C.fg} />
           {requests ? <View style={styles.headBadge}><Text style={styles.headBadgeText}>{requests}</Text></View> : null}
         </Pressable>
-        <Pressable onPress={() => onOpenWeb('you')} accessibilityRole="button" accessibilityLabel="You" style={[styles.profile, { borderColor: COLOURS[me.colour] }]}>
+        )}</Tip>
+        <Tip id="top-you" onPress={() => onOpenWeb('you')}>{(press) => (
+        <Pressable onPress={press} accessibilityRole="button" accessibilityLabel="You" style={[styles.profile, { borderColor: COLOURS[me.colour] }]}>
           <Face id={me.id} name={me.name} photos={f.photos} size={36} font={12} />
         </Pressable>
+        )}</Tip>
       </View>
     </View>
   );
