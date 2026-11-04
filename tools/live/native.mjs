@@ -217,7 +217,7 @@ try {
       await tshot(natTip, '0' + (i + 2) + '-tour-' + titles[i].toLowerCase().replace(/[^a-z]+/g, '-').replace(/-$/, '') + '.png');
     }
     expect('no tip while the walkthrough is open', await natTip.page.getByTestId('tip-go').count(), 0);
-    await natTip.page.getByRole('button', { name: "Let's go", exact: true }).click();
+    await natTip.page.getByRole('button', { name: "I'll explore myself", exact: true }).click();
     await has(natTip, 'Drag the glowing circle', 6000);
     await tshot(natTip, '10-tip-switch.png');
     await natTip.page.getByTestId('tip-go').click();
@@ -244,6 +244,37 @@ try {
     expect('second tap on Map shows no tip', await natTip.page.getByTestId('tip-go').count(), 0);
     expect('tips seen are kept on the phone', await natTip.page.evaluate(() => Object.keys(JSON.parse(localStorage.getItem('crewzy-tips-seen') || '{}')).sort().join(',')), 'home-switch,lobby-now,tab-map');
     await natTip.ctx.close();
+
+    // "Show me around": the tour's last button walks round the real screens. Next moves on; Try it on a lit-up
+    // tab really opens it. Steps whose button isn't on screen are skipped.
+    const natG = await phone('guide', `http://127.0.0.1:${NATIVE_PORT}/`, `localStorage.setItem('seshhon-session-v1', ${JSON.stringify(session)});
+      localStorage.setItem('seshhon-page-store', JSON.stringify({ 'seshhon-tour-pending': 'true' }));`, { tips: true });
+    await has(natG, 'Welcome, Ana.');
+    for (let i = 0; i < 6; i++) await natG.page.getByRole('button', { name: i ? 'Next' : 'Show me', exact: true }).click();
+    await natG.page.getByRole('button', { name: 'Show me around', exact: true }).click();
+    await has(natG, 'Your status orb');
+    await tshot(natG, '20-guide-orb.png');
+    const seen = [];
+    for (let i = 0; i < 25; i++) {
+      await natG.page.waitForTimeout(400);
+      const text = await natG.page.evaluate(() => document.body.innerText);
+      const m = text.match(/(\d+) OF (\d+)/i);
+      if (!m) break;
+      seen.push(m[1]);
+      if (/That's the tour/.test(text)) { await tshot(natG, '29-guide-last.png'); break; }
+      if (/Tap the Map to find/.test(text)) await tshot(natG, '22-guide-map-tab.png');
+      if (/Set the radar circle/.test(text)) await tshot(natG, '23-guide-km.png');
+      if (/Pick a popular spot/.test(text)) await tshot(natG, '21-guide-go-now.png');
+      await natG.page.getByTestId('tip-go').click();
+      await natG.page.waitForTimeout(700);
+    }
+    console.log('  run-through steps shown: ' + seen.join(','));
+    expect('run-through reaches the last step', await natG.page.getByText("That's the tour").count(), 1);
+    expect('Go now was never started by the run-through', psql("select count(*) from public.seshes s join public.profiles p on p.id = s.creator where p.name = 'Ana'"), 0);
+    await natG.page.getByTestId('guide-end').click();
+    await natG.page.waitForTimeout(500);
+    expect('run-through closed', await natG.page.getByTestId('guide-end').count(), 0);
+    await natG.ctx.close();
   }
   if (process.env.TIPS_ONLY) throw new Error('TIPS_ONLY: stopping after the tips');
 

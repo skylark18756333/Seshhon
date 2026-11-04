@@ -16,7 +16,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Animated, Pressable, StyleProp, StyleSheet, Text, View, ViewStyle } from 'react-native';
 import { useShown } from './Shown';
-import { TIPS, close, currentTip, dropTip, onTips, showTip, tipSeen, turnOffTips, type Rect } from './tips';
+import { TIPS, addAnchor, close, currentTip, dropTip, endGuide, onTips, showTip, tipSeen, turnOffTips, type Rect } from './tips';
 import { C, F, fade, themed } from './theme';
 
 type Measurable = { measureInWindow: (cb: (x: number, y: number, w: number, h: number) => void) => void };
@@ -30,8 +30,14 @@ function measure(node: Measurable | null, done: (r: Rect | null) => void) {
 
 // For a button that can't take the <Tip> wrapper: put ref on a View round it (collapsable={false}), and pass the
 // press handler through press(...).
-export function useTip(id: string) {
+export function useTip(id: string, action?: () => void) {
   const ref = useRef<View>(null);
+  // Also an anchor for "Show me around", which can light this button up and run its action.
+  const act = useRef(action); act.current = action;
+  useEffect(() => addAnchor(id, {
+    measure: (done) => measure(ref.current as unknown as Measurable, done),
+    go: () => { if (act.current) act.current(); }
+  }), [id]);
   const press = (action: () => void) => () => {
     if (tipSeen(id)) { action(); return; }
     measure(ref.current as unknown as Measurable, (rect) => {
@@ -43,7 +49,7 @@ export function useTip(id: string) {
 }
 
 export function Tip({ id, onPress, style, children }: { id: string; onPress: () => void; style?: StyleProp<ViewStyle>; children: (press: () => void) => React.ReactNode }) {
-  const t = useTip(id);
+  const t = useTip(id, onPress);
   return <View ref={t.ref} collapsable={false} style={style}>{children(t.press(onPress))}</View>;
 }
 
@@ -51,6 +57,7 @@ export function Tip({ id, onPress, style, children }: { id: string; onPress: () 
 export function TipSpot({ id, when = true, delay = 900, style, children }: { id: string; when?: boolean; delay?: number; style?: StyleProp<ViewStyle>; children: React.ReactNode }) {
   const ref = useRef<View>(null);
   const shown = useShown();
+  useEffect(() => addAnchor(id, { measure: (done) => measure(ref.current as unknown as Measurable, done) }), [id]);
   useEffect(() => {
     if (!shown || !when || tipSeen(id)) return;
     const timer = setTimeout(() => {
@@ -73,7 +80,8 @@ export function TipHost() {
   const fadeIn = useRef(new Animated.Value(0)).current;
   const pulse = useRef(new Animated.Value(0)).current;
   const tip = currentTip();
-  const copy = tip ? TIPS[tip.id] : null;
+  const step = tip ? tip.step : undefined;
+  const copy = step ? { title: step.title, body: step.body, go: step.tap ? 'Try it' : undefined } : tip ? TIPS[tip.id] : null;
 
   useEffect(() => {
     if (!tip) return;
@@ -85,7 +93,7 @@ export function TipHost() {
     ]));
     loop.start();
     return () => loop.stop();
-  }, [tip ? tip.id : null]);
+  }, [tip ? tip.id + (step ? step.n : '') : null]);
 
   const onLayout = () => measure(host.current as unknown as Measurable, (r) => { if (r) setBox(r); });
 
@@ -101,18 +109,20 @@ export function TipHost() {
   const bw = Math.min(W - SIDE * 2, 380), left = (W - bw) / 2;
   const arrowX = Math.max(22, Math.min(bw - 22, x + w / 2 - left));
   const go = !!tip.go;
+  // In the run-through a tap on the dim does nothing (it's easy to hit by accident); End stops it.
+  const off = step ? () => {} : () => close(false);
   const dim = C.dark ? 'rgba(3, 3, 6, 0.76)' : 'rgba(17, 17, 20, 0.52)';
 
   return (
     <View ref={host} collapsable={false} style={StyleSheet.absoluteFill} onLayout={onLayout}>
       <Animated.View style={[StyleSheet.absoluteFill, { opacity: fadeIn }]}>
         {/* the dim, in four pieces round the button so the button itself stays bright */}
-        <Pressable style={[styles.dim, { left: 0, top: 0, right: 0, height: y, backgroundColor: dim }]} onPress={() => close(false)} accessibilityLabel="Close the tip" />
-        <Pressable style={[styles.dim, { left: 0, top: y + h, right: 0, bottom: 0, backgroundColor: dim }]} onPress={() => close(false)} accessible={false} />
-        <Pressable style={[styles.dim, { left: 0, top: y, width: x, height: h, backgroundColor: dim }]} onPress={() => close(false)} accessible={false} />
-        <Pressable style={[styles.dim, { left: x + w, top: y, right: 0, height: h, backgroundColor: dim }]} onPress={() => close(false)} accessible={false} />
+        <Pressable style={[styles.dim, { left: 0, top: 0, right: 0, height: y, backgroundColor: dim }]} onPress={off} accessibilityLabel="Close the tip" />
+        <Pressable style={[styles.dim, { left: 0, top: y + h, right: 0, bottom: 0, backgroundColor: dim }]} onPress={off} accessible={false} />
+        <Pressable style={[styles.dim, { left: 0, top: y, width: x, height: h, backgroundColor: dim }]} onPress={off} accessible={false} />
+        <Pressable style={[styles.dim, { left: x + w, top: y, right: 0, height: h, backgroundColor: dim }]} onPress={off} accessible={false} />
         {/* the lit-up button: tapping it carries on */}
-        <Pressable style={{ position: 'absolute', left: x, top: y, width: w, height: h, borderRadius: radius }} onPress={() => close(go)}
+        <Pressable style={{ position: 'absolute', left: x, top: y, width: w, height: h, borderRadius: radius }} onPress={() => close(go || !!step)}
           accessibilityRole="button" accessibilityLabel={copy.go || 'Got it'} />
         <Animated.View pointerEvents="none" style={[styles.ring, {
           left: x, top: y, width: w, height: h, borderRadius: radius,
@@ -127,21 +137,27 @@ export function TipHost() {
           <View style={styles.inner}>
             <View style={styles.head}>
               <View style={styles.spark} />
-              <Text style={styles.eyebrow}>Tip</Text>
+              <Text style={styles.eyebrow}>{step ? step.n + ' of ' + step.total : 'Tip'}</Text>
               <View style={styles.grow} />
-              <Pressable onPress={turnOffTips} hitSlop={10} accessibilityRole="button"><Text style={styles.offText}>Turn off tips</Text></Pressable>
+              {step ? null : <Pressable onPress={turnOffTips} hitSlop={10} accessibilityRole="button"><Text style={styles.offText}>Turn off tips</Text></Pressable>}
             </View>
             <Text style={styles.title} accessibilityRole="header">{copy.title}</Text>
             <Text style={styles.body}>{copy.body}</Text>
             <View style={styles.row}>
-              {go ? (
+              {step ? (
+                <Pressable style={[styles.btn, styles.ghost]} onPress={endGuide} accessibilityRole="button" testID="guide-end">
+                  <Text style={[styles.btnText, { color: C.fg }]}>{step.n === step.total ? 'Close' : 'End'}</Text>
+                </Pressable>
+              ) : go ? (
                 <Pressable style={[styles.btn, styles.ghost]} onPress={() => close(false)} accessibilityRole="button">
                   <Text style={[styles.btnText, { color: C.fg }]}>Not now</Text>
                 </Pressable>
               ) : null}
-              <Pressable style={styles.btn} onPress={() => close(go)} accessibilityRole="button" testID="tip-go">
-                <Text style={styles.btnText}>{go ? copy.go || 'Got it' : 'Got it'}</Text>
-              </Pressable>
+              {step && step.n === step.total ? null : (
+                <Pressable style={styles.btn} onPress={() => close(step ? true : go)} accessibilityRole="button" testID="tip-go">
+                  <Text style={styles.btnText}>{step ? (step.tap ? 'Try it' : 'Next') : go ? copy.go || 'Got it' : 'Got it'}</Text>
+                </Pressable>
+              )}
             </View>
           </View>
         </View>
