@@ -298,6 +298,11 @@ export default function Messages({ f, onBack, onSesh }: { f: Frendzy; onBack: ()
                   <Text style={[styles.muted, styles.small]}>{first(friend.name)} is typing...</Text>
                 </View>
               ) : null}
+              {text.trim() ? (
+                <View style={[styles.typingRow, styles.myTyping]} accessibilityLabel="You're typing" testID="dm-my-typing">
+                  <TypingLights />
+                </View>
+              ) : null}
             </ScrollView>
             <View style={styles.compose}>
               <TextInput
@@ -371,6 +376,7 @@ export default function Messages({ f, onBack, onSesh }: { f: Frendzy; onBack: ()
 
 const styles = themed(() => StyleSheet.create({
   typingRow: { flexDirection: 'row', alignItems: 'center', gap: 8, alignSelf: 'flex-start' },
+  myTyping: { alignSelf: 'flex-end' },
   fill: { flex: 1 },
   top: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingTop: 12, paddingBottom: 6, maxWidth: 440, width: '100%', alignSelf: 'center' },
   backBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
