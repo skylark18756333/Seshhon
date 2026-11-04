@@ -16,8 +16,8 @@ export const TIPS: Record<string, TipCopy> = {
   /* ---------- the tab bar and the header ---------- */
   'tab-map': { title: 'The Map', body: 'Venues around you on a radar. Pick how far you\'ll go with the km buttons, swipe the cards along the bottom, and tap a pin for hours, ratings and deals.', go: 'Open the Map' },
   'tab-events': { title: "What's on", body: 'Real gigs, comedy and food events near you. Tap one for the details and a link to tickets.', go: 'Show events' },
-  // Ready for the thumb dock (bottom bar with the status orb in the middle and Chats): wrap those buttons with these ids.
-  'tab-chats': { title: 'Chats', body: 'Your messages and tonight\'s sesh chat in one place. Friend chats are locked end to end and deleted once read or after 7 days.', go: 'Open chats' },
+  // Ready for the thumb dock (bottom bar with the status orb in the middle and Chats): (Chats is the 'messages' tab.)
+  'tab-messages': { title: 'Chats', body: 'Your messages and tonight\'s sesh chat in one place. Friend chats are locked end to end and deleted once read or after 7 days.', go: 'Open chats' },
   'dock-status': { title: 'Your status orb', body: "Tap it to change your status. Green: you're keen to go out. Amber: you're thinking about it, and only friends you allow see it. Red: you're off and hidden.", go: 'Change it' },
   'top-friends': { title: 'Your friends', body: 'Everyone you\'ve added, as a wall of photos lit in their colour. Add people by username, send your invite link, or set up crews and besties.', go: 'Open friends' },
   'top-you': { title: 'You', body: 'Your photo, username, look, safety settings and badges. This tour and these tips are there too.', go: 'Open my page' },
