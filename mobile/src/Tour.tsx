@@ -10,7 +10,7 @@ import type { Colour } from './api';
 import Icon from './Icon';
 import Logo from './Logo';
 import { Face } from './Parts';
-import { pauseTips } from './tips';
+import { pauseTips, startGuide } from './tips';
 import { C, COLOURS, F, LABELS, fade, themed } from './theme';
 
 type Step = { art: React.ReactNode; title: string; body: React.ReactNode };
@@ -27,7 +27,7 @@ function steps(name: string): Step[] {
     {
       art: <View style={styles.bigLogo}><Logo status="on" /></View>,
       title: name ? 'Welcome, ' + name + '.' : 'Welcome to Crewzy.',
-      body: "Crewzy gets you off your phone and out with your mates. Here's the app in six quick steps. After that, a tip pops up the first time you tap each button."
+      body: "Crewzy gets you off your phone and out with your mates. Here's the app in six quick steps. Then I'll show you round the real thing, button by button."
     },
     {
       art: <SwitchArt />,
@@ -182,9 +182,7 @@ export default function Tour({ name, onClose }: { name: string; onClose: () => v
         <View style={styles.card} accessibilityViewIsModal accessibilityLabel={s.title}>
           <View style={styles.headRow}>
             <Text style={styles.eyebrow}>{at + 1} of {list.length}</Text>
-            {last ? null : (
-              <Pressable onPress={onClose} accessibilityRole="button" style={styles.skip}><Text style={styles.skipText}>Skip</Text></Pressable>
-            )}
+            <Pressable onPress={onClose} accessibilityRole="button" style={styles.skip}><Text style={styles.skipText}>{last ? "I'll explore myself" : 'Skip'}</Text></Pressable>
           </View>
           <View style={styles.art}>{s.art}</View>
           <Text style={styles.h1} accessibilityRole="header">{s.title}</Text>
@@ -198,8 +196,9 @@ export default function Tour({ name, onClose }: { name: string; onClose: () => v
                 <Text style={[styles.btnText, { color: C.fg }]}>Back</Text>
               </Pressable>
             ) : null}
-            <Pressable style={styles.btn} onPress={() => move(1)} accessibilityRole="button">
-              <Text style={styles.btnText}>{last ? "Let's go" : at ? 'Next' : 'Show me'}</Text>
+            {/* The last step hands over to "Show me around" on the real screens (tips.ts). */}
+            <Pressable style={styles.btn} onPress={() => { if (last) { onClose(); startGuide(); } else move(1); }} accessibilityRole="button">
+              <Text style={styles.btnText}>{last ? 'Show me around' : at ? 'Next' : 'Show me'}</Text>
             </Pressable>
           </View>
         </View>

@@ -86,7 +86,8 @@ export function resetTips() { seen = {}; off = false; write(SEEN_KEY, null); wri
 /* ---------- the tip on show, one at a time ---------- */
 export type Rect = { x: number; y: number; w: number; h: number };
 // go: what the button would have done; it runs when the tip's button or the lit-up button is tapped.
-export type Showing = { id: string; rect: Rect; go?: () => void };
+// step: set when the tip is a step of "Show me around" (see the guide below).
+export type Showing = { id: string; rect: Rect; go?: () => void; step?: { n: number; total: number; title: string; body: string; tap: boolean } };
 
 let showing: Showing | null = null;
 const queue: Showing[] = [];
@@ -98,6 +99,7 @@ export function currentTip(): Showing | null { return paused ? null : showing; }
 export function tipsPaused(): boolean { return paused > 0; }
 
 export function showTip(s: Showing) {
+  if (guide) { if (s.go) s.go(); return; }   // the run-through is on: buttons just work
   if (tipSeen(s.id)) { if (s.go) s.go(); return; }
   if (showing && showing.id === s.id) return;
   if (queue.some((q) => q.id === s.id)) return;
@@ -111,6 +113,7 @@ export function showTip(s: Showing) {
 export function close(run: boolean) {
   const s = showing;
   if (!s) return;
+  if (s.step) { showing = null; if (run && s.go) s.go(); emit(); if (guide) { guide.at++; setTimeout(runGuide, s.step.tap && run ? 900 : 250); } return; }
   markSeen(s.id);
   showing = null;
   if (run && s.go) s.go();
@@ -134,4 +137,69 @@ export function dropTip(id: string) {
   const i = queue.findIndex((q) => q.id === id);
   if (i >= 0) queue.splice(i, 1);
   if (showing && showing.id === id && !showing.go) { showing = null; emit(); }
+}
+
+/* ---------- "Show me around": a run-through on the real screens ---------- */
+// Every <Tip> and <TipSpot> on screen is an anchor for its id. The run-through lights up one anchor after another
+// and says what it does; on a "tap" step tapping the lit-up button (or "Try it") does the real thing, so you move
+// round the app as you go. A step whose button isn't on screen (say the lobby, while you're in a sesh) is skipped.
+export type Anchor = { measure: (done: (r: Rect | null) => void) => void; go?: () => void };
+const anchors: Record<string, Set<Anchor>> = {};
+export function addAnchor(id: string, a: Anchor): () => void {
+  (anchors[id] = anchors[id] || new Set()).add(a);
+  return () => { anchors[id].delete(a); };
+}
+
+type GuideStep = { id: string; title: string; body: string; tap?: boolean };
+const GUIDE: GuideStep[] = [
+  { id: 'dock-status', title: 'Your status orb', body: "This glowing orb is you. Tap it and red, amber and green pop up, or push it sideways. Green: keen to go out. Amber: thinking about it. Red: off and hidden. It's on every screen." },
+  { id: 'lobby-now', title: 'Go now', body: 'Pick a popular spot near you and start a sesh there. Friends on green and amber can jump in.' },
+  { id: 'lobby-crawl', title: 'Crewzy crawl', body: 'Plan a few spots a short walk apart. Everyone sees the route and ticks off each stop.' },
+  { id: 'lobby-plan', title: 'Plan for later', body: 'Pick a day on the calendar, a time and who to invite.' },
+  { id: 'lobby-seat', title: 'Fill your seats', body: 'Tap a seat to pick friends for an invite-only sesh. Hosting earns XP for every friend who joins.' },
+  { id: 'top-friends', title: 'Your friends', body: 'Tap here to see everyone you\'ve added.', tap: true },
+  { id: 'friends-invite', title: 'Invite link', body: 'Send your link to a mate. Once you accept, they\'re on your wall.' },
+  { id: 'friend-tile', title: 'A friend', body: 'Tap any face for their profile, badges and level, and to message or invite them.' },
+  { id: 'friends-crews', title: 'Crews and besties', body: 'Group your mates into crews, and pick besties who always see your amber.' },
+  { id: 'tab-map', title: 'The Map', body: 'Tap the Map to find somewhere to go.', tap: true },
+  { id: 'map-km', title: 'How far', body: 'Set the radar circle: 1, 2, 5 km and more. Venues inside it show on the map and in the cards at the bottom.' },
+  { id: 'map-mode', title: 'Around me or Middle', body: 'Middle finds spots halfway between your crew in a sesh. Nobody\'s exact spot is ever shown.' },
+  { id: 'map-filter', title: 'Show only', body: 'Narrow it to places open now, popular or trending. Tap a pin on the map for hours, ratings and deals.' },
+  { id: 'tab-events', title: "What's on", body: 'Tap Events for gigs, comedy and food near you.', tap: true },
+  { id: 'tab-messages', title: 'Chats', body: 'Tap Chats for your messages and tonight\'s sesh chat. Friend chats are locked and deleted once read or after 7 days.', tap: true },
+  { id: 'tab-home', title: 'Back home', body: 'Tap Home to get back to your lobby.', tap: true },
+  { id: 'top-you', title: "That's the tour", body: 'Your page has your photo, look, safety settings and badges. Run this again any time from How Crewzy works. Have a good night out!' }
+];
+let guide: { at: number; tries: number } | null = null;
+export function guideOn(): boolean { return !!guide; }
+export function startGuide() {
+  showing = null; queue.length = 0;
+  guide = { at: 0, tries: 0 };
+  emit();
+  setTimeout(runGuide, 500);
+}
+export function endGuide() { guide = null; showing = null; emit(); }
+function runGuide() {
+  if (!guide) return;
+  if (paused) { setTimeout(runGuide, 500); return; }
+  const at = guide.at;
+  if (at >= GUIDE.length) { endGuide(); return; }
+  const step = GUIDE[at];
+  const list = Array.from(anchors[step.id] || []);
+  let left = list.length, found: { a: Anchor; r: Rect } | null = null;
+  const settle = () => {
+    if (!guide || guide.at !== at) return;
+    if (found) {
+      guide.tries = 0;
+      showing = { id: step.id, rect: found.r, go: step.tap ? found.a.go : undefined,
+        step: { n: at + 1, total: GUIDE.length, title: step.title, body: step.body, tap: !!step.tap && !!found.a.go } };
+      emit();
+    } else if (guide.tries++ < 6) setTimeout(runGuide, 300);   // the screen may still be drawing
+    else { guide.tries = 0; guide.at++; runGuide(); }             // not on this screen: skip it
+  };
+  if (!left) { settle(); return; }
+  list.forEach((a) => a.measure((r) => {
+    if (r && !found && r.y + r.h > 0 && r.x + r.w > 0) found = { a, r };
+    if (--left === 0) settle();
+  }));
 }
