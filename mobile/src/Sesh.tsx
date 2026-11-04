@@ -276,7 +276,7 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
       f.act('set_status', { new_colour: 'on' }, "You're green.").then((r) => { then(); });
     };
     const tiles: LobbyTile[] = [
-      { key: 'now', emoji: '⚡', title: 'Go now', note: 'Pick a popular spot near you', colours: ['#FF7A45', '#E0407A'],
+      { key: 'now', emoji: '⚡', title: 'Go now', note: 'Pick a spot near you. Friends on green can join', colours: ['#FF7A45', '#E0407A'],
         onPress: () => { setGoing(true); top(); } },
       ...(crawl.off ? [] : [{ key: 'crawl', emoji: '📍', title: 'Crewzy crawl', note: 'A few spots a short walk apart', colours: ['#21C6A4', '#2A7FD4'] as [string, string],
         onPress: () => goGreen(() => { setMake({ target: null }); top(); }) }]),
@@ -1049,10 +1049,12 @@ function Lobby({ f, tiles, note, onSeat }: { f: Frendzy; tiles: LobbyTile[]; not
   const me = f.state && f.state.me;
   if (!me) return null;
   const greens = (f.state ? f.state.friends : []).filter((x) => x.colour === 'on');
+  const main = tiles.find((t) => t.key === 'now');
+  const rest = tiles.filter((t) => t.key !== 'now');
   return (
     <View style={[styles.party, { borderColor: fade(COLOURS[me.colour], 0.6), shadowColor: COLOURS[me.colour] }]}>
       <View style={{ gap: 4 }}>
-        <Text style={[styles.eyebrow, { color: COLOURS[me.colour] }]}>Start a party</Text>
+        <Text style={[styles.eyebrow, { color: COLOURS[me.colour] }]}>Start a sesh</Text>
         <Text style={styles.partyTitle}>{greens.length ? greens.length + ' friend' + (greens.length === 1 ? ' is' : 's are') + ' keen. What\'s the move?' : "What's the move?"}</Text>
         <Text style={[styles.muted, styles.tiny]}>Hosting earns XP for each friend who joins.</Text>
       </View>
@@ -1071,8 +1073,25 @@ function Lobby({ f, tiles, note, onSeat }: { f: Frendzy; tiles: LobbyTile[]; not
         ))}
       </View>
       {note ? <Text style={[styles.muted, styles.small]}>{note}</Text> : null}
+      {/* One big, obvious way to start (Sarah, 2026-11-04: starting a sesh was unclear). The other ways sit under it. */}
+      {main ? (
+        <Tip id={'lobby-' + main.key} onPress={main.onPress}>{(press) => (
+        <Pressable style={({ pressed }) => [pressed && { transform: [{ scale: 0.98 }] }]} onPress={press}
+          accessibilityRole="button" accessibilityLabel={'Start a sesh now. ' + main.note} testID={'lobby-' + main.key}>
+          <LinearGradient colors={main.colours} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.startBig}>
+            <Text style={styles.startEmoji}>{main.emoji}</Text>
+            <View style={styles.grow}>
+              <Text style={styles.startTitle}>Start a sesh now</Text>
+              <Text style={styles.tileNote} numberOfLines={2}>{main.note}</Text>
+            </View>
+            <Text style={styles.startArrow}>›</Text>
+          </LinearGradient>
+        </Pressable>
+        )}</Tip>
+      ) : null}
+      <Text style={[styles.muted, styles.small, styles.strongText]}>Or pick another way</Text>
       <View style={styles.tiles}>
-        {tiles.map((t) => (
+        {rest.map((t) => (
           <Tip key={t.key} id={'lobby-' + t.key} onPress={t.onPress} style={styles.tileWrap}>{(press) => (
           <Pressable style={({ pressed }) => [pressed && { transform: [{ scale: 0.97 }] }]} onPress={press}
             accessibilityRole="button" accessibilityLabel={t.title + '. ' + t.note} testID={'lobby-' + t.key}>
@@ -1735,6 +1754,10 @@ const styles = themed(() => StyleSheet.create({
   tileNote: { fontFamily: F.body, fontSize: 12, lineHeight: 16, color: 'rgba(255, 255, 255, 0.9)' },
 
   fill: { flex: 1 },
+  startBig: { flexDirection: 'row', alignItems: 'center', gap: 14, borderRadius: 22, paddingHorizontal: 18, paddingVertical: 18, minHeight: 84 },
+  startEmoji: { fontSize: 34 },
+  startTitle: { fontFamily: F.display, fontSize: 22, color: '#fff' },
+  startArrow: { fontFamily: F.bodyBold, fontSize: 34, color: '#fff', marginTop: -4 },
   fixedView: { flex: 1, paddingTop: 12, paddingBottom: 10, gap: 12 },
   chatFill: { flex: 1 },
   noGrow: { flexGrow: 0, flexShrink: 0 },
