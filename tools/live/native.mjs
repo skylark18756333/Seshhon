@@ -224,7 +224,7 @@ try {
     await natTip.page.waitForTimeout(500);
     // Go now: the first tap shows the tip, and nothing is started until "Let's go" on the tip.
     await natTip.page.getByTestId('lobby-now').click();
-    await has(natTip, 'Pick a popular spot near you and start');
+    await has(natTip, 'Pick a spot near you and your sesh starts');
     await tshot(natTip, '11-tip-go-now.png');
     expect('Go now waits for the tip', psql("select count(*) from public.seshes s join public.profiles p on p.id = s.creator where p.name = 'Ana'"), 0);
     await natTip.page.getByRole('button', { name: 'Not now', exact: true }).click();
@@ -286,7 +286,7 @@ try {
   const anaId = id('Ana'), jackId = id('Jack'), tomId = id('Tom');
   await nat.page.getByRole('tab', { name: 'Home' }).click();
   await has(nat, "What's the move?");
-  await has(nat, 'Start a party');
+  await has(nat, 'Start a sesh now');
   await sshot(nat, '1-no-sesh.png');
 
   // Go now opens "Where to?": a map and the popular spots around you. (Picking one is checked after this sesh ends.)
