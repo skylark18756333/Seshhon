@@ -285,7 +285,12 @@ function NativeMap(p: MapView) {
   }, [p.focus && p.focus.key]);
 
   const compact = p.radiusKm >= COMPACT_FROM_KM;
-  const padding = useMemo(() => (p.pad ? { top: p.pad.top, bottom: p.pad.bottom, left: 0, right: 0 } : undefined), [p.pad]);
+  const padNow = useMemo(() => (p.pad ? { top: p.pad.top, bottom: p.pad.bottom, left: 0, right: 0 } : undefined), [p.pad]);
+  // The padding is only handed to the map once Google's map is ready: setting it before then crashes the app on
+  // Android ("GoogleMap.setPadding on a null object", Sarah's Pixel bug report, 2026-11-04).
+  const [ready, setReady] = useState(false);
+  const onReady = useCallback(() => setReady(true), []);
+  const padding = ready ? padNow : undefined;
   const onRegion = (r: Region) => {
     const near = r.latitudeDelta < NAMES_BELOW_DELTA;
     if (names.current !== near) { names.current = near; p.onZoom(near); }
@@ -314,6 +319,7 @@ function NativeMap(p: MapView) {
       zoomTapEnabled={false}
       onRegionChangeComplete={onRegion}
       mapPadding={padding}
+      onMapReady={onReady}
       onRegionChange={radarOn ? onMove : undefined}
       rotateEnabled={false}
       pitchEnabled={false}
