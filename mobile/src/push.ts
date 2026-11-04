@@ -21,7 +21,7 @@ import { API_KEY, API_URL } from './config';
 import { onBeforeSignOut, rpc, type Session } from './session';
 
 // The screens a notification can open, and the tab each one is.
-export const SCREENS: Record<string, string> = { home: 'home', sesh: 'sesh', crews: 'crews', messages: 'messages' };
+export const SCREENS: Record<string, string> = { home: 'home', sesh: 'sesh', crews: 'crews' };
 const TOKEN_KEY = 'seshhon-push-token';
 const ASKED_KEY = 'seshhon-push-asked';
 
