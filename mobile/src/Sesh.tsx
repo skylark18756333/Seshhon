@@ -1569,7 +1569,7 @@ function Chat({ f, seshId, myId, confirm, setConfirm, onLatest, names, onTyping,
         {/* Your own Crewzy dots while you type (Sarah, 2026-11-04): what your friends are seeing too. */}
         {draft.trim() ? (
           <View style={[styles.msgRow, styles.msgRowMe, styles.typingRow]} accessibilityLabel="You're typing" testID="my-typing">
-            <TypingLights />
+            <TypingLights mine />
           </View>
         ) : null}
       </ScrollView>
