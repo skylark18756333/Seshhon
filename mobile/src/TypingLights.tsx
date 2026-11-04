@@ -9,7 +9,8 @@ import { C, COLOURS, themed } from './theme';
 const LIGHTS: Colour[] = ['off', 'thinking', 'on'];
 const STEP_MS = 420;
 
-export default function TypingLights({ size = 1 }: { size?: number }) {
+// mine: your own dots, so the bubble's small corner sits bottom right like your own message bubbles.
+export default function TypingLights({ size = 1, mine }: { size?: number; mine?: boolean }) {
   const t = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     const loop = Animated.loop(Animated.timing(t, { toValue: 3, duration: STEP_MS * 3, easing: Easing.linear, useNativeDriver: true }));
@@ -18,9 +19,9 @@ export default function TypingLights({ size = 1 }: { size?: number }) {
   }, [t]);
   const ranges = useMemo(() => LIGHTS.map((_, i) => litFor(t, i)), [t]);
   return (
-    <View style={[styles.bubble, { transform: [{ scale: size }] }]} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+    <View style={[styles.bubble, mine && styles.mineCorner, { transform: [{ scale: size }] }]} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
       {LIGHTS.map((k, i) => (
-        <Animated.View key={'o' + k} pointerEvents="none" style={[styles.outline, { borderColor: COLOURS[k], shadowColor: COLOURS[k], opacity: ranges[i] }]} />
+        <Animated.View key={'o' + k} pointerEvents="none" style={[styles.outline, mine && styles.mineCorner, { borderColor: COLOURS[k], shadowColor: COLOURS[k], opacity: ranges[i] }]} />
       ))}
       {LIGHTS.map((k, i) => (
         <View key={k} style={styles.slot}>
@@ -46,6 +47,7 @@ const styles = themed(() => StyleSheet.create({
     borderWidth: 1.5, borderColor: C.line, backgroundColor: C.surface2 },
   outline: { position: 'absolute', top: -1.5, left: -1.5, right: -1.5, bottom: -1.5, borderRadius: 18, borderBottomLeftRadius: 6, borderWidth: 1.5,
     shadowOpacity: 0.9, shadowRadius: 8, shadowOffset: { width: 0, height: 0 } },
+  mineCorner: { borderBottomLeftRadius: 18, borderBottomRightRadius: 6 },
   slot: { width: 16, height: 16, alignItems: 'center', justifyContent: 'center' },
   dot: { position: 'absolute', width: 8, height: 8, borderRadius: 4, opacity: 0.35 },
   glow: { width: 11, height: 11, borderRadius: 6, shadowOpacity: 1, shadowRadius: 6, shadowOffset: { width: 0, height: 0 }, elevation: 4 }

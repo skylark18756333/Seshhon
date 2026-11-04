@@ -300,7 +300,7 @@ export default function Messages({ f, onBack, onSesh }: { f: Frendzy; onBack: ()
               ) : null}
               {text.trim() ? (
                 <View style={[styles.typingRow, styles.myTyping]} accessibilityLabel="You're typing" testID="dm-my-typing">
-                  <TypingLights />
+                  <TypingLights mine />
                 </View>
               ) : null}
             </ScrollView>
