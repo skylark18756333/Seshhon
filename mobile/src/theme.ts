@@ -148,7 +148,7 @@ export function themed<T extends object>(make: () => T): T {
 // Midnight Pop swaps the two display fonts for Poppins; F is changed in place like C.
 const FONTS = {
   neon: 'TiltNeon-Regular',       // neon headings
-  logo: 'Baloo2-ExtraBold',       // the Cr logo at the top
+  logo: 'Syne-ExtraBold',         // the Crewzy logo at the top
   display: 'Montserrat-ExtraBold',
   displayBold: 'Montserrat-Bold',
   body: 'Inter-Regular',
