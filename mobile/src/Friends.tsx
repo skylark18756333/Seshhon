@@ -2,9 +2,10 @@
 // your friends as a wall of round photos. Green friends glow, amber friends you're allowed to see get an amber
 // ring and tag, and everyone else (red included) has a plain ring, so nobody can tell who is on red.
 // Tapping a face opens their profile.
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import type { Friend } from './api';
+import BumpSheet from './BumpSheet';
 import { openFriend } from './FriendProfile';
 import Icon from './Icon';
 import { Tip } from './Tip';
@@ -15,13 +16,16 @@ import { C, COLOURS, F, fade, first, themed } from './theme';
 const INVITE_BASE = 'https://frendzy.au/';
 const ORDER: Record<string, number> = { on: 0, thinking: 1, off: 2 };
 
-export default function Friends({ f, onBack, onOpenWeb }: { f: Frendzy; onBack: () => void; onOpenWeb: (tab: string) => void }) {
+export default function Friends({ f, onBack, onOpenWeb, bumpNow, onBumpOpened }: { f: Frendzy; onBack: () => void; onOpenWeb: (tab: string) => void; bumpNow?: boolean; onBumpOpened?: () => void }) {
   const me = f.state && f.state.me;
   const friends = (f.state && f.state.friends) || [];
   const requests = (f.state && f.state.requests_in) || [];
   const [name, setName] = useState('');
   const [adding, setAdding] = useState(false);
   const [find, setFind] = useState('');
+  const [bumping, setBumping] = useState(false);
+  // The app icon's "Bump to add" shortcut opens straight onto the bump sheet.
+  useEffect(() => { if (bumpNow) { setBumping(true); if (onBumpOpened) onBumpOpened(); } }, [bumpNow]);
   const { width } = useWindowDimensions();
   if (!me) return null;
   // Three faces a row, sized to the screen (the page is at most 440 wide, with 18 each side).
@@ -103,6 +107,9 @@ export default function Friends({ f, onBack, onOpenWeb }: { f: Frendzy; onBack: 
             <Text style={styles.chipText}>Crews and besties</Text>
           </Pressable>
           )}</Tip>
+          <Pressable style={styles.chip} onPress={() => setBumping(true)} accessibilityRole="button" accessibilityLabel="Bump phones to add a friend" testID="open-bump">
+            <Text style={styles.chipText}>Bump to add</Text>
+          </Pressable>
           <Tip id="friends-invite" onPress={share}>{(press) => (
           <Pressable style={styles.chip} onPress={press} accessibilityRole="button" accessibilityLabel="Send your invite link">
             <Text style={styles.chipText}>Send invite link</Text>
@@ -131,6 +138,7 @@ export default function Friends({ f, onBack, onOpenWeb }: { f: Frendzy; onBack: 
         )}
         {q && !list.length ? <Text style={styles.muted}>No friend called that.</Text> : null}
       </ScrollView>
+      <BumpSheet open={bumping} onClose={() => setBumping(false)} onFriends={() => { f.refresh(); }} />
       <Toast text={f.toast} />
     </View>
   );

@@ -7,6 +7,7 @@
 // not drawn here: "See venue" opens the web venue page, which has the map, and the crawl is drawn as a
 // live map of its stops in order (CrawlMap.tsx), where more stops can be added. A Crewzy crawl is picked when you start
 // or plan a sesh (CrawlBuilder), and its stops are the same Sesh Map stops.
+import Announcement from './Announcement';
 import { GreenRow, HomeBottom, HomeTop } from './Home';
 import { useHomeTapAgain, useOnShow, useShownRef } from './Shown';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -530,11 +531,11 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
           {later && mine.starts_at ? (
             <Button ghost icon="clock" label="Add to calendar" testID="add-to-calendar" onPress={() => {
               const lv = mine.locked_venue && v.byId[mine.locked_venue] ? v.byId[mine.locked_venue] : null;
+              // Only the venue and time go into the calendar: no friends' names and no pres address.
               addToCalendar({
-                title: (stops.length > 1 ? 'Crewzy crawl' : 'Crewzy sesh') + (creator && !mine.mine ? ' with ' + creator : ''),
+                title: (stops.length > 1 ? 'Crewzy crawl' : 'Crewzy sesh') + (lv ? ' at ' + lv.name : ''),
                 start: new Date(mine.starts_at as string),
-                place: lv ? lv.name : null,
-                note: mine.pres && mine.pres.address ? 'Pres: ' + mine.pres.address : null
+                place: lv ? lv.name : null
               }, f.say);
             }} />
           ) : null}
@@ -647,6 +648,7 @@ function Frame({ f, onOpenWeb, scroll, home, compact, fixed, children }: { f: Fr
         <View style={[styles.view, styles.fixedView]}>{children}</View>
       ) : (
         <ScrollView ref={scroll} style={styles.fill} contentContainerStyle={styles.view} keyboardShouldPersistTaps="handled" refreshControl={pull}>
+          {home ? <Announcement /> : null}
           {home ? <HomeTop f={f} onOpenWeb={onOpenWeb} compact={compact} /> : null}
           {children}
           {home ? <HomeBottom f={f} onOpenWeb={onOpenWeb} /> : null}
