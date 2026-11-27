@@ -399,7 +399,8 @@
     var d = new Date(ms), two = function (n) { return (n < 10 ? '0' : '') + n; };
     return d.getFullYear() + '-' + two(d.getMonth() + 1) + '-' + two(d.getDate()) + 'T' + two(d.getHours()) + ':' + two(d.getMinutes());
   }
-  function inviteLink() { return location.origin + location.pathname + '?invite=' + D.me.invite_code; }
+  // A fresh 7-day link that makes you friends straight away (quick_invite, 0051); the permanent one if that isn't there yet.
+  function inviteLink() { return location.origin + location.pathname + '?invite=' + (ui.quickCode || D.me.invite_code); }
 
   // Whether this person still needs the third-party age check. An older database without it means "no".
   function loadAge() {
@@ -1691,7 +1692,7 @@
       (photos[me.id] && !ui.photoBusy ? '<button class="btn small-btn ghost" data-act="remove-photo">Remove</button>' : '') + '</div></div>', ui.photoBusy, photos[me.id] ? 'Added' : 'None yet');
 
     h += sec('add', '<div class="card"><h2>Add a friend</h2>' + addFriendForm() +
-      '<p class="muted small">Not on Crewzy yet? Send them your invite link. When they sign up you get a friend request to accept.</p>' +
+      '<p class="muted small">Not on Crewzy yet? Send them your invite link. When they join with it you\'re friends straight away. It works for 7 days.</p>' +
       '<button class="btn ghost" data-act="share">Send your invite link</button>' + linkBox() + '</div>', !D.friends.length);
 
     if (DEALS_ON && D.staff_venues.length) {
@@ -2199,11 +2200,13 @@
   }
   function go(top) { render(); if (top) view.scrollTop = 0; }
 
+  // Fetched when the You page opens, so sharing stays one tap (a browser only shares straight after the tap).
+  function loadQuickInvite() { if (ui.quickCode || ui.quickAsked) return; ui.quickAsked = true; rpc('quick_invite').then(function (c) { if (c) { ui.quickCode = c; render(); } }, function () {}); }
   function shareInvite() {
     var link = inviteLink();
     ui.linkShown = true;
     if (navigator.share) {
-      navigator.share({ title: 'Crewzy', text: 'Add me on Crewzy so we can see when we\'re both up for a sesh.', url: link }).catch(function () {});
+      navigator.share({ title: 'Crewzy', text: 'Join me on Crewzy so we can see when we\'re both up for a sesh.', url: link }).catch(function () {});
       render();
       return;
     }
@@ -2229,7 +2232,7 @@
       if (v === 'vhome' || v === 'vevents' || v === 'vdeals') { ui.editDeal = null; loadVenueData().then(render); }
       if (v === 'vstats') loadVenueData().then(loadVenueStats).then(render);
       if (v === 'admin') loadAdminData().then(render);
-      if (v === 'you' && role() === 'user') loadRole().then(render);
+      if (v === 'you' && role() === 'user') { loadRole().then(render); loadQuickInvite(); }
       if (v === 'map' && Date.now() - buzzAt > 60000) loadBuzz();
       if (v === 'map' || v === 'sesh' || v === 'events') loadPins().then(function () { if (ui.tab === v && !ui.screen) { if (M.map) M.fit = true; render(); } });
     },

@@ -96,6 +96,7 @@ export default function You({ f, onOpenWeb, onSignedOut }: { f: Frendzy; onOpenW
   const [confirm, setConfirm] = useState<string | null>(null);
   const [photoBusy, setPhotoBusy] = useState(false);
   const [linkShown, setLinkShown] = useState(false);
+  const [quickCode, setQuickCode] = useState<string | null>(null);
   const [friendName, setFriendName] = useState('');
   const [addError, setAddError] = useState('');
   const [adding, setAdding] = useState(false);
@@ -122,7 +123,8 @@ export default function You({ f, onOpenWeb, onSignedOut }: { f: Frendzy; onOpenW
   if (!me) return null;
   const a = account && account !== 'off' ? account : null;
   const myPhoto = f.photos[me.id];
-  const inviteLink = INVITE_BASE + '?invite=' + me.invite_code;
+  // A fresh 7-day link that makes you friends straight away (quick_invite, 0051); the permanent one if that isn't there yet.
+  const inviteLink = INVITE_BASE + '?invite=' + (quickCode || me.invite_code);
 
   /* ---------- taps ---------- */
   const savePhoto = (dataUrl: string | null) => {
@@ -147,7 +149,11 @@ export default function You({ f, onOpenWeb, onSignedOut }: { f: Frendzy; onOpenW
 
   const share = () => {
     setLinkShown(true);
-    Share.share({ title: 'Crewzy', message: "Add me on Crewzy so we can see when we're both up for a sesh. " + inviteLink }).catch(() => {});
+    rpc<string>('quick_invite').then((c) => c || null, () => null).then((c) => {
+      if (c) setQuickCode(c);
+      const link = INVITE_BASE + '?invite=' + (c || me.invite_code);
+      Share.share({ title: 'Crewzy', message: "Join me on Crewzy so we can see when we're both up for a sesh. " + link }).catch(() => {});
+    });
   };
 
   const addFriend = () => {
@@ -374,7 +380,7 @@ export default function You({ f, onOpenWeb, onSignedOut }: { f: Frendzy; onOpenW
                 </Text>
               </View>
             ) : null}
-            <Text style={[styles.muted, styles.small]}>Not on Crewzy yet? Send them your invite link. When they sign up you get a friend request to accept.</Text>
+            <Text style={[styles.muted, styles.small]}>Not on Crewzy yet? Send them your invite link. When they join with it you're friends straight away. It works for 7 days.</Text>
             <Button label="Send your invite link" ghost onPress={share} />
             {linkShown ? (
               <>
