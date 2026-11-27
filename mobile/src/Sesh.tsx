@@ -31,7 +31,7 @@ import { ReactBar, ReactChips } from './Reactions';
 import KeyboardSafe from './KeyboardSafe';
 import { ChatTile, CoverBehind, EndPill, RoomTiles, SeshSettings, SeshStrip, TimeLeft, VotesMap, seshColours, useSeshDetails, type SeshLook } from './SeshDetails';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Avatar, Button, Face, Toast, TopBar } from './Parts';
+import { Avatar, Button, Face, Toast, TopBar, usePullRefresh } from './Parts';
 import { rpc, type ApiError } from './session';
 import type { Frendzy } from './useFrendzy';
 import { C, COLOURS, F, LABELS, STOPS, fade, first, fmtLeft, fmtTime, fmtWhen, themed } from './theme';
@@ -633,6 +633,7 @@ function toggle(picked: Picked, id: string): Picked {
    carry more about that person, without touching the rest of the screen. */
 /* ---------- the page around every Sesh view: header, glow, scrolling body, toast ---------- */
 function Frame({ f, onOpenWeb, scroll, home, compact, fixed, children }: { f: Frendzy; onOpenWeb: (tab: string) => void; scroll: React.RefObject<ScrollView | null>; home?: boolean; compact?: boolean; fixed?: boolean; children: React.ReactNode }) {
+  const pull = usePullRefresh(f.refresh);   // pull down to read everything again
   return (
     // Android draws under the keyboard (edge to edge), so KeyboardSafe pads exactly the part the keyboard covers.
     // fixed: the full-screen chat. Nothing scrolls but the messages, which sit at the bottom just above the typing box.
@@ -641,7 +642,7 @@ function Frame({ f, onOpenWeb, scroll, home, compact, fixed, children }: { f: Fr
       {fixed ? (
         <View style={[styles.view, styles.fixedView]}>{children}</View>
       ) : (
-        <ScrollView ref={scroll} style={styles.fill} contentContainerStyle={styles.view} keyboardShouldPersistTaps="handled">
+        <ScrollView ref={scroll} style={styles.fill} contentContainerStyle={styles.view} keyboardShouldPersistTaps="handled" refreshControl={pull}>
           {home ? <HomeTop f={f} onOpenWeb={onOpenWeb} compact={compact} /> : null}
           {children}
           {home ? <HomeBottom f={f} onOpenWeb={onOpenWeb} /> : null}

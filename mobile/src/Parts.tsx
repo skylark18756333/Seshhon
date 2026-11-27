@@ -1,8 +1,8 @@
 // Pieces more than one native screen uses: the header with the logo and you, the status glow, faces,
 // buttons and the toast. Same look as the web app's topBar(), avatar() and .btn in docs/.
 import { LinearGradient } from 'expo-linear-gradient';
-import React, { useEffect, useState } from 'react';
-import { AppState, Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import { AppState, Image, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { Colour } from './api';
 import Icon from './Icon';
@@ -174,3 +174,13 @@ const styles = themed(() => StyleSheet.create({
   toast: { position: 'absolute', left: 16, right: 16, bottom: 16, alignItems: 'center' },
   toastText: { fontFamily: F.bodyBold, fontSize: 14, color: C.bg, backgroundColor: C.fg, paddingVertical: 12, paddingHorizontal: 18, borderRadius: 24, textAlign: 'center', overflow: 'hidden' }
 }));
+
+// Pull down to refresh, for a screen's main list: spins in the look's colour until the read is done.
+export function usePullRefresh(load: () => Promise<unknown> | void) {
+  const [on, setOn] = useState(false);
+  const pull = useCallback(() => {
+    setOn(true);
+    Promise.resolve().then(load).catch(() => {}).then(() => setOn(false));
+  }, [load]);
+  return <RefreshControl refreshing={on} onRefresh={pull} tintColor={C.fg} colors={[C.on, C.thinking, C.off]} progressBackgroundColor={C.bg} />;
+}

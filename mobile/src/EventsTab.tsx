@@ -3,7 +3,7 @@
 // confirm") and how far away it is from your approximate location, which stays on the phone. Tapping an event opens
 // Crewzy's own pop-up with its details and what you can do with it: suggest it to friends (a locked friend message),
 // add it to your sesh (posted in the sesh chat) or open the event's own page.
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Linking, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
@@ -12,7 +12,7 @@ import { C, F, fmtWhen, themed } from './theme';
 import { sendMessage, type Sesh as SeshT } from './api';
 import Icon from './Icon';
 import { sendToFriend } from './Messages';
-import { Avatar, Button } from './Parts';
+import { Avatar, Button, usePullRefresh } from './Parts';
 import { rpc } from './session';
 import type { Frendzy } from './useFrendzy';
 import { km, useMyPlace } from './venues';
@@ -62,20 +62,18 @@ export default function EventsTab({ f }: { f: Frendzy }) {
   const [failed, setFailed] = useState(false);
   const here = useMyPlace(true);   // asks for location once, the same as the Map; the position stays on the phone
 
-  useEffect(() => {
-    let live = true;
-    rpc<Event[]>('api_events')
-      .then((rows) => { if (live) setList(rows || []); })
-      .catch(() => { if (live) { setFailed(true); setList([]); } });
-    return () => { live = false; };
-  }, []);
+  const load = useCallback(() => rpc<Event[]>('api_events')
+    .then((rows) => { setFailed(false); setList(rows || []); })
+    .catch(() => { setFailed(true); setList((l) => l || []); }), []);
+  useEffect(() => { load(); }, [load]);
+  const pull = usePullRefresh(load);   // pull down for the newest listings
 
   if (list === null) {
     return <View style={styles.centre}><ActivityIndicator color={C.muted} /></View>;
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.page} showsVerticalScrollIndicator={false}>
+    <ScrollView contentContainerStyle={styles.page} showsVerticalScrollIndicator={false} refreshControl={pull}>
       <Text style={styles.heading}>Events</Text>
       <Text style={styles.sub}>Festivals, concerts, gigs, comedy and food near you.</Text>
       {list.length === 0 ? (

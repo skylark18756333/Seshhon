@@ -301,7 +301,7 @@ function Shell() {
   const [chatOpens, setChatOpens] = useState(0);
   const openChatWith = useCallback((id: string) => { chatWith(id); setChatOpens((n) => n + 1); setTab('messages'); }, []);
 
-  // Tapping a notification opens the screen it is about (Home, Sesh or Crews), once the native screens are up.
+  // Tapping a notification opens the screen it is about (Home, Sesh, Crews or Chats), once the native screens are up.
   const [tapTab, setTapTab] = useState<string | null>(null);
   useEffect(() => watchNotificationTaps(setTapTab), []);
 
