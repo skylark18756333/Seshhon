@@ -67,9 +67,9 @@ delete from private.push_tokens;
 set role authenticated;
 select set_config('request.jwt.claim.sub', :ben, false) \g /dev/null
 select public.expect((public.my_push_settings() ->> 'registered')::boolean = false, 'no phone registered yet');
-select public.expect(jsonb_array_length(public.my_push_settings() -> 'kinds') = 4, 'four kinds are built (home safe and favourite venues are not)');
-select public.expect((select bool_and((k ->> 'on')::boolean = (k ->> 'kind' in ('friend_request', 'invite'))) from jsonb_array_elements(public.my_push_settings() -> 'kinds') k),
-  'only friend requests and invites start on');
+select public.expect(jsonb_array_length(public.my_push_settings() -> 'kinds') = 6, 'six kinds are built (home safe and favourite venues are not)');
+select public.expect((select bool_and((k ->> 'on')::boolean = (k ->> 'kind' in ('friend_request', 'invite', 'message', 'sesh_chat'))) from jsonb_array_elements(public.my_push_settings() -> 'kinds') k),
+  'only friend requests, invites, messages and sesh chat start on');
 select public.expect_error($$select public.set_push_setting('home_safe', true)$$, 'a kind that is not built cannot be switched on yet');
 select public.expect_error($$select public.set_push_setting('nonsense', true)$$, 'nor can one that does not exist');
 select public.expect_error($$select public.set_push_setting('invite', null)$$, 'on or off, nothing else');
