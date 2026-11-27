@@ -29,7 +29,16 @@ export const SESH_COLOURS: Record<string, [string, string]> = {
   pop: ['#FF4FA0', '#6B2BD9']
 };
 
-export type Details = { name: string | null; emoji: string | null; colour: string | null; private: boolean; cover_at: string | null };
+export type Details = { name: string | null; emoji: string | null; colour: string | null; private: boolean; cover_at: string | null; hangout?: string | null };
+// What kind of hangout it is (the same keys are checked in set_sesh_hangout, 0049). Not just nights out.
+export const HANGOUTS: [string, string, string][] = [
+  ['night', '🌙', 'Night out'], ['food', '🍕', 'Food'], ['coffee', '☕', 'Coffee'], ['gym', '💪', 'Gym'],
+  ['footy', '🏉', 'Footy'], ['chill', '🛋️', 'Chill'], ['gig', '🎶', 'Gig']
+];
+// With no name or emoji picked, the hangout gives the sesh its title ("☕ Coffee sesh").
+export function hangoutOf(d: Details | null): [string, string, string] | null {
+  return (d && d.hangout && HANGOUTS.filter((h) => h[0] === d.hangout)[0]) || null;
+}
 export type SeshLook = { details: Details | null; cover: string | null; ready: boolean; reload: () => void };
 
 export function seshColours(d: Details | null): [string, string] {
@@ -205,6 +214,15 @@ export function SeshSettings({ s, look, say, onEnd, children }: {
   const [colour, setColour] = useState((d && d.colour) || '');
   const [closed, setClosed] = useState(d ? d.private : !!s.private);
   const [busy, setBusy] = useState(false);
+  const [hangout, setHangout] = useState((d && d.hangout) || '');
+  useEffect(() => { setHangout((d && d.hangout) || ''); }, [d && d.hangout]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Saved straight away (it has its own database call, so an older database without 0049 only loses this).
+  const pickHangout = (k: string) => {
+    const was = hangout;
+    setHangout(k);
+    rpc('set_sesh_hangout', { p_sesh: s.id, p_hangout: k || null }).then(() => look.reload(),
+      (e: { message?: string }) => { setHangout(was); say((e && e.message) || "Couldn't save that. Try again."); });
+  };
   const [photoBusy, setPhotoBusy] = useState(false);
   // When the details arrive (or change on someone else's phone), the form follows them.
   const sig = d ? [d.name, d.emoji, d.colour, d.private].join('|') : '';
@@ -266,6 +284,16 @@ export function SeshSettings({ s, look, say, onEnd, children }: {
               <Pressable key={k} onPress={() => setColour(k)} accessibilityRole="button" accessibilityLabel={'Colour ' + k}
                 accessibilityState={{ selected: colour === k }} style={[styles.swatchRing, colour === k && styles.swatchOn]} testID={'sesh-colour-' + k}>
                 <LinearGradient colors={SESH_COLOURS[k]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.swatch} />
+              </Pressable>
+            ))}
+          </View>
+
+          <Text style={styles.h}>What kind of hangout?</Text>
+          <View style={styles.wrap}>
+            {HANGOUTS.map(([k, e, label]) => (
+              <Pressable key={k} style={[styles.pick, hangout === k && styles.pickOn]} onPress={() => pickHangout(hangout === k ? '' : k)}
+                accessibilityRole="button" accessibilityState={{ selected: hangout === k }} testID={'sesh-hangout-' + k}>
+                <Text style={[styles.pickText, hangout === k && styles.pickTextOn]}>{e} {label}</Text>
               </Pressable>
             ))}
           </View>

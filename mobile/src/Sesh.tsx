@@ -31,7 +31,7 @@ import { ReactBar, ReactChips } from './Reactions';
 import GettingThere from './GettingThere';
 import HomeSafe from './HomeSafe';
 import KeyboardSafe from './KeyboardSafe';
-import { ChatTile, CoverBehind, EndPill, RoomTiles, SeshSettings, SeshStrip, TimeLeft, VotesMap, seshColours, useSeshDetails, type SeshLook } from './SeshDetails';
+import { ChatTile, CoverBehind, EndPill, RoomTiles, SeshSettings, SeshStrip, TimeLeft, VotesMap, hangoutOf, seshColours, useSeshDetails, type SeshLook } from './SeshDetails';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Avatar, Button, Face, Toast, TopBar, usePullRefresh } from './Parts';
 import { rpc, type ApiError } from './session';
@@ -366,7 +366,8 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
   };
   const venueNow = mine.locked_venue && v.byId[mine.locked_venue] ? v.byId[mine.locked_venue] : null;
   const d = sd.details;
-  const seshTitle = (d && d.emoji ? d.emoji + ' ' : '') + ((d && d.name) || (venueNow ? venueNow.name : isCrawl ? "Tonight's crawl" : "Tonight's sesh"));
+  const hang = hangoutOf(d);
+  const seshTitle = (d && d.emoji ? d.emoji + ' ' : hang ? hang[1] + ' ' : '') + ((d && d.name) || (venueNow ? venueNow.name : isCrawl ? "Tonight's crawl" : hang ? hang[2] + ' sesh' : "Tonight's sesh"));
   const parts: [Panel, string][] = [['chat', 'Chat'], ['where', venueNow ? 'Where' : 'Vote'], ...(crawl.off ? [] : [['crawl', 'Crawl'] as [Panel, string]]), ['more', 'Settings']];
   const tally = leaderOf(mine);
   const leadVen = tally.best && v.byId[tally.best] ? v.byId[tally.best] : null;
@@ -987,10 +988,10 @@ function SeshCard({ s, later, startMs, creator, isCrawl, stops, v, myId, photos,
   look: SeshLook;        // its own name, emoji, colour and cover photo (0044)
   onEnd: () => void; onEdit: () => void;
 }) {
-  const d = look.details, name = d ? d.name : null, emoji = d ? d.emoji : null;
+  const d = look.details, name = d ? d.name : null, hang = hangoutOf(d), emoji = d && d.emoji ? d.emoji : hang ? hang[1] : null;
   const kind = isCrawl ? 'crawl' : 'sesh';
   const venue = s.locked_venue && v.byId[s.locked_venue] ? v.byId[s.locked_venue] : null;
-  const title = (emoji ? emoji + ' ' : '') + (name || (venue ? venue.name : later ? fmtWhen(s.starts_at) : isCrawl ? "Tonight's crawl" : "Tonight's sesh"));
+  const title = (emoji ? emoji + ' ' : '') + (name || (venue ? venue.name : later ? fmtWhen(s.starts_at) : isCrawl ? "Tonight's crawl" : hang ? hang[2] + ' sesh' : "Tonight's sesh"));
   const sub = venue && name ? venue.name + (later ? ', ' + fmtWhen(s.starts_at) : '') : venue ? (later ? fmtWhen(s.starts_at) : [venue.kind, hoursLine(venue)].filter(Boolean).join(', '))
     : s.votes.length ? s.votes.length + ' vote' + (s.votes.length === 1 ? '' : 's') + ' on where to go' : 'Still picking a spot';
   const who = (s.mine ? 'You' : creator) + ' started it';
