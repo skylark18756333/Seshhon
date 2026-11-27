@@ -155,7 +155,7 @@ export default function VenuePage({ f, id, onClose, onSesh }: { f: Frendzy; id: 
                 : stops.length < CRAWL_MAX ? <Button ghost icon="plus" label="Add to the Sesh Map" onPress={addStop} testID="venue-add" /> : null
             ) : null}
             {/* Getting there: walk, ride or train/bus, opened in Google Maps or Uber. */}
-            <GettingThere name={ven.name} at={at} onFail={f.say} />
+            <GettingThere name={ven.name} at={at} onFail={f.say} sesh={mine && !isLater(mine) ? mine : null} />
             <Button ghost small icon="up" label="Share" onPress={share} testID="venue-share" />
           </View>
 
