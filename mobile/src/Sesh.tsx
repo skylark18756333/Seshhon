@@ -28,6 +28,7 @@ import MeetMiddle from './MeetMiddle';
 import { Tip } from './Tip';
 import SpotPicker from './SpotPicker';
 import { ReactBar, ReactChips } from './Reactions';
+import GettingThere from './GettingThere';
 import KeyboardSafe from './KeyboardSafe';
 import { ChatTile, CoverBehind, EndPill, RoomTiles, SeshSettings, SeshStrip, TimeLeft, VotesMap, seshColours, useSeshDetails, type SeshLook } from './SeshDetails';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -1226,9 +1227,7 @@ function PresCard({ s, editing, address, minute, onAddress, onMinute, onEdit, on
           </View>
           {s.mine ? <Button small ghost label="Edit" onPress={onEdit} /> : null}
         </View>
-        <View style={{ alignSelf: 'flex-start' }}>
-          <Button small ghost label="Directions" onPress={() => Linking.openURL('https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(address)).catch(() => {})} />
-        </View>
+        <GettingThere name={address} />
         <Text style={[styles.muted, styles.small]}>
           {s.mine && new Date(p.shows_at).getTime() > Date.now()
             ? 'The people who are in see it from ' + lower(fmtWhen(p.shows_at)) + '.'
@@ -1381,6 +1380,8 @@ function CrawlSection({ s, stops, v, onMap, onVenue, onRun }: {
                   {meta ? <Text style={[styles.muted, styles.small]}>{meta}</Text> : null}
                 </Pressable>
               </View>
+              {/* The next stop gets Walk, Ride and Train/bus, so getting there (or home) is one tap. */}
+              {isNext ? <View style={{ paddingLeft: 46 }}><GettingThere name={name} at={v.pins ? v.pins[c.venue_id] : null} /></View> : null}
               {boss || c.mine ? (
                 <View style={[styles.row, { gap: 8, paddingLeft: 46 }]}>
                   {boss ? (
