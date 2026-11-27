@@ -307,7 +307,8 @@ function Shell() {
   useEffect(() => watchNotificationTaps(setTapTab), []);
   // Holding the app icon: Chats opens Chats; Go green switches you to green once you're signed in and on Home.
   const [wantGreen, setWantGreen] = useState(false);
-  useEffect(() => watchShortcuts((id) => { if (id === 'chats') setTapTab('messages'); else if (id === 'green') { setWantGreen(true); setTapTab('home'); } }), []);
+  const [wantBump, setWantBump] = useState(false);
+  useEffect(() => watchShortcuts((id) => { if (id === 'chats') setTapTab('messages'); else if (id === 'green') { setWantGreen(true); setTapTab('home'); } else if (id === 'bump') { setWantBump(true); setTapTab('friends'); } }), []);
   useEffect(() => {
     if (!wantGreen || !f.state || !f.state.me) return;
     setWantGreen(false);
@@ -483,7 +484,7 @@ function Shell() {
       {tab === 'venue' && venue ? <VenuePage key={venue} f={f} id={venue} onClose={closeVenue} onSesh={venueToSesh} /> : null}
       {tab === 'you' ? <You f={f} onOpenWeb={pickTab} onSignedOut={signedOut} />
         : tab === 'messages' ? <Messages key={chatOpens} f={f} onBack={goHome} onSesh={goHome} />
-        : tab === 'friends' ? <Friends f={f} onBack={goHome} onOpenWeb={pickTab} />
+        : tab === 'friends' ? <Friends f={f} onBack={goHome} onOpenWeb={pickTab} bumpNow={wantBump} onBumpOpened={() => setWantBump(false)} />
         : tab === 'crews' ? <Crews f={f} onBack={goBefore} onPlanned={openPlanned} />
         : null}
       </Swipe>

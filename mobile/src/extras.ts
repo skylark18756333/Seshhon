@@ -25,14 +25,15 @@ export function buzz(colour: 'on' | 'thinking' | 'off') {
   } catch (e) { /* no motor */ }
 }
 
-// Hold the app icon: Go green, Chats. onPick gets 'green' or 'chats', including for the hold that opened the app.
+// Hold the app icon: Go green, Chats, Bump to add. onPick gets 'green', 'chats' or 'bump', including for the hold that opened the app.
 export function watchShortcuts(onPick: (id: string) => void): () => void {
   if (!quick) return () => {};
   let sub: { remove: () => void } | null = null;
   try {
     quick.setItems([
       { id: 'green', title: 'Go green', icon: null, params: null },
-      { id: 'chats', title: 'Chats', icon: null, params: null }
+      { id: 'chats', title: 'Chats', icon: null, params: null },
+      { id: 'bump', title: 'Bump to add', icon: null, params: null }
     ]).catch(() => {});
     if (quick.initial && quick.initial.id) onPick(quick.initial.id);
     sub = quick.addListener((a) => { if (a && a.id) onPick(a.id); });
