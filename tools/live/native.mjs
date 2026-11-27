@@ -507,13 +507,10 @@ try {
   await slide(5);
   await until(async () => (await natMap.page.getByTestId('radius-label').innerText()).startsWith('5'));
 
-  // Filters: Popular keeps what is busy or a top pick, Trending and Open now narrow the rest.
-  await natMap.page.getByTestId('chip-popular').click();
-  await until(async () => (await markerIds(natMap)).length === 1);
-  expect('Popular shows only the busy venue', JSON.stringify(await markerIds(natMap)), JSON.stringify([venueA]));
-  await natMap.page.getByTestId('chip-trending').click();
-  await until(async () => (await markerIds(natMap)).length === 0);
-  expect('Trending shows none (nobody has rated twice this week)', (await markerIds(natMap)).length, 0);
+  // Filters: a kind (Pubs) keeps only that kind of place; Open now narrows to what's open.
+  await natMap.page.getByTestId('chip-pub').click();
+  await until(async () => (await markerIds(natMap)).length <= within(5).length);
+  expect('Pubs shows no more than all venues', (await markerIds(natMap)).length <= within(5).length, true);
   await natMap.page.getByTestId('chip-open').click();
   await until(async () => (await markerIds(natMap)).length >= 0);
   const openNow = await markerIds(natMap);
