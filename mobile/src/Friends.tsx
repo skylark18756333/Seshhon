@@ -5,6 +5,7 @@
 import React, { useState } from 'react';
 import { Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import type { Friend } from './api';
+import BumpSheet from './BumpSheet';
 import { openFriend } from './FriendProfile';
 import Icon from './Icon';
 import { Tip } from './Tip';
@@ -22,6 +23,7 @@ export default function Friends({ f, onBack, onOpenWeb }: { f: Frendzy; onBack: 
   const [name, setName] = useState('');
   const [adding, setAdding] = useState(false);
   const [find, setFind] = useState('');
+  const [bumping, setBumping] = useState(false);
   const { width } = useWindowDimensions();
   if (!me) return null;
   // Three faces a row, sized to the screen (the page is at most 440 wide, with 18 each side).
@@ -103,6 +105,9 @@ export default function Friends({ f, onBack, onOpenWeb }: { f: Frendzy; onBack: 
             <Text style={styles.chipText}>Crews and besties</Text>
           </Pressable>
           )}</Tip>
+          <Pressable style={styles.chip} onPress={() => setBumping(true)} accessibilityRole="button" accessibilityLabel="Bump phones to add a friend" testID="open-bump">
+            <Text style={styles.chipText}>Bump to add</Text>
+          </Pressable>
           <Tip id="friends-invite" onPress={share}>{(press) => (
           <Pressable style={styles.chip} onPress={press} accessibilityRole="button" accessibilityLabel="Send your invite link">
             <Text style={styles.chipText}>Send invite link</Text>
@@ -131,6 +136,7 @@ export default function Friends({ f, onBack, onOpenWeb }: { f: Frendzy; onBack: 
         )}
         {q && !list.length ? <Text style={styles.muted}>No friend called that.</Text> : null}
       </ScrollView>
+      <BumpSheet open={bumping} onClose={() => setBumping(false)} onFriends={() => { f.refresh(); }} />
       <Toast text={f.toast} />
     </View>
   );
