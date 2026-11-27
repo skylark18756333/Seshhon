@@ -531,11 +531,11 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
           {later && mine.starts_at ? (
             <Button ghost icon="clock" label="Add to calendar" testID="add-to-calendar" onPress={() => {
               const lv = mine.locked_venue && v.byId[mine.locked_venue] ? v.byId[mine.locked_venue] : null;
+              // Only the venue and time go into the calendar: no friends' names and no pres address.
               addToCalendar({
-                title: (stops.length > 1 ? 'Crewzy crawl' : 'Crewzy sesh') + (creator && !mine.mine ? ' with ' + creator : ''),
+                title: (stops.length > 1 ? 'Crewzy crawl' : 'Crewzy sesh') + (lv ? ' at ' + lv.name : ''),
                 start: new Date(mine.starts_at as string),
-                place: lv ? lv.name : null,
-                note: mine.pres && mine.pres.address ? 'Pres: ' + mine.pres.address : null
+                place: lv ? lv.name : null
               }, f.say);
             }} />
           ) : null}
