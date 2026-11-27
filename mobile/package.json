@@ -21,6 +21,7 @@
     "react": "19.2.3",
     "react-native": "0.86.3",
     "react-native-maps": "1.27.2",
+    "react-native-qrcode-svg": "^6.3.56",
     "react-native-safe-area-context": "~5.7.0",
     "react-native-svg": "^15.15.4",
     "react-native-webview": "13.16.1",
