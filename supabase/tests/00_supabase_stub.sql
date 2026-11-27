@@ -24,3 +24,7 @@ grant execute on function auth.uid() to authenticated, anon;
 -- Copying that here means the tests prove the migration takes those rights back.
 alter default privileges in schema public grant all on tables to anon, authenticated;
 alter default privileges in schema public grant execute on functions to anon, authenticated;
+
+-- The live database keeps a log of which migration files were run (made by hand on the live project).
+create schema if not exists private;
+create table if not exists private.migration_log (file text not null, at timestamptz not null default now());

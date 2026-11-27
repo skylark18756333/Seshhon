@@ -29,6 +29,7 @@ import { Tip } from './Tip';
 import SpotPicker from './SpotPicker';
 import { ReactBar, ReactChips } from './Reactions';
 import GettingThere from './GettingThere';
+import HomeSafe from './HomeSafe';
 import KeyboardSafe from './KeyboardSafe';
 import { ChatTile, CoverBehind, EndPill, RoomTiles, SeshSettings, SeshStrip, TimeLeft, VotesMap, seshColours, useSeshDetails, type SeshLook } from './SeshDetails';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -422,6 +423,7 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
               note: stops.length ? stops.length + ' stop' + (stops.length === 1 ? '' : 's') : 'Add stops', onPress: () => go('crawl') }]),
             { key: 'more', emoji: '⚙️', title: 'Settings', colours: ['#5B8CFF', '#9B5BFF'], note: mine.mine ? 'Name, colour, photo' : 'Pres, leave', onPress: () => go('more') }
           ]} />
+          <HomeSafe seshId={mine.id} members={mine.members} myId={me.id} say={f.say} />
         </>
       ) : null}
 
