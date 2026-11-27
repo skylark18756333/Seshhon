@@ -11,7 +11,7 @@ import { GreenRow, HomeBottom, HomeTop } from './Home';
 import { useHomeTapAgain, useOnShow, useShownRef } from './Shown';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  AppState, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
+  AppState, Keyboard, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
   type NativeScrollEvent, type NativeSyntheticEvent
 } from 'react-native';
 import { addCrawlStops, getMessages, reportMessage, seshCrawl, sendMessage, type CrawlStop, type Friend, type Member, type Message, type Sesh as SeshT } from './api';
@@ -1548,6 +1548,12 @@ function Chat({ f, seshId, myId, confirm, setConfirm, onLatest, names, onTyping,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seshId, refresh]);
 
+  // True while the message box is in use: tapped, with the keyboard up. Closing the keyboard hides the quick replies.
+  const [typing, setTyping] = useState(false);
+  useEffect(() => {
+    const sub = Keyboard.addListener('keyboardDidHide', () => setTyping(false));
+    return () => sub.remove();
+  }, []);
   const send = (quick?: string) => {
     const text = (quick || draft).trim();
     if (!text || sending) return;
@@ -1625,14 +1631,15 @@ function Chat({ f, seshId, myId, confirm, setConfirm, onLatest, names, onTyping,
           </View>
         ) : null}
       </ScrollView>
-      <ScrollView horizontal style={styles.noGrow} showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.quickRow}>
+      {/* Quick replies show only while you're typing (the box is tapped and the keyboard is up), so the chat stays clean. */}
+      {typing ? <ScrollView horizontal style={styles.noGrow} showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.quickRow}>
         {QUICK_REPLIES.map((q) => (
           <Pressable key={q} style={({ pressed }) => [styles.quick, (pressed || sending) && styles.quickDown]} onPress={() => send(q)} disabled={sending}
             accessibilityRole="button" accessibilityLabel={'Send: ' + q} testID={'quick-' + q}>
             <Text style={styles.quickText}>{q}</Text>
           </Pressable>
         ))}
-      </ScrollView>
+      </ScrollView> : null}
       <View style={styles.chatForm}>
         <TextInput
           style={styles.chatInput}
@@ -1643,7 +1650,8 @@ function Chat({ f, seshId, myId, confirm, setConfirm, onLatest, names, onTyping,
           placeholder="Type a message..."
           placeholderTextColor={C.muted}
           accessibilityLabel="Message your mates"
-          onFocus={() => { onFocusInput?.(); setTimeout(() => list.current?.scrollToEnd({ animated: true }), 300); }}
+          onBlur={() => setTyping(false)}
+          onFocus={() => { setTyping(true); onFocusInput?.(); setTimeout(() => list.current?.scrollToEnd({ animated: true }), 300); }}
           returnKeyType="send"
           onSubmitEditing={() => send()}
           submitBehavior="submit"
