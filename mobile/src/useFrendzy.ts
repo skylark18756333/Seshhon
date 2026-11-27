@@ -1,5 +1,6 @@
 // Keeps the signed-in person's data for the native screens: one load at start-up, then the same five-second
 // poll the web app uses, plus the few taps Home can do. Ported from load(), act() and the ACT list in docs/app.js.
+import { buzz } from './extras';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 import { addFriendByUsername, friendPhotos, loadGates, loadState, myAccount } from './api';
@@ -166,6 +167,7 @@ export function useFrendzy(signedIn: boolean, paused?: boolean, sessionKey?: str
   // Status writes wait their turn; confirmed state is read back after each write. The switch, the glow and the
   // logo lights move straight away instead of waiting for the database, and go back if the change didn't save.
   const setColour = useCallback((colour: Colour) => {
+    buzz(colour);   // a light buzz, so the switch feels like a switch
     setBusy(true);
     setState((s) => (s && s.me ? { ...s, me: { ...s.me, colour } } : s));
     lastKey.current = '';

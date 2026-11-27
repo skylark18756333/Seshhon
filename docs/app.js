@@ -598,6 +598,7 @@
     vhome: '<path d="M3 9l1.5-5h15L21 9"/><path d="M3 9h18v2a3 3 0 0 1-6 0 3 3 0 0 1-6 0 3 3 0 0 1-6 0z"/><path d="M5 13v8h14v-8"/>',
     vevents: '<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>',
     vdeals: '<path d="M3 12V3h9l9 9-9 9z"/><circle cx="8" cy="8" r="1.5"/>',
+    vstats: '<path d="M4 20V10"/><path d="M10 20V4"/><path d="M16 20v-7"/><path d="M22 20H2"/>',
     admin: '<path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/>',
     fork: '<path d="M7 3v8"/><path d="M4 3v5a3 3 0 0 0 6 0V3"/><path d="M7 11v10"/><path d="M17 21V3c-2.5 1-4 4-4 8h4"/>',
     // Status lamps: a tick for green (out), a question mark for amber (maybe), a cross for red (off)
@@ -1828,7 +1829,7 @@
   /* ---------- account types: venue page and admin page ---------- */
   // ui.role comes from my_role(): { role: 'user' | 'venue' | 'admin', venues, claim }. An older database means everyone is a user.
   function role() { return ui.role && ui.role.role || 'user'; }
-  var VENUE_TABS = [['vhome', 'Venue'], ['vevents', 'Events'], ['vdeals', 'Deals']];
+  var VENUE_TABS = [['vhome', 'Venue'], ['vstats', 'Stats'], ['vevents', 'Events'], ['vdeals', 'Deals']];
   function loadVenueData() {
     return rpc('venue_overview').then(function (v) { ui.vdata = v || []; }, function (x) { ui.vdata = ui.vdata || []; toast(x.message); });
   }
@@ -1862,6 +1863,55 @@
       '<div class="card"><h2>Opening hours</h2><p class="muted small">' + (v.hours ? esc(v.hours) : 'Not set yet.') + '</p>' +
       '<button class="btn small-btn" data-act="venue" data-v="' + esc(v.id) + '">See your public page and change hours</button></div>' +
       '<div class="card"><h2>About venue accounts</h2><p class="muted small">This account is just for your venue. It can\'t go green, add friends or join seshes, and customers never see who runs it. Use a personal account for going out.</p></div>';
+  }
+  // ---- Stats: anonymous counts for this venue (venue_stats, migration 0050). Nobody is named and nothing says where
+  // anyone was: only how many seshes voted for or picked the venue, added it to a Sesh Map, and used its deal codes.
+  function loadVenueStats() {
+    var v = myVenue();
+    if (!v) return Promise.resolve();
+    ui.vstats = ui.vstats || {};
+    return rpc('venue_stats', { p_venue: v.id }).then(function (st) { ui.vstats[v.id] = st || null; }, function (x) { ui.vstats[v.id] = { error: x.message }; });
+  }
+  function venueStats() {
+    if (!ui.vdata) return '<p class="muted">Loading your venue...</p>';
+    var v = myVenue();
+    if (!v) return venueHome();
+    var st = ui.vstats && ui.vstats[v.id];
+    var head = '<div class="stack" style="gap:6px"><div class="eyebrow">Stats</div><h1>' + esc(v.name) + '</h1><p class="muted small">How Crewzy users are choosing you. Counts only: nobody is named and no locations are kept.</p></div>' + venuePicker();
+    if (st === undefined) { loadVenueStats().then(render); return head + '<p class="muted">Loading stats...</p>'; }
+    if (!st || st.error) return head + '<div class="card"><h2>Stats aren\'t switched on yet</h2><p class="muted small">Crewzy is setting this up. Check back soon.</p></div>';
+    var w = st.week || {}, lw = st.last_week || {};
+    var tile = function (label, key, note) {
+      var n = Number(w[key] || 0), was = Number(lw[key] || 0), diff = n - was;
+      var trend = !was && !n ? 'Nothing yet' : diff > 0 ? '▲ ' + diff + ' on last week' : diff < 0 ? '▼ ' + (-diff) + ' on last week' : 'Same as last week';
+      return '<div class="card" style="gap:2px"><div class="muted small">' + label + '</div><div class="tile-num">' + n + '</div><div class="muted small">' + trend + '</div>' + (note ? '<div class="muted small">' + note + '</div>' : '') + '</div>';
+    };
+    var h = head + '<h2>Last 7 nights</h2><div class="tiles">' +
+      tile('Seshes that picked you', 'picks', 'A sesh set to meet here') + tile('Sesh votes for you', 'votes', 'People voting on where to go') +
+      tile('Added to a Sesh Map', 'stops', 'A stop on a pub crawl') + tile('Deal codes used', 'uses', 'Codes you confirmed') + '</div>';
+    // The last 28 nights as bars: picks + votes + stops, the interest in going out here.
+    var nights = st.nights || [], top = 1;
+    nights.forEach(function (d) { top = Math.max(top, d.picks + d.votes + d.stops); });
+    h += '<div class="card wide"><h2>Interest, night by night</h2><p class="muted small">Picks, votes and Sesh Map stops over the last 4 weeks.</p><div class="vbars">' +
+      nights.map(function (d) {
+        var n = d.picks + d.votes + d.stops, day = new Date(d.night + 'T12:00:00');
+        return '<div class="vbar" title="' + esc(day.toDateString()) + ': ' + n + '"><span style="height:' + Math.round(100 * n / top) + '%"></span><em>' + (day.getDay() === 5 ? day.getDate() : '') + '</em></div>';
+      }).join('') + '</div><p class="muted small">Dates mark Fridays.</p></div>';
+    // Busy times: weekday by hour over 8 weeks. Hours run from noon to 3am, the going-out day.
+    var grid = {}, peak = 0, HOURS = [12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3], DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'], DOW = [1, 2, 3, 4, 5, 6, 0];
+    (st.busy || []).forEach(function (b) { grid[b.dow + ':' + b.hour] = b.n; peak = Math.max(peak, b.n); });
+    var cell = function (dow, hr) { var n = grid[dow + ':' + hr] || 0; return '<td title="' + n + '" style="--lvl:' + (peak ? (0.08 + 0.92 * n / peak).toFixed(2) : 0.05) + '"></td>'; };
+    h += '<div class="card wide"><h2>Busy times</h2><p class="muted small">When seshes choose you, by night and hour, over the last 8 weeks. Brighter is busier.' + (peak ? '' : ' Nothing yet.') + '</p>' +
+      '<div class="vheat-wrap"><table class="vheat"><thead><tr><th></th>' + HOURS.map(function (x) { return '<th>' + (x % 12 || 12) + (x < 12 ? 'a' : 'p') + '</th>'; }).join('') + '</tr></thead><tbody>' +
+      DAYS.map(function (dn, i) { return '<tr><th>' + dn + '</th>' + HOURS.map(function (hr) { return cell(DOW[i], hr); }).join('') + '</tr>'; }).join('') + '</tbody></table></div></div>';
+    // Deal usage: codes confirmed per deal, week by week (this week first).
+    var deals = st.deals || [];
+    h += '<div class="card wide"><h2>Deal usage</h2>' + (deals.length ? '<p class="muted small">Codes confirmed per deal, over the last 8 weeks.</p><div class="vheat-wrap"><table class="dealtab"><thead><tr><th>Deal</th><th>This week</th><th>Last week</th><th>8 weeks</th></tr></thead><tbody>' +
+      deals.map(function (d) {
+        var wk = [0, 0]; (d.weeks || []).forEach(function (x) { if (x.week < 2) wk[x.week] += x.uses; });
+        return '<tr><td>' + esc(d.title) + '</td><td>' + wk[0] + '</td><td>' + wk[1] + '</td><td>' + d.total + '</td></tr>';
+      }).join('') + '</tbody></table></div>' : '<p class="muted small">No deal codes used yet. Uses show here once you confirm a code on the Deals page.</p>') + '</div>';
+    return h;
   }
   function fmtSpan(d) { return fmtClock(d.start_time) + ' to ' + fmtClock(d.end_time); }
   function venueItems(isEvents) {
@@ -2120,7 +2170,7 @@
     if (ui.screen && ui.screen.type === 'venue') html = venue(ui.screen.id);
     else if (ui.screen && ui.screen.type === 'redeem') html = redeem(ui.screen.id);
     else html = topBar() + ({ home: home, sesh: sesh, map: mapTab, venues: venues, events: events, you: you, admin: adminPage,
-      vhome: venueHome, vevents: function () { return venueItems(true); }, vdeals: function () { return venueItems(false); } }[ui.tab] || home)();
+      vhome: venueHome, vstats: venueStats, vevents: function () { return venueItems(true); }, vdeals: function () { return venueItems(false); } }[ui.tab] || home)();
     appBox.classList.toggle('desk', role() !== 'user' && !window.ReactNativeWebView);
     view.innerHTML = html;
     mountMap();
@@ -2177,6 +2227,7 @@
       ui.tab = v; ui.screen = null; ui.confirm = null; ui.staffError = ''; ui.picker = null; ui.plan = null; go(true);
       if (v === 'map' || v === 'venues') freshVenues(5 * 60000);
       if (v === 'vhome' || v === 'vevents' || v === 'vdeals') { ui.editDeal = null; loadVenueData().then(render); }
+      if (v === 'vstats') loadVenueData().then(loadVenueStats).then(render);
       if (v === 'admin') loadAdminData().then(render);
       if (v === 'you' && role() === 'user') loadRole().then(render);
       if (v === 'map' && Date.now() - buzzAt > 60000) loadBuzz();

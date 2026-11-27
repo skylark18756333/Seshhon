@@ -1230,7 +1230,7 @@ function PresCard({ s, editing, address, minute, onAddress, onMinute, onEdit, on
           </View>
           {s.mine ? <Button small ghost label="Edit" onPress={onEdit} /> : null}
         </View>
-        <GettingThere name={address} />
+        <GettingThere name={address} sesh={s} />
         <Text style={[styles.muted, styles.small]}>
           {s.mine && new Date(p.shows_at).getTime() > Date.now()
             ? 'The people who are in see it from ' + lower(fmtWhen(p.shows_at)) + '.'
@@ -1384,7 +1384,7 @@ function CrawlSection({ s, stops, v, onMap, onVenue, onRun }: {
                 </Pressable>
               </View>
               {/* The next stop gets Walk, Ride and Train/bus, so getting there (or home) is one tap. */}
-              {isNext ? <View style={{ paddingLeft: 46 }}><GettingThere name={name} at={v.pins ? v.pins[c.venue_id] : null} /></View> : null}
+              {isNext ? <View style={{ paddingLeft: 46 }}><GettingThere name={name} at={v.pins ? v.pins[c.venue_id] : null} sesh={s} /></View> : null}
               {boss || c.mine ? (
                 <View style={[styles.row, { gap: 8, paddingLeft: 46 }]}>
                   {boss ? (
