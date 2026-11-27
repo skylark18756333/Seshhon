@@ -39,6 +39,7 @@ import TwoStep from './src/TwoStep';
 import You from './src/You';
 import { C, F, first, themed, useLook } from './src/theme';
 import { useFrendzy } from './src/useFrendzy';
+import { watchShortcuts } from './src/extras';
 import { SESSION_KEY, clearTour, currentSession, loadStoredSession, onSessionChange, pageStoreScript, pageStored, pendingInvite, rpc, sessionForPage, setPendingInvite, setSession, tourPending, type ApiError, type Session } from './src/session';
 import APP_HTML from './web/app-html.generated';
 
@@ -304,6 +305,14 @@ function Shell() {
   // Tapping a notification opens the screen it is about (Home, Sesh, Crews or Chats), once the native screens are up.
   const [tapTab, setTapTab] = useState<string | null>(null);
   useEffect(() => watchNotificationTaps(setTapTab), []);
+  // Holding the app icon: Chats opens Chats; Go green switches you to green once you're signed in and on Home.
+  const [wantGreen, setWantGreen] = useState(false);
+  useEffect(() => watchShortcuts((id) => { if (id === 'chats') setTapTab('messages'); else if (id === 'green') { setWantGreen(true); setTapTab('home'); } }), []);
+  useEffect(() => {
+    if (!wantGreen || !f.state || !f.state.me) return;
+    setWantGreen(false);
+    if (f.state.me.colour !== 'on') f.setColour('on');
+  }, [wantGreen, f.state, f.setColour]);
 
   // Over-the-air updates: on opening, fetch the latest screens and code if there are any and restart into them,
   // so a merged change reaches this phone without a new build. Nothing happens in a build without updates.

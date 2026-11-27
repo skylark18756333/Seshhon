@@ -1,6 +1,6 @@
 // Builds supabase/venues/perth-osm.sql: every named going-out venue in greater Perth from OpenStreetMap
 // (bars, pubs, nightclubs, beer gardens, live music and event venues, clubs, breweries, wineries,
-// distilleries and restaurants), ready to paste into the Supabase SQL editor.
+// distilleries, restaurants and cafés), ready to paste into the Supabase SQL editor.
 // Run: node tools/venues/import-osm.mjs            (downloads from the Overpass API)
 //      node tools/venues/import-osm.mjs file.json  (uses an Overpass answer saved earlier)
 // Data © OpenStreetMap contributors, under the Open Database Licence. The map already shows the credit.
@@ -14,7 +14,7 @@ const OUT = path.join(root, 'supabase/venues/perth-osm.sql');
 const BBOX = [-32.65, 115.6, -31.45, 116.25];   // south, west, north, east
 const KINDS = {
   bar: 'Bar', pub: 'Pub', nightclub: 'Nightclub', biergarten: 'Beer garden', music_venue: 'Live music venue',
-  events_venue: 'Event venue', casino: 'Casino', karaoke_box: 'Karaoke', social_club: 'Club', restaurant: 'Restaurant'
+  events_venue: 'Event venue', casino: 'Casino', karaoke_box: 'Karaoke', social_club: 'Club', restaurant: 'Restaurant', cafe: 'Cafe'
 };
 const CRAFTS = { brewery: 'Brewery', winery: 'Winery', distillery: 'Distillery' };
 const QUERY = `[out:json][timeout:180];(` +
