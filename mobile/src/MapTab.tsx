@@ -40,7 +40,16 @@ const NAMED = 8;                          // the first few bubbles always carry 
 const BUZZ_MS = 60000;                    // api_buzz is asked again after a minute
 const MEET_MS = 15000;                    // Middle asks again this often while it is on show, so a mate's share shows up
 const KMS = [1, 2, 3, 5, 10, 25];
-const FILTERS: [string, string][] = [['', 'Nearest'], ['open', 'Open now'], ['popular', 'Popular'], ['trending', 'Trending']];
+// Show only one kind of place (still nearest first), or what's open now. Kinds come from the venue's own kind
+// ("Pub", "Restaurant (Pizza)", "Beer garden" ...).
+const FILTERS: [string, string][] = [['', 'All'], ['restaurant', 'Restaurants'], ['cafe', 'Cafés'], ['bar', 'Bars'], ['pub', 'Pubs'], ['club', 'Nightclubs'], ['open', 'Open now']];
+const KINDS: Record<string, RegExp> = {
+  restaurant: /restaurant|bistro|eatery|diner|food/i,
+  cafe: /caf[eé]|coffee|bakery|brunch/i,
+  bar: /\bbar\b|winery|distillery|brewery|cocktail|wine|lounge/i,
+  pub: /\bpub\b|tavern|hotel|beer garden|inn\b/i,
+  club: /night ?club|\bclub\b|disco/i
+};
 const RADAR = '#3DDC84', GOLD = '#FFC53D';
 const noZoom = () => {};
 
@@ -170,8 +179,7 @@ export default function MapTab({ f, onVenue, onOpenWeb, onWebMap }: {
   const tagOf = (x: Venue) => busyOf(x) ? 'Busy tonight' : trending(x) ? 'Trending this week' : topPick(x) ? 'Top pick' : '';
   const filterOk = (x: Venue) => {
     if (!filter) return true;
-    if (filter === 'popular') return busyOf(x) > 0 || topPick(x);
-    if (filter === 'trending') return trending(x);
+    if (KINDS[filter]) return KINDS[filter].test(x.kind || '');
     const st = openState(x); return !!(st && st.open);
   };
   const filterName = (FILTERS.filter((x) => x[0] === filter)[0] || ['', ''])[1];
@@ -447,7 +455,7 @@ export default function MapTab({ f, onVenue, onOpenWeb, onWebMap }: {
                   <Text style={styles.countTag}>{live ? (meetOff ? 'Middle is not set up yet' : midIds.length ? 'In the middle for everyone' : 'Waiting for mates') : 'Middle'}</Text>
                 ) : geo.chosen && !hits ? (
                   <Text style={styles.countTag} testID="venue-count">
-                    {count} venue{count === 1 ? '' : 's'}{filter ? ' ' + filterName.toLowerCase() : ''} within <Text testID="radius-label">{radius} km</Text> of {from}
+                    {count} {KINDS[filter] ? filterName.toLowerCase() : 'venue' + (count === 1 ? '' : 's') + (filter ? ' ' + filterName.toLowerCase() : '')} within <Text testID="radius-label">{radius} km</Text> of {from}
                   </Text>
                 ) : hits && !query ? (
                   <Text style={styles.countTag}>{hits.length} {filterName.toLowerCase()}</Text>

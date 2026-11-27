@@ -14,7 +14,7 @@ import nacl from 'tweetnacl';
 import { decodeBase64, decodeUTF8, encodeBase64, encodeUTF8 } from 'tweetnacl-util';
 import type { Friend } from './api';
 import Icon from './Icon';
-import { Button, Face, Toast, setWaiting } from './Parts';
+import { Button, Face, Toast, setWaiting, usePullRefresh } from './Parts';
 import { ReactBar, ReactChips } from './Reactions';
 import KeyboardSafe from './KeyboardSafe';
 import Notifications, { seshInvites, useHiddenSeshes, type NewChat } from './Notifications';
@@ -184,6 +184,7 @@ export default function Messages({ f, onBack, onSesh }: { f: Frendzy; onBack: ()
     if (typingLink.current) { if (v.trim()) typingLink.current.typing(); else typingLink.current.stopped(); }
   };
   const scroll = useRef<ScrollView>(null);
+  const tickNow = useRef<() => Promise<void>>(async () => {});
 
   // Load the history kept on this phone, then check for new messages every few seconds while this screen is open.
   useEffect(() => {
@@ -196,10 +197,14 @@ export default function Messages({ f, onBack, onSesh }: { f: Frendzy; onBack: ()
         if (!gone && next !== base) setHist((cur) => (cur === base ? next : { ...cur, chats: next.chats }));
       } catch (_) { /* offline or not set up yet: try again next time */ }
     };
+    tickNow.current = tick;
     loadHistory(uid).then((h) => { if (gone) return; setHist(h); live.current.hist = h; tick(); });
     const timer = setInterval(tick, 4000);
     return () => { gone = true; clearInterval(timer); };
   }, [uid]);
+
+  // Pull down on the chat list or Notifications: check for new messages and everything else straight away.
+  const pull = usePullRefresh(useCallback(() => Promise.all([f.refresh(), tickNow.current()]), [f]));
 
   const last = (id: string): Msg | undefined => { const l = hist.chats[id]; return l && l[l.length - 1]; };
   const unread = (id: string): boolean => { const m = last(id); return !!m && !m.me && m.at > (hist.seen[id] || ''); };
@@ -218,7 +223,7 @@ export default function Messages({ f, onBack, onSesh }: { f: Frendzy; onBack: ()
     lockAndSend(uid, open, body.slice(0, 1000)).then((m) => {
       setText('');
       setHist((h) => { const n = add(h, open, m); saveHistory(uid, n); return n; });
-    }, (e: ApiError) => { if (!e.signedOut) f.say(e.message || "Couldn't send that."); }).then(() => setBusy(false));
+    }, (e: ApiError) => { if (!e.signedOut) f.say(e.network ? 'No signal. Your message is still here, tap send again.' : (e.message || "Couldn't send that.")); }).then(() => setBusy(false));
   }, [text, open, busy, uid, f]);
 
   // Emoji reactions: hold a message to pick one; the same one again takes it off.
@@ -333,16 +338,17 @@ export default function Messages({ f, onBack, onSesh }: { f: Frendzy; onBack: ()
               {/* A round send button with the paper plane, the same as the sesh chat's. */}
               <Pressable style={[styles.send, (busy || !text.trim()) && styles.sendOff]} onPress={send} disabled={busy || !text.trim()}
                 accessibilityRole="button" accessibilityLabel="Send" accessibilityState={{ disabled: busy || !text.trim() }} testID="dm-send">
-                <Icon name="send" size={22} colour={C.accentInk} />
+                {/* Drawn inside a fixed box so the plane always shows, even while the text box grows beside it. */}
+                <View style={styles.sendIcon} pointerEvents="none"><Icon name="send" size={22} colour={C.accentInk} weight={2.4} /></View>
               </Pressable>
             </View>
           </>
         ) : side === 'alerts' ? (
-          <ScrollView style={styles.fill} contentContainerStyle={styles.view}>
+          <ScrollView style={styles.fill} contentContainerStyle={styles.view} refreshControl={pull}>
             <Notifications f={f} chats={newChats} hidden={hiddenSeshes} hide={hideSesh} onChat={openChat} onSesh={onSesh} />
           </ScrollView>
         ) : (
-          <ScrollView style={styles.fill} contentContainerStyle={styles.view}>
+          <ScrollView style={styles.fill} contentContainerStyle={styles.view} refreshControl={pull}>
             {/* Chat heads: friends who are green (or amber and letting you see), one tap to chat. */}
             {heads.length ? (
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.heads}>
@@ -427,8 +433,9 @@ const styles = themed(() => StyleSheet.create({
   theirs: { alignSelf: 'flex-start', backgroundColor: C.surface, borderWidth: 1, borderColor: C.line },
   compose: { flexDirection: 'row', alignItems: 'flex-end', gap: 10, paddingHorizontal: 14, paddingTop: 8, paddingBottom: 10, maxWidth: 440, width: '100%', alignSelf: 'center' },
   input: { minHeight: 48, maxHeight: 120, borderRadius: 16, borderWidth: 1, borderColor: C.line, backgroundColor: C.surface, paddingHorizontal: 14, paddingTop: 12, color: C.fg, fontFamily: F.body, fontSize: 16 },
-  send: { width: 46, height: 46, borderRadius: 23, backgroundColor: C.accent, alignItems: 'center', justifyContent: 'center' },
-  sendOff: { opacity: 0.45 },
+  send: { width: 46, height: 46, minWidth: 46, flexShrink: 0, borderRadius: 23, backgroundColor: C.accent, borderWidth: 1, borderColor: C.line, alignItems: 'center', justifyContent: 'center' },
+  sendOff: { opacity: 0.6 },
+  sendIcon: { width: 22, height: 22 },
   switch: { flexDirection: 'row', gap: 4, padding: 4, marginHorizontal: 18, borderRadius: 22, backgroundColor: C.surface, borderWidth: 1, borderColor: C.line, maxWidth: 404, width: '100%', alignSelf: 'center' },
   switchBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, height: 38, borderRadius: 18 },
   switchOn: { backgroundColor: C.accent },

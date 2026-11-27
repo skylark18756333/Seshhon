@@ -5,6 +5,7 @@
 // Your position is only used on the phone for the distance (venues.ts), as everywhere else.
 import { LinearGradient } from 'expo-linear-gradient';
 import React, { useEffect, useMemo, useState } from 'react';
+import GettingThere, { walkUrl } from './GettingThere';
 import { Linking, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { seshCrawl, type CrawlStop, type Sesh as SeshT, type Venue } from './api';
 import { NATIVE_MAP } from './config';
@@ -94,11 +95,6 @@ export default function VenuePage({ f, id, onClose, onSesh }: { f: Frendzy; id: 
     if (!mine) return;
     f.act('crawl_add', { p_sesh: mine.id, p_venue: ven.id }, 'Added to the Sesh Map.').then((l) => { if (Array.isArray(l)) setStops(l); });
   };
-  const directions = () => {
-    const url = at ? 'https://www.google.com/maps/dir/?api=1&destination=' + at[0] + ',' + at[1]
-      : 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(ven.name + ' Perth');
-    Linking.openURL(url).catch(() => f.say("Couldn't open maps."));
-  };
   const share = () => {
     const text = ven.name + (ven.kind ? ' (' + ven.kind + ')' : '') + ', who is keen? On Crewzy.';
     Share.share({ message: text + ' https://frendzy.au/' }).catch(() => {});
@@ -113,7 +109,7 @@ export default function VenuePage({ f, id, onClose, onSesh }: { f: Frendzy; id: 
         <View style={styles.hero}>
           {showMap ? (
             <MapGuard onFail={() => setMapOff(true)}>
-              <VenueMap at={at!} dark={C.dark} pin={C.off} onPress={directions} />
+              <VenueMap at={at!} dark={C.dark} pin={C.off} onPress={() => Linking.openURL(walkUrl(ven.name, at)).catch(() => f.say("Couldn't open maps."))} />
             </MapGuard>
           ) : (
             <LinearGradient colors={[C.heroFrom, C.heroTo]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
@@ -158,10 +154,9 @@ export default function VenuePage({ f, id, onClose, onSesh }: { f: Frendzy; id: 
               stop ? <Button ghost label={'Stop ' + stop.position + ' on the Sesh Map'} onPress={onSesh} testID="venue-stop" />
                 : stops.length < CRAWL_MAX ? <Button ghost icon="plus" label="Add to the Sesh Map" onPress={addStop} testID="venue-add" /> : null
             ) : null}
-            <View style={styles.pair}>
-              <View style={styles.half}><Button ghost small icon="map" label="Directions" onPress={directions} testID="venue-directions" /></View>
-              <View style={styles.half}><Button ghost small icon="up" label="Share" onPress={share} testID="venue-share" /></View>
-            </View>
+            {/* Getting there: walk, ride or train/bus, opened in Google Maps or Uber. */}
+            <GettingThere name={ven.name} at={at} onFail={f.say} />
+            <Button ghost small icon="up" label="Share" onPress={share} testID="venue-share" />
           </View>
 
           <View style={styles.card}>

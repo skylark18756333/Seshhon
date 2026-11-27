@@ -11,7 +11,7 @@ import { GreenRow, HomeBottom, HomeTop } from './Home';
 import { useHomeTapAgain, useOnShow, useShownRef } from './Shown';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  AppState, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
+  AppState, Keyboard, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
   type NativeScrollEvent, type NativeSyntheticEvent
 } from 'react-native';
 import { addCrawlStops, getMessages, reportMessage, seshCrawl, sendMessage, type CrawlStop, type Friend, type Member, type Message, type Sesh as SeshT } from './api';
@@ -28,10 +28,12 @@ import MeetMiddle from './MeetMiddle';
 import { Tip } from './Tip';
 import SpotPicker from './SpotPicker';
 import { ReactBar, ReactChips } from './Reactions';
+import GettingThere from './GettingThere';
+import HomeSafe from './HomeSafe';
 import KeyboardSafe from './KeyboardSafe';
-import { ChatTile, CoverBehind, EndPill, RoomTiles, SeshSettings, SeshStrip, TimeLeft, VotesMap, seshColours, useSeshDetails, type SeshLook } from './SeshDetails';
+import { ChatTile, CoverBehind, EndPill, RoomTiles, SeshSettings, SeshStrip, TimeLeft, VotesMap, hangoutOf, seshColours, useSeshDetails, type SeshLook } from './SeshDetails';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Avatar, Button, Face, Toast, TopBar } from './Parts';
+import { Avatar, Button, Face, Toast, TopBar, usePullRefresh } from './Parts';
 import { rpc, type ApiError } from './session';
 import type { Frendzy } from './useFrendzy';
 import { C, COLOURS, F, LABELS, STOPS, fade, first, fmtLeft, fmtTime, fmtWhen, themed } from './theme';
@@ -364,7 +366,8 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
   };
   const venueNow = mine.locked_venue && v.byId[mine.locked_venue] ? v.byId[mine.locked_venue] : null;
   const d = sd.details;
-  const seshTitle = (d && d.emoji ? d.emoji + ' ' : '') + ((d && d.name) || (venueNow ? venueNow.name : isCrawl ? "Tonight's crawl" : "Tonight's sesh"));
+  const hang = hangoutOf(d);
+  const seshTitle = (d && d.emoji ? d.emoji + ' ' : hang ? hang[1] + ' ' : '') + ((d && d.name) || (venueNow ? venueNow.name : isCrawl ? "Tonight's crawl" : hang ? hang[2] + ' sesh' : "Tonight's sesh"));
   const parts: [Panel, string][] = [['chat', 'Chat'], ['where', venueNow ? 'Where' : 'Vote'], ...(crawl.off ? [] : [['crawl', 'Crawl'] as [Panel, string]]), ['more', 'Settings']];
   const tally = leaderOf(mine);
   const leadVen = tally.best && v.byId[tally.best] ? v.byId[tally.best] : null;
@@ -421,6 +424,7 @@ export default function Sesh({ f, onOpenWeb, onVenue }: { f: Frendzy; onOpenWeb:
               note: stops.length ? stops.length + ' stop' + (stops.length === 1 ? '' : 's') : 'Add stops', onPress: () => go('crawl') }]),
             { key: 'more', emoji: '⚙️', title: 'Settings', colours: ['#5B8CFF', '#9B5BFF'], note: mine.mine ? 'Name, colour, photo' : 'Pres, leave', onPress: () => go('more') }
           ]} />
+          <HomeSafe seshId={mine.id} members={mine.members} myId={me.id} say={f.say} />
         </>
       ) : null}
 
@@ -633,6 +637,7 @@ function toggle(picked: Picked, id: string): Picked {
    carry more about that person, without touching the rest of the screen. */
 /* ---------- the page around every Sesh view: header, glow, scrolling body, toast ---------- */
 function Frame({ f, onOpenWeb, scroll, home, compact, fixed, children }: { f: Frendzy; onOpenWeb: (tab: string) => void; scroll: React.RefObject<ScrollView | null>; home?: boolean; compact?: boolean; fixed?: boolean; children: React.ReactNode }) {
+  const pull = usePullRefresh(f.refresh);   // pull down to read everything again
   return (
     // Android draws under the keyboard (edge to edge), so KeyboardSafe pads exactly the part the keyboard covers.
     // fixed: the full-screen chat. Nothing scrolls but the messages, which sit at the bottom just above the typing box.
@@ -641,7 +646,7 @@ function Frame({ f, onOpenWeb, scroll, home, compact, fixed, children }: { f: Fr
       {fixed ? (
         <View style={[styles.view, styles.fixedView]}>{children}</View>
       ) : (
-        <ScrollView ref={scroll} style={styles.fill} contentContainerStyle={styles.view} keyboardShouldPersistTaps="handled">
+        <ScrollView ref={scroll} style={styles.fill} contentContainerStyle={styles.view} keyboardShouldPersistTaps="handled" refreshControl={pull}>
           {home ? <HomeTop f={f} onOpenWeb={onOpenWeb} compact={compact} /> : null}
           {children}
           {home ? <HomeBottom f={f} onOpenWeb={onOpenWeb} /> : null}
@@ -983,10 +988,10 @@ function SeshCard({ s, later, startMs, creator, isCrawl, stops, v, myId, photos,
   look: SeshLook;        // its own name, emoji, colour and cover photo (0044)
   onEnd: () => void; onEdit: () => void;
 }) {
-  const d = look.details, name = d ? d.name : null, emoji = d ? d.emoji : null;
+  const d = look.details, name = d ? d.name : null, hang = hangoutOf(d), emoji = d && d.emoji ? d.emoji : hang ? hang[1] : null;
   const kind = isCrawl ? 'crawl' : 'sesh';
   const venue = s.locked_venue && v.byId[s.locked_venue] ? v.byId[s.locked_venue] : null;
-  const title = (emoji ? emoji + ' ' : '') + (name || (venue ? venue.name : later ? fmtWhen(s.starts_at) : isCrawl ? "Tonight's crawl" : "Tonight's sesh"));
+  const title = (emoji ? emoji + ' ' : '') + (name || (venue ? venue.name : later ? fmtWhen(s.starts_at) : isCrawl ? "Tonight's crawl" : hang ? hang[2] + ' sesh' : "Tonight's sesh"));
   const sub = venue && name ? venue.name + (later ? ', ' + fmtWhen(s.starts_at) : '') : venue ? (later ? fmtWhen(s.starts_at) : [venue.kind, hoursLine(venue)].filter(Boolean).join(', '))
     : s.votes.length ? s.votes.length + ' vote' + (s.votes.length === 1 ? '' : 's') + ' on where to go' : 'Still picking a spot';
   const who = (s.mine ? 'You' : creator) + ' started it';
@@ -1225,9 +1230,7 @@ function PresCard({ s, editing, address, minute, onAddress, onMinute, onEdit, on
           </View>
           {s.mine ? <Button small ghost label="Edit" onPress={onEdit} /> : null}
         </View>
-        <View style={{ alignSelf: 'flex-start' }}>
-          <Button small ghost label="Directions" onPress={() => Linking.openURL('https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(address)).catch(() => {})} />
-        </View>
+        <GettingThere name={address} />
         <Text style={[styles.muted, styles.small]}>
           {s.mine && new Date(p.shows_at).getTime() > Date.now()
             ? 'The people who are in see it from ' + lower(fmtWhen(p.shows_at)) + '.'
@@ -1380,6 +1383,8 @@ function CrawlSection({ s, stops, v, onMap, onVenue, onRun }: {
                   {meta ? <Text style={[styles.muted, styles.small]}>{meta}</Text> : null}
                 </Pressable>
               </View>
+              {/* The next stop gets Walk, Ride and Train/bus, so getting there (or home) is one tap. */}
+              {isNext ? <View style={{ paddingLeft: 46 }}><GettingThere name={name} at={v.pins ? v.pins[c.venue_id] : null} /></View> : null}
               {boss || c.mine ? (
                 <View style={[styles.row, { gap: 8, paddingLeft: 46 }]}>
                   {boss ? (
@@ -1547,6 +1552,12 @@ function Chat({ f, seshId, myId, confirm, setConfirm, onLatest, names, onTyping,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seshId, refresh]);
 
+  // True while the message box is in use: tapped, with the keyboard up. Closing the keyboard hides the quick replies.
+  const [typing, setTyping] = useState(false);
+  useEffect(() => {
+    const sub = Keyboard.addListener('keyboardDidHide', () => setTyping(false));
+    return () => sub.remove();
+  }, []);
   const send = (quick?: string) => {
     const text = (quick || draft).trim();
     if (!text || sending) return;
@@ -1624,14 +1635,15 @@ function Chat({ f, seshId, myId, confirm, setConfirm, onLatest, names, onTyping,
           </View>
         ) : null}
       </ScrollView>
-      <ScrollView horizontal style={styles.noGrow} showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.quickRow}>
+      {/* Quick replies show only while you're typing (the box is tapped and the keyboard is up), so the chat stays clean. */}
+      {typing ? <ScrollView horizontal style={styles.noGrow} showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.quickRow}>
         {QUICK_REPLIES.map((q) => (
           <Pressable key={q} style={({ pressed }) => [styles.quick, (pressed || sending) && styles.quickDown]} onPress={() => send(q)} disabled={sending}
             accessibilityRole="button" accessibilityLabel={'Send: ' + q} testID={'quick-' + q}>
             <Text style={styles.quickText}>{q}</Text>
           </Pressable>
         ))}
-      </ScrollView>
+      </ScrollView> : null}
       <View style={styles.chatForm}>
         <TextInput
           style={styles.chatInput}
@@ -1642,7 +1654,8 @@ function Chat({ f, seshId, myId, confirm, setConfirm, onLatest, names, onTyping,
           placeholder="Type a message..."
           placeholderTextColor={C.muted}
           accessibilityLabel="Message your mates"
-          onFocus={() => { onFocusInput?.(); setTimeout(() => list.current?.scrollToEnd({ animated: true }), 300); }}
+          onBlur={() => setTyping(false)}
+          onFocus={() => { setTyping(true); onFocusInput?.(); setTimeout(() => list.current?.scrollToEnd({ animated: true }), 300); }}
           returnKeyType="send"
           onSubmitEditing={() => send()}
           submitBehavior="submit"
