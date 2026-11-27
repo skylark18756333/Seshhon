@@ -7,6 +7,7 @@
 // not drawn here: "See venue" opens the web venue page, which has the map, and the crawl is drawn as a
 // live map of its stops in order (CrawlMap.tsx), where more stops can be added. A Crewzy crawl is picked when you start
 // or plan a sesh (CrawlBuilder), and its stops are the same Sesh Map stops.
+import Announcement from './Announcement';
 import { GreenRow, HomeBottom, HomeTop } from './Home';
 import { useHomeTapAgain, useOnShow, useShownRef } from './Shown';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -647,6 +648,7 @@ function Frame({ f, onOpenWeb, scroll, home, compact, fixed, children }: { f: Fr
         <View style={[styles.view, styles.fixedView]}>{children}</View>
       ) : (
         <ScrollView ref={scroll} style={styles.fill} contentContainerStyle={styles.view} keyboardShouldPersistTaps="handled" refreshControl={pull}>
+          {home ? <Announcement /> : null}
           {home ? <HomeTop f={f} onOpenWeb={onOpenWeb} compact={compact} /> : null}
           {children}
           {home ? <HomeBottom f={f} onOpenWeb={onOpenWeb} /> : null}

@@ -765,7 +765,7 @@
       thinking: ["You're amber.", "Thinking about it. Friends see you might be keen."],
       off: ["You're red.", "You're off and hidden, and you can't see who else is out until you slide back."]
     }[s];
-    var h = '<section class="stack"><div class="eyebrow">Your status</div>' +
+    var h = annBanner() + '<section class="stack"><div class="eyebrow">Your status</div>' +
       '<div class="status-word" id="status-word" style="color:' + COLORS[s] + '">' + copy[0] + '</div>' +
       '<p class="muted">' + copy[1] + (s !== 'off' && me.expires_at ? ' Back to red in <span data-until="' + new Date(me.expires_at).getTime() + '" data-kind="status">' + fmtLeft(new Date(me.expires_at).getTime() - now()) + '</span>.' : '') + '</p>' +
       '<div class="slide" id="status-slide" role="group" aria-label="Set your status" style="--c:' + COLORS[s] + ';--i:' + SWITCH.indexOf(s) + '"><span class="knob"></span>' +
@@ -1832,11 +1832,24 @@
   function role() { return ui.role && ui.role.role || 'user'; }
   var VENUE_TABS = [['vhome', 'Venue'], ['vstats', 'Stats'], ['vevents', 'Events'], ['vdeals', 'Deals']];
   function loadVenueData() {
-    return rpc('venue_overview').then(function (v) { ui.vdata = v || []; }, function (x) { ui.vdata = ui.vdata || []; toast(x.message); });
+    var call = asVenue() ? rpc('admin_venue_overview', { p_venue: ui.asVenue }) : rpc('venue_overview');
+    return call.then(function (v) { ui.vdata = v || []; }, function (x) { ui.vdata = ui.vdata || []; toast(x.message); });
+  }
+  // An admin managing a venue sees the venue pages exactly as that venue would, with a bar to go back to Admin.
+  function asVenue() { return role() === 'admin' && !!ui.asVenue; }
+  function venueMode() { return role() === 'venue' || asVenue(); }
+  function asVenueBar() {
+    if (!asVenue() || !/^v/.test(ui.tab)) return '';
+    var v = myVenue();
+    return '<div class="card wide adminbar"><div class="row between"><div class="grow"><div class="eyebrow">Admin</div><strong>Managing ' + esc(v ? v.name : 'a venue') + '</strong><div class="muted small">Every change you make here is logged.</div></div>' +
+      '<button class="btn small-btn ghost" data-act="leave-venue">Back to Admin</button></div></div>';
   }
   function loadAdminData() {
     return Promise.all([
       rpc('admin_overview').then(function (a) { ui.adata = a; }, function (x) { toast(x.message); }),
+      rpc('admin_dashboard').then(function (d) { ui.adash = d; }, function () { ui.adash = null; }),
+      rpc('admin_app_settings').then(function (d) { ui.asettings = d; }, function () { ui.asettings = null; }),
+      rpc('admin_announcements').then(function (d) { ui.anns = d; }, function () { ui.anns = null; }),
       rpc('admin_removed_accounts').then(function (r) { ui.removed = r || []; }, function () { ui.removed = null; })
     ]);
   }
@@ -1863,7 +1876,14 @@
       '<div class="card" style="gap:2px"><div class="muted small">Deals listed</div><div class="tile-num">' + live(deals) + '</div></div></div>' +
       '<div class="card"><h2>Opening hours</h2><p class="muted small">' + (v.hours ? esc(v.hours) : 'Not set yet.') + '</p>' +
       '<button class="btn small-btn" data-act="venue" data-v="' + esc(v.id) + '">See your public page and change hours</button></div>' +
-      '<div class="card"><h2>About venue accounts</h2><p class="muted small">This account is just for your venue. It can\'t go green, add friends or join seshes, and customers never see who runs it. Use a personal account for going out.</p></div>';
+      (asVenue() ? venueDetailsCard(v) : '') +
+      (asVenue() ? '' : '<div class="card"><h2>About venue accounts</h2><p class="muted small">This account is just for your venue. It can\'t go green, add friends or join seshes, and customers never see who runs it. Use a personal account for going out.</p></div>');
+  }
+  function venueDetailsCard(v) {
+    return '<div class="card"><h2>Venue details</h2><p class="muted small">Only Crewzy staff can change these.</p>' +
+      '<div class="field"><label for="av-name">Name</label><input id="av-name" data-keep type="text" maxlength="80" value="' + esc(v.name) + '"></div>' +
+      '<div class="field"><label for="av-kind">Kind</label><input id="av-kind" data-keep type="text" maxlength="40" placeholder="bar, pub, restaurant, cafe, nightclub" value="' + esc(v.kind || '') + '"></div>' +
+      '<button class="btn small-btn" data-act="save-venue" data-v="' + esc(v.id) + '">Save details</button></div>';
   }
   // ---- Stats: anonymous counts for this venue (venue_stats, migration 0050). Nobody is named and nothing says where
   // anyone was: only how many seshes voted for or picked the venue, added it to a Sesh Map, and used its deal codes.
@@ -2046,14 +2066,17 @@
     if (!list.length) return '<p class="muted small">No accounts match.</p>';
     var kinds = { user: '', venue: 'Venue account', admin: 'Crewzy staff' };
     return list.map(function (u) {
-      var asking = ui.confirm === 'del-account:' + u.id, setting = ui.confirm === 'set-pass:' + u.id;
+      var asking = ui.confirm === 'del-account:' + u.id, setting = ui.confirm === 'set-pass:' + u.id, susp = ui.confirm === 'suspend:' + u.id;
       return '<div class="stack" style="gap:6px;padding-top:8px;border-top:1px solid var(--line)"><div class="row between"><div class="grow">' + esc(u.name) +
-        '<div class="muted small">' + esc([u.username ? '@' + u.username : 'No username', kinds[u.role] || ''].filter(Boolean).join(', ')) + '</div></div>' +
-        (u.me || u.role === 'admin' || asking || setting ? '' : (u.username ? '<button class="btn small-btn ghost" data-act="ask" data-v="set-pass:' + esc(u.id) + '">New password</button>' : '') +
+        '<div class="muted small">' + esc([u.username ? '@' + u.username : 'No username', kinds[u.role] || '', u.last_active ? 'Active ' + new Date(u.last_active).toLocaleDateString('en-AU') : '', u.reports ? u.reports + ' report' + (u.reports === 1 ? '' : 's') : ''].filter(Boolean).join(', ')) + '</div>' +
+        (u.suspended ? '<div class="small" style="color:var(--off)">Suspended: ' + esc(u.suspended.reason) + '</div>' : '') + '</div>' +
+        (u.me || u.role === 'admin' || asking || setting || susp ? '' : (u.suspended ? '<button class="btn small-btn ghost" data-act="unsuspend" data-v="' + esc(u.id) + '">Reactivate</button>' : '<button class="btn small-btn ghost" data-act="ask" data-v="suspend:' + esc(u.id) + '">Suspend</button>') + (u.username ? '<button class="btn small-btn ghost" data-act="ask" data-v="set-pass:' + esc(u.id) + '">New password</button>' : '') +
           '<button class="btn small-btn ghost" data-act="ask" data-v="del-account:' + esc(u.id) + '">Delete</button>') + '</div>' +
         (setting ? '<p class="muted small">For when they\'ve forgotten it. It logs them out everywhere; give them the new one.</p>' +
           '<div class="field"><label for="set-pass">New password for ' + esc(u.name) + '</label>' + passwordInput('set-pass', 'new-password', true) + '<span class="muted small">At least 10 characters.</span></div>' +
           '<div class="row"><button class="btn small-btn" data-act="set-pass" data-v="' + esc(u.id) + '">Set password</button><button class="btn small-btn ghost" data-act="cancel-confirm">Cancel</button></div>' : '') +
+        (susp ? '<p class="small">Suspending stops ' + esc(u.name) + ' signing in and sets them to red. Nothing is deleted, and you can reactivate them any time.</p>' +
+          '<div class="field"><label for="susp-reason">Why? (kept on record)</label><input id="susp-reason" data-keep type="text" maxlength="200"></div><div class="row"><button class="btn small-btn" style="--c:var(--off);--cf:var(--ink)" data-act="suspend" data-v="' + esc(u.id) + '">Suspend</button><button class="btn small-btn ghost" data-act="cancel-confirm">Cancel</button></div>' : '') +
         (asking ? '<p class="error">This deletes ' + esc(u.name) + '\'s account and everything in it, for good. They can\'t sign up again with the same username or email.</p>' +
           '<div class="field"><label for="del-reason">Why? (kept on record)</label><input id="del-reason" data-keep type="text" maxlength="200" placeholder="Which rule they broke"></div><div class="row"><button class="btn small-btn" style="--c:var(--off);--cf:var(--ink)" data-act="del-account" data-v="' + esc(u.id) + '">Delete for good</button><button class="btn small-btn ghost" data-act="cancel-confirm">Keep</button></div>' : '') + '</div>';
     }).join('');
@@ -2078,18 +2101,67 @@
     }).join('') : '<p class="muted small">Nobody has been removed.</p>') + '</div>';
   }
 
+  // Admin: four simple sections. Dashboard (numbers, trends, issues), Venues (open any venue and manage it),
+  // People (accounts, reports, suspend) and Settings (app-wide switches and the log of admin changes).
+  var ADMIN_SECTIONS = [['dash', 'Dashboard'], ['announce', 'Announce'], ['venues', 'Venues'], ['people', 'People'], ['settings', 'Settings']];
   function adminPage() {
-    var a = ui.adata;
-    var h = '<div class="stack" style="gap:6px"><div class="eyebrow">Crewzy staff</div><h1>Admin</h1></div>';
+    var a = ui.adata, sec = ui.asub || 'dash';
+    var h = '<div class="stack" style="gap:6px"><div class="eyebrow">Crewzy staff</div><h1>Admin</h1></div>' +
+      '<div class="chips adminnav">' + ADMIN_SECTIONS.map(function (t) {
+        var n = t[0] === 'dash' && ui.adash ? (ui.adash.alarms || []).length : 0;
+        return '<button class="chip" data-act="asub" data-v="' + t[0] + '" aria-pressed="' + (sec === t[0]) + '">' + t[1] + (n ? ' <span class="badge-inline">' + n + '</span>' : '') + '</button>';
+      }).join('') + '</div>';
     if (!a) return h + '<p class="muted">Loading...</p>';
-    var c = a.counts || {};
-    h += '<div class="tiles"><div class="card" style="gap:2px"><div class="muted small">People</div><div class="tile-num">' + Number(c.people || 0) + '</div></div>' +
-      '<div class="card" style="gap:2px"><div class="muted small">Live seshes</div><div class="tile-num">' + Number(c.live_seshes || 0) + '</div></div></div>' +
-      '<div class="tiles"><div class="card" style="gap:2px"><div class="muted small">Venue accounts</div><div class="tile-num">' + Number(c.venue_accounts || 0) + '</div></div>' +
-      '<div class="card" style="gap:2px"><div class="muted small">Live deals and events</div><div class="tile-num">' + Number(c.live_deals || 0) + '</div></div></div>';
-
-    h += adminAccounts() + removedAccounts();
-
+    if (sec === 'venues') return h + adminVenues(a);
+    if (sec === 'people') return h + adminAccounts() + adminReports(a) + removedAccounts();
+    if (sec === 'settings') return h + adminSettings();
+    if (sec === 'announce') return h + adminAnnounce();
+    return h + adminDash();
+  }
+  function statTile(label, n, note) {
+    return '<div class="card" style="gap:2px"><div class="muted small">' + label + '</div><div class="tile-num">' + Number(n || 0) + '</div>' + (note ? '<div class="muted small">' + note + '</div>' : '') + '</div>';
+  }
+  function dayBars(days, value, label) {
+    var top = 1; days.forEach(function (d) { top = Math.max(top, value(d)); });
+    return '<div class="vbars">' + days.map(function (d) {
+      var n = value(d), day = new Date(d.day + 'T12:00:00');
+      return '<div class="vbar" title="' + esc(day.toDateString()) + ': ' + n + ' ' + label + '"><span style="height:' + Math.round(100 * n / top) + '%"></span><em>' + (day.getDay() === 1 ? day.getDate() : '') + '</em></div>';
+    }).join('') + '</div><p class="muted small">Last 14 days. Dates mark Mondays.</p>';
+  }
+  function adminDash() {
+    var d = ui.adash;
+    if (d === undefined) return '<p class="muted">Loading...</p>';
+    if (!d) return '<div class="card"><h2>Dashboard isn\'t switched on yet</h2><p class="muted small">Run the latest database update (0053) to see it.</p></div>';
+    var c = d.counts || {}, alarms = d.alarms || [];
+    var h = '<div class="card wide"><h2>Issues and alarms</h2>' + (alarms.length ? alarms.map(function (x) {
+      return '<button class="alarm ' + (x.level === 'red' ? 'red' : 'amber') + '" data-act="asub" data-v="' + esc({ reports: 'people', accounts: 'people', claims: 'venues', settings: 'settings' }[x.go] || 'dash') + '">' +
+        '<span class="dot"></span><span class="grow">' + esc(x.text) + '</span><span class="muted small">Open</span></button>';
+    }).join('') : '<p class="small" style="color:var(--on)">All clear. Nothing needs you right now.</p>') + '</div>';
+    h += '<h2>People</h2><div class="tiles four">' + statTile('Users', c.people, c.new_7d + ' new this week') + statTile('Active today', c.active_24h, 'Changed their status') +
+      statTile('Active this week', c.active_7d) + statTile('Green now', c.green_now, c.live_seshes + ' live sesh' + (c.live_seshes === 1 ? '' : 'es')) + '</div>';
+    h += '<h2>Venues</h2><div class="tiles four">' + statTile('Venues', c.venues, c.venue_accounts + ' with an account') + statTile('Promoting deals', c.venues_promoting, 'Venues with something live') +
+      statTile('Live deals and events', c.live_deals) + statTile('Deal codes used', c.deal_uses_7d, 'Last 7 nights') + '</div>';
+    h += '<div class="card wide"><h2>Sign-ups</h2>' + dayBars(d.signups || [], function (x) { return x.n; }, 'sign-ups') + '</div>';
+    h += '<div class="card wide"><h2>Going out</h2><p class="muted small">Venue picks, votes and Sesh Map stops across every venue.</p>' + dayBars(d.venue_days || [], function (x) { return x.picks + x.votes + x.stops; }, 'picks, votes and stops') + '</div>';
+    var table = function (title, rows, head, cells, empty) {
+      return '<div class="card wide"><h2>' + title + '</h2>' + (rows.length ? '<div class="vheat-wrap"><table class="dealtab"><thead><tr>' + head.map(function (x) { return '<th>' + x + '</th>'; }).join('') + '</tr></thead><tbody>' +
+        rows.map(function (r) { return '<tr>' + cells(r).map(function (x) { return '<td>' + x + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table></div>' : '<p class="muted small">' + empty + '</p>') + '</div>';
+    };
+    h += table('Top venues, last 30 days', d.top_venues || [], ['Venue', 'Picks', 'Votes', 'Map stops', 'Codes used'], function (r) {
+      return ['<button class="linkish" data-act="manage-venue" data-v="' + esc(r.id) + '">' + esc(r.name) + '</button>', r.picks, r.votes, r.stops, r.uses];
+    }, 'No venue activity yet.');
+    h += table('Top deals, last 30 days', d.top_deals || [], ['Deal', 'Venue', 'Codes used'], function (r) { return [esc(r.title), esc(r.venue), r.uses]; }, 'No deal codes used yet.');
+    return h;
+  }
+  function adminVenues(a) {
+    var d = ui.adash || {};
+    var h = '<div class="card wide"><h2>Open a venue</h2><p class="muted small">Find any venue and manage it as if you were that venue: hours, details, deals, events and stats.</p>' +
+      '<div class="field"><label for="find-venue">Venue name</label><input id="find-venue" data-keep type="text" autocomplete="off" maxlength="60" placeholder="Start typing, or leave empty for the busiest" value="' + esc(ui.venueQuery || '') + '"></div>' +
+      '<div id="found-venues" class="stack" style="gap:8px">' + foundVenues() + '</div></div>';
+    if (!ui.foundVenues) findVenues();
+    h += '<div class="card wide"><h2>Venues promoting deals</h2>' + ((d.promoting || []).length ? (d.promoting || []).map(function (v) {
+      return '<div class="row between"><div class="grow">' + esc(v.name) + '<div class="muted small">' + v.live + ' live, ' + v.uses + ' codes used in 30 days</div></div><button class="btn small-btn ghost" data-act="manage-venue" data-v="' + esc(v.id) + '">Manage</button></div>';
+    }).join('') : '<p class="muted small">No venue has anything live.</p>') + '</div>';
     h += '<div class="card"><h2>Venue requests</h2>' + (a.claims.length ? a.claims.map(function (r) {
       var rejecting = ui.confirm === 'reject:' + r.id;
       return '<div class="stack" style="gap:6px;padding-top:10px;border-top:1px solid var(--line)"><div><strong>' + esc(r.venue_name) + '</strong> for ' + esc(r.user_name) + '</div>' +
@@ -2114,12 +2186,96 @@
         '<button class="btn small-btn ghost" data-act="admin-pause" data-v="' + esc(d.id) + '">Pause</button></div>';
     }).join('') : '<p class="muted small">Nothing live.</p>') + '</div>';
 
+    return h;
+  }
+  function adminReports(a) {
+    var h = '';
     h += '<div class="card"><h2>Reported messages</h2>' + (a.reports.length ? a.reports.map(function (r) {
       return '<div class="stack" style="gap:4px;padding-top:10px;border-top:1px solid var(--line)"><div class="small"><strong>' + esc(r.reported_name || 'Deleted account') + '</strong>: ' + esc(r.message_body) + '</div>' +
         (r.reason ? '<div class="small muted">Reason: ' + esc(r.reason) + '</div>' : '') +
         '<div class="row"><button class="btn small-btn ghost" data-act="report-dismiss" data-v="' + esc(r.id) + '">Dismiss</button></div></div>';
     }).join('') : '<p class="muted small">No reports.</p>') + '</div>';
 
+    return h;
+  }
+  var venueTimer = null;
+  function foundVenues() {
+    var list = ui.foundVenues;
+    if (!list) return '<p class="muted small">Loading...</p>';
+    if (!list.length) return '<p class="muted small">No venue by that name.</p>';
+    return list.map(function (v) {
+      return '<div class="row between" style="padding-top:8px;border-top:1px solid var(--line)"><div class="grow">' + esc(v.name) + '<div class="muted small">' +
+        esc([v.kind, v.has_account ? 'Has a venue account' : 'No venue account', v.live ? v.live + ' live' : ''].filter(Boolean).join(', ')) + '</div></div>' +
+        '<button class="btn small-btn" data-act="manage-venue" data-v="' + esc(v.id) + '">Manage</button></div>';
+    }).join('');
+  }
+  function findVenues() {
+    var q = String(ui.venueQuery || '').trim();
+    rpc('admin_find_venues', { p_q: q }).then(function (list) {
+      if (String(ui.venueQuery || '').trim() !== q) return;
+      ui.foundVenues = list || []; var box = document.getElementById('found-venues'); if (box) box.innerHTML = foundVenues();
+    }).catch(function (x) { ui.foundVenues = []; toast(x.message); });
+  }
+  function adminAnnounce() {
+    var d = ui.anns, dr = ui.annDraft;
+    if (d === undefined) return '<p class="muted">Loading...</p>';
+    if (!d) return '<div class="card"><h2>Announcements aren\'t switched on yet</h2><p class="muted small">Run the latest database update (0053) to use them.</p></div>';
+    var h = '<div class="card wide"><h2>Send an announcement</h2><p class="muted small">Goes to every user. ' + Number(d.phones || 0) + ' people have phone notifications set up; anyone who switched off "Crewzy news" won\'t get the notification.</p>';
+    if (dr && ui.confirm === 'announce') {
+      h += '<div class="annprev"><div class="muted small">Preview</div><div class="banner"><strong>' + esc(dr.title) + '</strong><div class="small">' + esc(dr.body) + '</div></div>' +
+        '<p class="small">' + [dr.push ? 'Phone notification to everyone' : '', dr.banner ? 'Banner in the app for ' + dr.days + ' day' + (dr.days === 1 ? '' : 's') : ''].filter(Boolean).join(', and a ') + '.</p></div>' +
+        '<div class="row"><button class="btn small-btn" data-act="announce-send"' + (ui.annBusy ? ' disabled' : '') + '>Send to everyone</button><button class="btn small-btn ghost" data-act="cancel-confirm">Edit</button></div></div>';
+    } else {
+      h += '<div class="field"><label for="ann-title">Title</label><input id="ann-title" data-keep type="text" maxlength="60" placeholder="New: bump phones to add friends" value="' + esc(dr ? dr.title : '') + '"></div>' +
+        '<div class="field"><label for="ann-body">Message</label><textarea id="ann-body" data-keep maxlength="200" rows="3" placeholder="Up to 200 characters">' + esc(dr ? dr.body : '') + '</textarea></div>' +
+        '<label class="row"><input id="ann-push" type="checkbox"' + (!dr || dr.push ? ' checked' : '') + '> Phone notification</label>' +
+        '<label class="row"><input id="ann-banner" type="checkbox"' + (!dr || dr.banner ? ' checked' : '') + '> Banner in the app for <select id="ann-days">' + [1, 3, 7, 14].map(function (n) { return '<option value="' + n + '"' + ((dr ? dr.days : 3) === n ? ' selected' : '') + '>' + n + ' day' + (n === 1 ? '' : 's') + '</option>'; }).join('') + '</select></label>' +
+        '<button class="btn small-btn" data-act="announce-preview">Preview</button></div>';
+    }
+    h += '<div class="card wide"><h2>Sent</h2>' + ((d.list || []).length ? d.list.map(function (a) {
+      return '<div class="stack" style="gap:4px;padding-top:8px;border-top:1px solid var(--line)"><div class="row between"><div class="grow"><strong>' + esc(a.title) + '</strong><div class="small">' + esc(a.body) + '</div>' +
+        '<div class="muted small">' + esc(new Date(a.at).toLocaleString('en-AU')) + ' by ' + esc(a.who) + (a.push ? ', ' + a.pushed + ' phone' + (a.pushed === 1 ? '' : 's') : '') + (a.live ? ', banner showing' : '') + '</div></div>' +
+        (a.live ? '<button class="btn small-btn ghost" data-act="announce-end" data-v="' + esc(a.id) + '">Take down</button>' : '') + '</div></div>';
+    }).join('') : '<p class="muted small">Nothing sent yet.</p>') + '</div>';
+    return h;
+  }
+  // The latest announcement, as a banner at the top of Home until it ends or is closed.
+  var ANN_KEY = 'crewzy-ann-closed';
+  function annBanner() {
+    if (ui.ann === undefined) { if (!ui.annAsked) { ui.annAsked = true; rpc('current_announcement').then(function (a) { ui.ann = a || null; render(); }, function () { ui.ann = null; }); } return ''; }
+    var a = ui.ann;
+    if (!a || store(ANN_KEY) === a.id) return '';
+    return '<div class="banner row between"><div class="grow"><strong>' + esc(a.title) + '</strong><div class="small">' + esc(a.body) + '</div></div><button class="btn small-btn ghost" data-act="ann-close" aria-label="Close">✕</button></div>';
+  }
+  var SETTING_NAMES = { age_check_required: ['18+ age check', 'New people must pass the Didit age check before going green.'], age_check_provider: ['Age check provider', 'Which service runs the age check.'] };
+  function adminSettings() {
+    var d = ui.asettings;
+    if (d === undefined) return '<p class="muted">Loading...</p>';
+    if (!d) return '<div class="card"><h2>Settings aren\'t switched on yet</h2><p class="muted small">Run the latest database update (0053) to see them.</p></div>';
+    var st = d.settings || {};
+    var h = '<div class="card wide"><h2>App settings</h2><p class="muted small">These apply to everyone, straight away. Each change is logged below.</p>' + Object.keys(st).sort().map(function (k) {
+      var nm = SETTING_NAMES[k] || [k.replace(/_/g, ' '), ''], val = st[k];
+      var ctl = typeof val === 'boolean'
+        ? '<button class="btn small-btn' + (val ? '' : ' ghost') + '" data-act="app-setting" data-v="' + esc(k) + ':' + (!val) + '" aria-pressed="' + val + '">' + (val ? 'On' : 'Off') + '</button>'
+        : k === 'age_check_provider'
+          ? ['didit', 'yoti'].map(function (o) { return '<button class="chip" data-act="app-setting" data-v="' + esc(k + ':' + JSON.stringify(o)) + '" aria-pressed="' + (val === o) + '">' + o + '</button>'; }).join(' ')
+          : '<input id="set-' + esc(k) + '" data-keep type="text" value="' + esc(val == null ? '' : String(val)) + '"><button class="btn small-btn ghost" data-act="app-setting-text" data-v="' + esc(k) + '">Save</button>';
+      return '<div class="row between" style="padding-top:10px;border-top:1px solid var(--line)"><div class="grow"><strong>' + esc(nm[0]) + '</strong>' + (nm[1] ? '<div class="muted small">' + esc(nm[1]) + '</div>' : '') + '</div><div class="row">' + ctl + '</div></div>';
+    }).join('') + '</div>';
+    var log = d.log || [];
+    var says = function (l) {
+      var x = l.detail || {};
+      if (l.action === 'app_setting') return 'changed ' + (SETTING_NAMES[x.key] ? SETTING_NAMES[x.key][0] : x.key) + ' to ' + JSON.stringify(x['new']);
+      if (l.action === 'suspend') return 'suspended ' + (x.name || 'an account') + ': ' + (x.reason || '');
+      if (l.action === 'unsuspend') return 'reactivated ' + (x.name || 'an account');
+      if (l.action === 'venue_hours') return 'changed the hours of ' + (x.venue_name || 'a venue');
+      if (l.action === 'venue_details') return 'changed the details of ' + (x.venue_name || 'a venue');
+      if (l.action === 'venue_change') return 'changed a deal or event at ' + (x.venue_name || 'a venue');
+      return l.action.replace(/_/g, ' ');
+    };
+    h += '<div class="card wide"><h2>Admin changes</h2>' + (log.length ? log.map(function (l) {
+      return '<div class="small" style="padding-top:8px;border-top:1px solid var(--line)"><strong>' + esc(l.who) + '</strong> ' + esc(says(l)) + '<div class="muted small">' + esc(new Date(l.at).toLocaleString('en-AU')) + '</div></div>';
+    }).join('') : '<p class="muted small">No changes yet.</p>') + '</div>';
     return h + '<p class="muted small">Admin access is given only by Crewzy, in the Supabase SQL Editor. It can\'t be switched on from the app.</p>';
   }
 
@@ -2170,7 +2326,7 @@
     var html;
     if (ui.screen && ui.screen.type === 'venue') html = venue(ui.screen.id);
     else if (ui.screen && ui.screen.type === 'redeem') html = redeem(ui.screen.id);
-    else html = topBar() + ({ home: home, sesh: sesh, map: mapTab, venues: venues, events: events, you: you, admin: adminPage,
+    else html = topBar() + asVenueBar() + ({ home: home, sesh: sesh, map: mapTab, venues: venues, events: events, you: you, admin: adminPage,
       vhome: venueHome, vstats: venueStats, vevents: function () { return venueItems(true); }, vdeals: function () { return venueItems(false); } }[ui.tab] || home)();
     appBox.classList.toggle('desk', role() !== 'user' && !window.ReactNativeWebView);
     view.innerHTML = html;
@@ -2180,7 +2336,7 @@
     tabs.hidden = false;
     tellNative();
     var requests = D.requests_in.length;
-    var tabList = role() === 'venue' ? VENUE_TABS : [['home', 'Home'], ['sesh', 'Sesh'], ['map', 'Map'], ['venues', 'Venues'], ['events', 'Events']];
+    var tabList = venueMode() ? VENUE_TABS : [['home', 'Home'], ['sesh', 'Sesh'], ['map', 'Map'], ['venues', 'Venues'], ['events', 'Events']];
     if (role() === 'admin') tabList = tabList.concat([['admin', 'Admin']]);
     tabs.style.gridTemplateColumns = 'repeat(' + tabList.length + ', minmax(0, 1fr))';
     tabs.innerHTML = tabList.map(function (t) {
@@ -2231,7 +2387,7 @@
       if (v === 'map' || v === 'venues') freshVenues(5 * 60000);
       if (v === 'vhome' || v === 'vevents' || v === 'vdeals') { ui.editDeal = null; loadVenueData().then(render); }
       if (v === 'vstats') loadVenueData().then(loadVenueStats).then(render);
-      if (v === 'admin') loadAdminData().then(render);
+      if (v === 'admin') { if (ui.asVenue) { ui.asVenue = null; ui.vdata = null; ui.vpick = null; render(); } loadAdminData().then(render); }
       if (v === 'you' && role() === 'user') { loadRole().then(render); loadQuickInvite(); }
       if (v === 'map' && Date.now() - buzzAt > 60000) loadBuzz();
       if (v === 'map' || v === 'sesh' || v === 'events') loadPins().then(function () { if (ui.tab === v && !ui.screen) { if (M.map) M.fit = true; render(); } });
@@ -2462,6 +2618,46 @@
         return loadAdminData().then(render);
       });
     },
+    asub: function (v) { ui.asub = v; ui.confirm = null; if (v === 'venues') ui.foundVenues = null; go(true); loadAdminData().then(render); },
+    'manage-venue': function (v) { ui.asVenue = v; ui.vpick = v; ui.vdata = null; ui.vstats = {}; ui.editDeal = null; ui.tab = 'vhome'; ui.screen = null; ui.confirm = null; go(true); loadVenueData().then(render); },
+    'leave-venue': function () { ui.asVenue = null; ui.vpick = null; ui.vdata = null; ui.vstats = {}; ui.tab = 'admin'; ui.asub = 'venues'; ui.screen = null; go(true); loadAdminData().then(render); },
+    'save-venue': function (v) {
+      var val = function (id) { return String((document.getElementById(id) || {}).value || '').trim(); };
+      rpc('admin_save_venue', { p_venue: v, p_name: val('av-name'), p_kind: val('av-kind') }).then(function () { toast('Saved.'); return loadVenueData(); }).then(render, function (x) { toast(x.message); });
+    },
+    'app-setting': function (v) {
+      var i = v.indexOf(':'), key = v.slice(0, i), value = JSON.parse(v.slice(i + 1));
+      rpc('admin_set_app_setting', { p_key: key, p_value: value }).then(function (r) { ui.asettings = r; toast('Saved.'); render(); }, function (x) { toast(x.message); });
+    },
+    'app-setting-text': function (v) {
+      var el = document.getElementById('set-' + v);
+      rpc('admin_set_app_setting', { p_key: v, p_value: el ? el.value : '' }).then(function (r) { ui.asettings = r; toast('Saved.'); render(); }, function (x) { toast(x.message); });
+    },
+    suspend: function (v) {
+      var why = String((document.getElementById('susp-reason') || {}).value || '').trim();
+      if (why.length < 3) { toast('Say why this account is being suspended.'); return; }
+      rpc('admin_suspend', { p_user: v, p_reason: why }).then(function () { ui.confirm = null; toast('Suspended.'); findAccounts(); return loadAdminData(); }).then(render, function (x) { toast(x.message); });
+    },
+    unsuspend: function (v) { rpc('admin_unsuspend', { p_user: v }).then(function () { toast('Reactivated.'); findAccounts(); return loadAdminData(); }).then(render, function (x) { toast(x.message); }); },
+    'announce-preview': function () {
+      var g = function (id) { return document.getElementById(id); };
+      var dr = { title: String(g('ann-title').value || '').trim(), body: String(g('ann-body').value || '').trim(), push: g('ann-push').checked, banner: g('ann-banner').checked, days: Number(g('ann-days').value) || 3 };
+      ui.annDraft = dr;
+      if (dr.title.length < 3 || dr.body.length < 3) { toast('Add a title and a message.'); return; }
+      if (!dr.push && !dr.banner) { toast('Pick a phone notification, a banner, or both.'); return; }
+      ui.confirm = 'announce'; go(false);
+    },
+    'announce-send': function () {
+      var dr = ui.annDraft; if (!dr || ui.annBusy) return;
+      ui.annBusy = true; render();
+      rpc('admin_announce', { p_title: dr.title, p_body: dr.body, p_push: dr.push, p_banner: dr.banner, p_days: dr.days }).then(function (r) {
+        ui.annBusy = false; ui.annDraft = null; ui.confirm = null; ui.ann = undefined; ui.annAsked = false;
+        toast('Sent.' + (dr.push ? ' Notification queued for ' + r.pushed + ' phone' + (r.pushed === 1 ? '' : 's') + '.' : ''));
+        return loadAdminData();
+      }).then(render, function (x) { ui.annBusy = false; toast(x.message); render(); });
+    },
+    'announce-end': function (v) { rpc('admin_end_announcement', { p_id: v }).then(function () { toast('Taken down.'); ui.ann = undefined; ui.annAsked = false; return loadAdminData(); }).then(render, function (x) { toast(x.message); }); },
+    'ann-close': function () { if (ui.ann) store(ANN_KEY, ui.ann.id); render(); },
     'allow-back': function (v) { act('admin_allow_back', { p_id: v }, 'They can sign up again.').then(function (r) { if (r) loadAdminData().then(render); }); },
     'report-dismiss': function (v) { act('admin_dismiss_report', { p_report: v }, 'Dismissed.').then(function (r) { if (r) { ui.adata = r; render(); } }); },
     auth: function (v) { ui.auth = v || null; ui.loginNote = null; if (v !== 'reset') ui.resetEmail = null; view.innerHTML = ''; render(); },
@@ -2563,6 +2759,7 @@
   document.addEventListener('input', function (e) {
     if (e.target.id === 'radius') setRadius(e.target.value);
     if (e.target.id === 'venue-search') setSearch(e.target.value);
+    if (e.target.id === 'find-venue') { ui.venueQuery = e.target.value; clearTimeout(venueTimer); venueTimer = setTimeout(findVenues, 250); }
     if (e.target.id === 'find-account') { ui.findQuery = e.target.value; clearTimeout(findTimer); findTimer = setTimeout(findAccounts, 250); }
     if (e.target.id === 'an-venue') { ui.newVenueQuery = e.target.value; var vh = document.getElementById('an-venue-hits'); if (vh) vh.innerHTML = newVenueHits(); }
     if (e.target.id === 'claim-search') { ui.claimQuery = e.target.value; var ch = document.getElementById('claim-hits'); if (ch) ch.innerHTML = claimHits(); }
