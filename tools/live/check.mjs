@@ -103,7 +103,7 @@ async function openSettings(p) {
   await p.page.waitForSelector('details.set');
   await p.page.evaluate(() => document.querySelectorAll('details.set:not([open]) > summary').forEach((s) => s.click()));
 }   // You is the profile button at the top right
-async function inviteOf(p) { await tab(p, 'You'); await tap(p, 'Send your invite link'); const l = await p.page.locator('#invite-link').innerText(); return l.slice(l.indexOf('?')); }
+async function inviteOf(p) { await tab(p, 'You'); await has(p, 'invite=Q', 1); await p.page.waitForTimeout(800); await tap(p, 'Send your invite link'); await p.page.waitForFunction(() => /invite=Q/.test((document.getElementById('invite-link') || {}).innerText || '')); const l = await p.page.locator('#invite-link').innerText(); return l.slice(l.indexOf('?')); }
 
 try {
   const ana = await phone('Ana'), ben = await phone('Ben'), cam = await phone('Cam');
@@ -154,16 +154,14 @@ try {
 
   console.log('Invite links and friends');
   const anaLink = await inviteOf(ana);
-  ok(/^\?invite=[A-Z0-9]{6,}/.test(anaLink), 'Ana gets an invite link: ' + anaLink);
+  ok(/^\?invite=Q[A-Z0-9]{6,}/.test(anaLink), 'Ana gets a 7-day invite link: ' + anaLink);
   await signUp(ben, 'Ben', anaLink);
   await tab(ana, 'Home');
-  ok(await has(ana, 'Ben wants to add you'), 'Ana sees Ben\'s friend request without refreshing');
-  await tap(ana, 'Accept');
-  ok(await has(ana, 'Friends are hidden while you\'re red'), 'accepted; Ana is Red so friends stay hidden');
+  ok(!(await has(ana, 'Ben wants to add you', 1500)), 'joining by the link needs no request to accept');
+  ok(await has(ana, 'Friends are hidden while you\'re red'), 'Ben and Ana are friends straight away; Ana is Red so friends stay hidden');
   ok(await has(ben, 'Friends are hidden'), 'Ben sees he is friends with Ana (Red hides her)');
 
   await signUp(cam, 'Cam', anaLink);
-  await tap(ana, 'Accept');
 
   console.log('Status and privacy');
   await tap(ben, 'Green');
@@ -645,7 +643,7 @@ try {
   await signUp(pim, 'Pim');
   const pmLink = await inviteOf(pim);
   await signUp(quin, 'Quin', pmLink);
-  await tab(pim, 'Home'); await has(pim, 'Quin wants to add you'); await tap(pim, 'Accept');
+  await tab(pim, 'Home');
   await tap(pim, 'Green'); await has(pim, 'Up for it now'); await tap(quin, 'Green');
   ok(await has(quin, 'Up for it now') && await quin.page.locator('.friend.face .pic').count() === 0, 'with no photo, a friend\'s circle shows their initial');
   await tab(pim, 'You');

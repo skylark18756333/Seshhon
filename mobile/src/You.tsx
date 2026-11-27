@@ -6,6 +6,7 @@
 // always open.
 // Left out on purpose: "Put Crewzy on your home screen" (this is the app on the home screen already) and the
 // staff deal-code card (deals are switched off in docs/config.js).
+import QRCode from 'react-native-qrcode-svg';
 import Constants from 'expo-constants';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
@@ -96,6 +97,7 @@ export default function You({ f, onOpenWeb, onSignedOut }: { f: Frendzy; onOpenW
   const [confirm, setConfirm] = useState<string | null>(null);
   const [photoBusy, setPhotoBusy] = useState(false);
   const [linkShown, setLinkShown] = useState(false);
+  const [quickCode, setQuickCode] = useState<string | null>(null);
   const [friendName, setFriendName] = useState('');
   const [addError, setAddError] = useState('');
   const [adding, setAdding] = useState(false);
@@ -122,7 +124,8 @@ export default function You({ f, onOpenWeb, onSignedOut }: { f: Frendzy; onOpenW
   if (!me) return null;
   const a = account && account !== 'off' ? account : null;
   const myPhoto = f.photos[me.id];
-  const inviteLink = INVITE_BASE + '?invite=' + me.invite_code;
+  // A fresh 7-day link that makes you friends straight away (quick_invite, 0051); the permanent one if that isn't there yet.
+  const inviteLink = INVITE_BASE + '?invite=' + (quickCode || me.invite_code);
 
   /* ---------- taps ---------- */
   const savePhoto = (dataUrl: string | null) => {
@@ -145,9 +148,20 @@ export default function You({ f, onOpenWeb, onSignedOut }: { f: Frendzy; onOpenW
     savePhoto(dataUrl);
   };
 
+  const [qrShown, setQrShown] = useState(false);
+  const showQr = () => {
+    if (qrShown) { setQrShown(false); return; }
+    if (quickCode) { setQrShown(true); return; }
+    rpc<string>('quick_invite').then((c) => { if (c) { setQuickCode(c); setQrShown(true); } else f.say("Couldn't make a QR code. Try again."); },
+      (e: ApiError) => f.say(e.missing ? 'QR codes need a database update first.' : (e.message || "Couldn't make a QR code.")));
+  };
   const share = () => {
     setLinkShown(true);
-    Share.share({ title: 'Crewzy', message: "Add me on Crewzy so we can see when we're both up for a sesh. " + inviteLink }).catch(() => {});
+    rpc<string>('quick_invite').then((c) => c || null, () => null).then((c) => {
+      if (c) setQuickCode(c);
+      const link = INVITE_BASE + '?invite=' + (c || me.invite_code);
+      Share.share({ title: 'Crewzy', message: "Join me on Crewzy so we can see when we're both up for a sesh. " + link }).catch(() => {});
+    });
   };
 
   const addFriend = () => {
@@ -374,8 +388,16 @@ export default function You({ f, onOpenWeb, onSignedOut }: { f: Frendzy; onOpenW
                 </Text>
               </View>
             ) : null}
-            <Text style={[styles.muted, styles.small]}>Not on Crewzy yet? Send them your invite link. When they sign up you get a friend request to accept.</Text>
+            <Text style={[styles.muted, styles.small]}>Not on Crewzy yet? Send them your invite link. When they join with it you're friends straight away. It works for 7 days.</Text>
             <Button label="Send your invite link" ghost onPress={share} />
+            {/* Face to face: they point their phone camera at this and open the link, and you're friends. */}
+            <Button label={qrShown ? 'Hide my QR code' : 'Show my QR code'} ghost onPress={showQr} testID="show-qr" />
+            {qrShown && quickCode ? (
+              <View style={styles.qrBox} accessibilityLabel="Your invite QR code" testID="invite-qr">
+                <QRCode value={INVITE_BASE + '?invite=' + quickCode} size={220} backgroundColor="#FFFFFF" color="#050506" />
+                <Text style={styles.qrNote}>Point their phone camera here. They join as your friend. Works for 7 days.</Text>
+              </View>
+            ) : null}
             {linkShown ? (
               <>
                 <Text style={[styles.muted, styles.small]}>Copy this link and send it to a friend:</Text>
@@ -781,6 +803,8 @@ const styles = themed(() => StyleSheet.create({
   setBody: { gap: 10, paddingHorizontal: 16, paddingBottom: 16 },
   mePic: { borderWidth: 2, borderRadius: 40, padding: 3, margin: 4 },
   linkbox: { fontFamily: F.body, fontSize: 14, paddingVertical: 12, paddingHorizontal: 14, borderRadius: 12, backgroundColor: C.bg, borderWidth: 1, borderColor: C.line, color: C.fg, overflow: 'hidden' },
+  qrBox: { alignSelf: 'center', alignItems: 'center', gap: 10, padding: 16, borderRadius: 18, backgroundColor: '#FFFFFF' },
+  qrNote: { fontFamily: F.body, fontSize: 13, color: '#333338', textAlign: 'center', maxWidth: 220 },
   code: { fontSize: 20, fontFamily: F.bodyBold, letterSpacing: 1, textAlign: 'center' },
   field: { gap: 8 },
   label: { fontFamily: F.bodyMid, fontSize: 16, color: C.fg },
