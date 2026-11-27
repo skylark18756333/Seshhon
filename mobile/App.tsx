@@ -37,7 +37,7 @@ import Tour from './src/Tour';
 import { TipHost } from './src/Tip';
 import TwoStep from './src/TwoStep';
 import You from './src/You';
-import { C, first, themed, useLook } from './src/theme';
+import { C, F, first, themed, useLook } from './src/theme';
 import { useFrendzy } from './src/useFrendzy';
 import { SESSION_KEY, clearTour, currentSession, loadStoredSession, onSessionChange, pageStoreScript, pageStored, pendingInvite, rpc, sessionForPage, setPendingInvite, setSession, tourPending, type ApiError, type Session } from './src/session';
 import APP_HTML from './web/app-html.generated';
@@ -480,6 +480,14 @@ function Shell() {
       </Swipe>
       {/* On the Map tab the map runs under the tab bar, which floats over it. */}
       <View style={onMap ? [styles.floatTabs, { paddingBottom: inset.bottom }] : null} pointerEvents="box-none">
+        {/* No signal: say so above the dock on every tab. What was showing stays, and the app keeps trying by itself. */}
+        {f.offline ? (
+          <Pressable style={styles.noSignal} onPress={() => { f.refresh().catch(() => {}); }} accessibilityRole="button" accessibilityLabel="No signal. Tap to try again" testID="no-signal">
+            <View style={styles.noSignalDot} />
+            <Text style={styles.noSignalText} numberOfLines={1}>No signal. Showing what you had, trying again…</Text>
+            <Text style={styles.noSignalTry}>Retry</Text>
+          </Pressable>
+        ) : null}
         <Tabs tab={tab === 'venue' ? 'home' : tab === 'crews' ? 'you' : tab === 'friends' ? 'home' : tab} requests={f.state ? f.state.requests_in.length : 0}
           colour={f.state && f.state.me ? f.state.me.colour : null} onPick={pickTab} onColour={f.setColour} />
       </View>
@@ -519,6 +527,10 @@ const styles = themed(() => StyleSheet.create({
   clearFill: { flex: 1, backgroundColor: 'transparent' },
   hidden: { display: 'none' },
   floatTabs: { position: 'absolute', left: 0, right: 0, bottom: 0 },
+  noSignal: { flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 12, marginBottom: 6, paddingHorizontal: 14, paddingVertical: 9, borderRadius: 14, backgroundColor: C.surface2, borderWidth: 1, borderColor: C.thinking },
+  noSignalDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: C.thinking },
+  noSignalText: { flex: 1, color: C.fg, fontFamily: F.body, fontSize: 13 },
+  noSignalTry: { color: C.thinking, fontFamily: F.bodyBold, fontSize: 13 },
   offline: { flex: 1, backgroundColor: C.bg, alignItems: 'center', justifyContent: 'center', padding: 32 },
   title: { color: C.fg, fontSize: 24, fontWeight: '800', marginBottom: 12 },
   body: { color: C.fg, opacity: 0.8, fontSize: 16, lineHeight: 22, textAlign: 'center', marginBottom: 24 },

@@ -61,7 +61,6 @@ export function TopBar({ f, onOpenWeb }: { f: Frendzy; onOpenWeb: (tab: string) 
     <View style={styles.top}>
       <Logo status={me.colour} onPick={(c) => { if (c !== me.colour) f.setColour(c); }} onHome={() => onOpenWeb('home')} />
       <View style={styles.topRight}>
-        {f.offline ? <Text style={styles.pill}>Offline</Text> : null}
         <Tip id="top-friends" onPress={() => onOpenWeb('friends')}>{(press) => (
         <Pressable onPress={press} accessibilityRole="button" accessibilityLabel={'Friends' + (requests ? ', ' + requests + ' new requests' : '')} style={styles.headBtn} testID="open-friends">
           <Icon name="sesh" size={17} colour={C.fg} />
