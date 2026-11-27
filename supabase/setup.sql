@@ -5909,6 +5909,972 @@ begin
 end;
 $$;
 
+-- ======================= 0036_amber_visibility.sql
+-- Amber is private unless you allow it, friend by friend. A friend sees you on green. They see you on amber only if you
+-- have switched "can see me on amber" on for that friend (You > Your friends). Nobody is allowed until you choose, and red is
+-- never shown. Your own status, your seshes and your photo are not affected: only the colour friends read from public.statuses.
+-- It adds one condition to the statuses_read rule (0011), which api_state reads friends' colours through.
+-- Needs 0011. Safe to run more than once.
+
+create table if not exists private.amber_allows (
+  owner uuid not null references public.profiles (id) on delete cascade,
+  viewer uuid not null references public.profiles (id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (owner, viewer)
+);
+alter table private.amber_allows enable row level security;
+revoke all on private.amber_allows from public, anon, authenticated;
+
+-- Has "owner" allowed the person asking (the signed-in user) to see them on amber?
+create or replace function private.amber_allowed(owner uuid) returns boolean
+language sql stable security definer set search_path = public, private as $$
+  select exists (select 1 from private.amber_allows a where a.owner = amber_allowed.owner and a.viewer = auth.uid());
+$$;
+revoke all on function private.amber_allowed(uuid) from public, anon;
+grant execute on function private.amber_allowed(uuid) to authenticated;
+
+-- The friends you let see you on amber. Only ever your own list.
+create or replace function public.my_amber_allows() returns jsonb
+language sql stable security definer set search_path = public, private as $$
+  select coalesce((select jsonb_agg(a.viewer order by a.created_at) from private.amber_allows a where a.owner = auth.uid()), '[]'::jsonb);
+$$;
+
+-- Let one friend see you on amber (true) or not (false). Only accepted friends.
+create or replace function public.set_amber_allowed(p_friend uuid, p_allow boolean) returns jsonb
+language plpgsql security definer set search_path = public, private as $$
+declare me uuid := auth.uid();
+begin
+  if me is null then raise exception 'Sign in first.'; end if;
+  if coalesce(p_allow, false) then
+    if p_friend is null or p_friend = me or not public.are_friends(p_friend, me) then
+      raise exception 'You can only allow a friend.';
+    end if;
+    insert into private.amber_allows (owner, viewer) values (me, p_friend) on conflict do nothing;
+  else
+    delete from private.amber_allows where owner = me and viewer = p_friend;
+  end if;
+  return public.my_amber_allows();
+end;
+$$;
+revoke all on function public.my_amber_allows(), public.set_amber_allowed(uuid, boolean) from public, anon;
+grant execute on function public.my_amber_allows(), public.set_amber_allowed(uuid, boolean) to authenticated;
+
+-- No longer friends: forget the allowance between the two.
+create or replace function private.forget_amber_allows() returns trigger
+language plpgsql security definer set search_path = public, private as $$
+begin
+  delete from private.amber_allows
+  where (owner = old.requester and viewer = old.addressee) or (owner = old.addressee and viewer = old.requester);
+  return old;
+end;
+$$;
+revoke all on function private.forget_amber_allows() from public, anon, authenticated;
+drop trigger if exists friendships_forget_amber on public.friendships;
+create trigger friendships_forget_amber after delete on public.friendships
+for each row execute function private.forget_amber_allows();
+
+drop policy if exists statuses_read on public.statuses;
+create policy statuses_read on public.statuses for select to authenticated using (
+  user_id = auth.uid()
+  or (colour <> 'off' and expires_at > now() and public.are_friends(user_id, auth.uid()) and public.i_am_visible()
+      and not private.hidden_from_me(user_id)
+      and (colour <> 'thinking' or private.amber_allowed(user_id)))
+);
+
+-- ======================= 0037_meet_in_the_middle.sql
+-- Meet in the middle: venues that are fair for everyone in a live sesh, worked out from where they are.
+-- Location rules (Sarah, 2026-10-04): nobody's location is shared by default. Here each person taps to share for one
+-- sesh only. Their position is rounded to about 500 m before it is stored, it is never shown or sent to anyone
+-- (the answer is only a list of venues, with no distances), and it is deleted when they tap stop, leave the sesh,
+-- or the sesh ends (with the sesh, like the votes and the chat).
+
+create table if not exists private.meet_spots (
+  sesh_id uuid not null references public.seshes (id) on delete cascade,
+  user_id uuid not null references public.profiles (id) on delete cascade,
+  lat double precision not null,
+  lng double precision not null,
+  shared_at timestamptz not null default now(),
+  primary key (sesh_id, user_id)
+);
+alter table private.meet_spots enable row level security;
+-- No direct access: only the functions below read or write it.
+revoke all on private.meet_spots from public, anon, authenticated;
+
+-- How many have shared, whether you have, and (once 2 or more have) the fairest venues: the ones where the
+-- person with the furthest to go has the least far to go. Venues only, never people or distances.
+create or replace function public.meet_venues(p_sesh uuid) returns jsonb
+language plpgsql stable security definer set search_path = public, private as $$
+declare
+  me uuid := auth.uid();
+  n integer;
+  picks jsonb := '[]'::jsonb;
+begin
+  if me is null or not public.is_sesh_member(p_sesh, me) or not public.sesh_is_live(p_sesh) then
+    return jsonb_build_object('shared', 0, 'mine', false, 'venues', '[]'::jsonb);
+  end if;
+  select count(*) into n from private.meet_spots s
+  where s.sesh_id = p_sesh and exists (select 1 from public.sesh_members m where m.sesh_id = p_sesh and m.user_id = s.user_id);
+  if n >= 2 then
+    select coalesce(jsonb_agg(x.id order by x.worst, x.total), '[]'::jsonb) into picks from (
+      select v.id,
+        max(d.km) as worst, sum(d.km) as total
+      from public.venues v
+      cross join lateral (
+        select 12742 * asin(least(1, sqrt(
+          power(sin(radians(v.lat - s.lat) / 2), 2) + cos(radians(s.lat)) * cos(radians(v.lat)) * power(sin(radians(v.lng - s.lng) / 2), 2)
+        ))) as km
+        from private.meet_spots s
+        where s.sesh_id = p_sesh and exists (select 1 from public.sesh_members m where m.sesh_id = p_sesh and m.user_id = s.user_id)
+      ) d
+      where v.lat between -90 and 90 and v.lng between -180 and 180
+      group by v.id
+      order by max(d.km), sum(d.km)
+      limit 6
+    ) x;
+  end if;
+  return jsonb_build_object(
+    'shared', n,
+    'mine', exists (select 1 from private.meet_spots where sesh_id = p_sesh and user_id = me),
+    'venues', picks
+  );
+end;
+$$;
+
+-- Share where you are for this sesh. Rounded to about 500 m (0.005 degrees) before it is kept.
+create or replace function public.meet_share(p_sesh uuid, p_lat double precision, p_lng double precision) returns jsonb
+language plpgsql security definer set search_path = public, private as $$
+declare me uuid := auth.uid();
+begin
+  if me is null then raise exception 'Sign in first.'; end if;
+  if not public.is_sesh_member(p_sesh, me) or not public.sesh_is_live(p_sesh) then
+    raise exception 'Join the sesh to find a spot in the middle.';
+  end if;
+  if p_lat is null or p_lng is null or p_lat not between -90 and 90 or p_lng not between -180 and 180 then
+    raise exception 'That location does not look right.';
+  end if;
+  insert into private.meet_spots (sesh_id, user_id, lat, lng)
+  values (p_sesh, me, round(p_lat / 0.005) * 0.005, round(p_lng / 0.005) * 0.005)
+  on conflict (sesh_id, user_id) do update set lat = excluded.lat, lng = excluded.lng, shared_at = now();
+  return public.meet_venues(p_sesh);
+end;
+$$;
+
+-- Stop sharing: your position is deleted straight away.
+create or replace function public.meet_stop(p_sesh uuid) returns jsonb
+language plpgsql security definer set search_path = public, private as $$
+begin
+  if auth.uid() is null then raise exception 'Sign in first.'; end if;
+  delete from private.meet_spots where sesh_id = p_sesh and user_id = auth.uid();
+  return public.meet_venues(p_sesh);
+end;
+$$;
+
+-- Leaving a sesh deletes your shared position for it.
+create or replace function private.forget_meet_spot() returns trigger
+language plpgsql security definer set search_path = public, private as $$
+begin
+  delete from private.meet_spots where sesh_id = old.sesh_id and user_id = old.user_id;
+  return old;
+end;
+$$;
+revoke all on function private.forget_meet_spot() from public, anon, authenticated;
+drop trigger if exists sesh_members_forget_meet_spot on public.sesh_members;
+create trigger sesh_members_forget_meet_spot after delete on public.sesh_members
+for each row execute function private.forget_meet_spot();
+
+-- A sesh that is ended but not yet cleared away keeps nobody's position either.
+create or replace function private.forget_meet_spots_on_end() returns trigger
+language plpgsql security definer set search_path = public, private as $$
+begin
+  if new.ended_at is not null then delete from private.meet_spots where sesh_id = new.id; end if;
+  return new;
+end;
+$$;
+revoke all on function private.forget_meet_spots_on_end() from public, anon, authenticated;
+drop trigger if exists seshes_forget_meet_spots on public.seshes;
+create trigger seshes_forget_meet_spots after update of ended_at on public.seshes
+for each row execute function private.forget_meet_spots_on_end();
+
+revoke all on function public.meet_venues(uuid), public.meet_share(uuid, double precision, double precision), public.meet_stop(uuid) from public, anon;
+grant execute on function public.meet_venues(uuid), public.meet_share(uuid, double precision, double precision), public.meet_stop(uuid) to authenticated;
+
+-- ======================= 0038_friend_messages.sql
+-- Messages between friends that Frendzy cannot read and does not keep.
+-- The phones lock each message (the key to unlock it never leaves the friend's phone), so this database only ever holds
+-- scrambled text. A message sits here only until the friend's phone has collected it, then it is deleted. Anything
+-- never collected is deleted after 7 days. Chat history lives on the phones, not here.
+-- Needs 0011 (private schema, are_friends). Safe to run more than once.
+
+-- Each person's PUBLIC key (the lock). The private key (the unlock) is made on the phone and stays there.
+create table if not exists private.message_keys (
+  user_id uuid primary key references public.profiles (id) on delete cascade,
+  public_key text not null check (char_length(public_key) between 20 and 100),
+  updated_at timestamptz not null default now()
+);
+alter table private.message_keys enable row level security;
+revoke all on private.message_keys from public, anon, authenticated;
+
+-- Messages waiting to be collected. body is scrambled text; the server cannot read it.
+create table if not exists private.message_queue (
+  id uuid primary key default gen_random_uuid(),
+  from_user uuid not null references public.profiles (id) on delete cascade,
+  to_user uuid not null references public.profiles (id) on delete cascade,
+  sender_key text not null check (char_length(sender_key) between 20 and 100),
+  body text not null check (char_length(body) between 1 and 6000),
+  created_at timestamptz not null default now()
+);
+create index if not exists message_queue_to on private.message_queue (to_user, created_at);
+alter table private.message_queue enable row level security;
+revoke all on private.message_queue from public, anon, authenticated;
+
+-- Save my public key (the phone makes the pair; only the public half comes here).
+create or replace function public.set_message_key(p_key text) returns void
+language plpgsql security definer set search_path = public, private as $$
+begin
+  if auth.uid() is null then raise exception 'Sign in first.'; end if;
+  insert into private.message_keys (user_id, public_key) values (auth.uid(), p_key)
+  on conflict (user_id) do update set public_key = excluded.public_key, updated_at = now();
+end;
+$$;
+
+-- A friend's public key, so my phone can lock a message only they can unlock. Friends only.
+create or replace function public.friend_message_key(p_friend uuid) returns text
+language sql stable security definer set search_path = public, private as $$
+  select k.public_key from private.message_keys k
+  where k.user_id = p_friend and public.are_friends(p_friend, auth.uid());
+$$;
+
+-- Leave a scrambled message for a friend. Friends only (blocked people are not friends). Slow down floods.
+create or replace function public.send_friend_message(p_to uuid, p_sender_key text, p_body text) returns uuid
+language plpgsql security definer set search_path = public, private as $$
+declare me uuid := auth.uid(); new_id uuid;
+begin
+  if me is null then raise exception 'Sign in first.'; end if;
+  if p_to is null or p_to = me or not public.are_friends(p_to, me) then raise exception 'You can only message a friend.'; end if;
+  if (select count(*) from private.message_queue where from_user = me and created_at > now() - interval '1 minute') >= 30 then
+    raise exception 'Slow down a little, then try again.';
+  end if;
+  if (select count(*) from private.message_queue where from_user = me and to_user = p_to) >= 200 then
+    raise exception 'They have not collected your last messages yet.';
+  end if;
+  delete from private.message_queue where created_at < now() - interval '7 days';
+  insert into private.message_queue (from_user, to_user, sender_key, body) values (me, p_to, p_sender_key, p_body)
+  returning id into new_id;
+  return new_id;
+end;
+$$;
+
+-- Messages waiting for me (oldest first). They stay until my phone confirms it has them.
+create or replace function public.my_friend_messages() returns jsonb
+language sql stable security definer set search_path = public, private as $$
+  select coalesce(jsonb_agg(jsonb_build_object('id', q.id, 'from', q.from_user, 'key', q.sender_key, 'body', q.body, 'at', q.created_at)
+                            order by q.created_at), '[]'::jsonb)
+  from private.message_queue q
+  where q.to_user = auth.uid() and q.created_at > now() - interval '7 days';
+$$;
+
+-- My phone has them: delete them from here.
+create or replace function public.got_friend_messages(p_ids uuid[]) returns void
+language sql security definer set search_path = public, private as $$
+  delete from private.message_queue where to_user = auth.uid() and id = any (p_ids);
+$$;
+
+revoke all on function public.set_message_key(text), public.friend_message_key(uuid), public.send_friend_message(uuid, text, text),
+  public.my_friend_messages(), public.got_friend_messages(uuid[]) from public, anon;
+grant execute on function public.set_message_key(text), public.friend_message_key(uuid), public.send_friend_message(uuid, text, text),
+  public.my_friend_messages(), public.got_friend_messages(uuid[]) to authenticated;
+
+-- No longer friends: drop anything waiting between the two.
+create or replace function private.forget_friend_messages() returns trigger
+language plpgsql security definer set search_path = public, private as $$
+begin
+  delete from private.message_queue
+  where (from_user = old.requester and to_user = old.addressee) or (from_user = old.addressee and to_user = old.requester);
+  return old;
+end;
+$$;
+revoke all on function private.forget_friend_messages() from public, anon, authenticated;
+drop trigger if exists friendships_forget_messages on public.friendships;
+create trigger friendships_forget_messages after delete on public.friendships
+for each row execute function private.forget_friend_messages();
+
+-- ======================= 0039_events.sql
+-- Events that are not tied to a venue: festivals, concerts and gigs at parks,
+-- stadiums or arenas. Admins add and edit them; everyone can read live ones.
+-- Run in Supabase SQL editor, then the last line records it.
+
+create table if not exists public.events (
+  id uuid primary key default gen_random_uuid(),
+  title text not null check (char_length(title) between 3 and 120),
+  kind text not null default 'Concert' check (kind in ('Concert', 'Festival', 'Gig', 'Other')),
+  place text not null check (char_length(place) between 2 and 120),
+  lat double precision check (lat between -90 and 90),
+  lng double precision check (lng between -180 and 180),
+  starts_at timestamptz not null,
+  ends_at timestamptz not null,
+  source_url text check (source_url is null or source_url like 'https://%'),
+  active boolean not null default true,
+  created_at timestamptz not null default now(),
+  check (ends_at > starts_at)
+);
+
+alter table public.events enable row level security;
+
+drop policy if exists events_read_live on public.events;
+create policy events_read_live on public.events for select
+  using (active and ends_at > now());
+
+create or replace function public.api_events() returns jsonb
+language sql stable security invoker set search_path = public as $$
+  select coalesce(jsonb_agg(row_to_json(x)::jsonb order by x.starts_at), '[]'::jsonb)
+  from (
+    select id, title, kind, place, lat, lng, starts_at, ends_at, source_url
+    from public.events
+    where active and ends_at > now()
+  ) x;
+$$;
+
+grant execute on function public.api_events() to anon, authenticated;
+
+insert into private.migration_log (file) values ('0039_events');
+
+-- ======================= 0040_friend_profile_levels.sql
+-- Friend profile: levels, XP, badges and a short "about me" line.
+-- XP only counts how often you go out with friends. It never stores where you went: no venues, no places,
+-- no history. Each person has one row of running totals. The marker that stops a sesh counting twice is
+-- deleted with the sesh, like everything else in it.
+--   +50 XP when you join a friend's sesh (or say "I'm in" to a planned one)
+--   +20 XP to the host for each friend who joins their sesh
+--   At most 300 XP a day (Perth time), so nobody can farm it.
+-- Level n needs 50 x (n-1)^2 XP: level 2 at 50, level 3 at 200, level 5 at 800, level 10 at 4,050.
+-- Badges come from the totals, so they can't be faked.
+-- friend_profile() shows a friend's page using the same rules as everywhere else: red is shown as "off",
+-- amber only if they allow you, nothing if they hid their status from you, and blocked people get nothing.
+-- Needs 0025 and 0029. Works with or without 0031 (crews) and 0036 (amber). Safe to run more than once.
+
+create table if not exists private.xp (
+  user_id uuid primary key references public.profiles (id) on delete cascade,
+  points integer not null default 0,
+  seshes integer not null default 0,
+  hosted integer not null default 0,
+  planned integer not null default 0,
+  day date,
+  day_points integer not null default 0
+);
+alter table private.xp enable row level security;
+revoke all on private.xp from public, anon, authenticated;
+
+create table if not exists private.xp_seen (
+  sesh_id uuid not null references public.seshes (id) on delete cascade,
+  user_id uuid not null references public.profiles (id) on delete cascade,
+  primary key (sesh_id, user_id)
+);
+alter table private.xp_seen enable row level security;
+revoke all on private.xp_seen from public, anon, authenticated;
+
+alter table public.profiles add column if not exists about text;
+alter table public.profiles drop constraint if exists profiles_about_length;
+alter table public.profiles add constraint profiles_about_length check (about is null or char_length(about) <= 80);
+
+create or replace function private.add_xp(u uuid, pts integer, j integer, h integer, p integer) returns void
+language plpgsql security definer set search_path = public, private as $$
+declare d date := (now() at time zone 'Australia/Perth')::date; give integer;
+begin
+  insert into private.xp (user_id) values (u) on conflict do nothing;
+  update private.xp set day_points = case when day = d then day_points else 0 end, day = d where user_id = u;
+  select least(pts, greatest(0, 300 - day_points)) into give from private.xp where user_id = u;
+  update private.xp set points = points + give, day_points = day_points + give,
+    seshes = seshes + j, hosted = hosted + h, planned = planned + p
+  where user_id = u;
+end $$;
+revoke all on function private.add_xp(uuid, integer, integer, integer, integer) from public, anon, authenticated;
+
+-- Runs when someone joins a sesh. If anything goes wrong here the join still works.
+create or replace function private.xp_on_join() returns trigger
+language plpgsql security definer set search_path = public, private as $$
+declare s public.seshes; n integer;
+begin
+  begin
+    select * into s from public.seshes where id = new.sesh_id;
+    if not found or new.user_id = s.creator then return new; end if;
+    insert into private.xp_seen (sesh_id, user_id) values (new.sesh_id, new.user_id) on conflict do nothing;
+    get diagnostics n = row_count;
+    if n = 0 then return new; end if;
+    perform private.add_xp(new.user_id, 50, 1, 0, 0);
+    insert into private.xp_seen (sesh_id, user_id) values (new.sesh_id, s.creator) on conflict do nothing;
+    get diagnostics n = row_count;
+    if s.created_at > now() then
+      perform private.add_xp(s.creator, 20, 0, 0, n);
+    else
+      perform private.add_xp(s.creator, 20, 0, n, 0);
+    end if;
+  exception when others then
+    return new;
+  end;
+  return new;
+end $$;
+revoke all on function private.xp_on_join() from public, anon, authenticated;
+drop trigger if exists sesh_members_xp on public.sesh_members;
+create trigger sesh_members_xp after insert on public.sesh_members
+for each row execute function private.xp_on_join();
+
+create or replace function private.level_json(u uuid) returns jsonb
+language sql stable security definer set search_path = public, private as $$
+  with x as (select coalesce(points, 0) pts, coalesce(seshes, 0) seshes, coalesce(hosted, 0) hosted, coalesce(planned, 0) planned
+             from (select 1) one left join private.xp on user_id = u),
+       f as (select count(*) friends from public.friendships where state = 'accepted' and (requester = u or addressee = u)),
+       l as (select floor(sqrt(pts / 50.0))::integer + 1 lvl, pts, seshes, hosted, planned from x)
+  select jsonb_build_object(
+    'level', l.lvl, 'xp', l.pts, 'next', 50 * l.lvl * l.lvl, 'from', 50 * (l.lvl - 1) * (l.lvl - 1),
+    'seshes', l.seshes + l.hosted + l.planned, 'friends', f.friends,
+    'badges', to_jsonb(array_remove(array[
+      case when l.seshes >= 1 then 'first_round' end,
+      case when l.seshes >= 10 then 'regular' end,
+      case when l.hosted >= 5 then 'ringleader' end,
+      case when l.planned >= 3 then 'planner' end,
+      case when f.friends >= 10 then 'social' end], null)))
+  from l, f;
+$$;
+revoke all on function private.level_json(uuid) from public, anon, authenticated;
+
+create or replace function public.friend_profile(p_friend uuid) returns jsonb
+language plpgsql stable security definer set search_path = public, private as $$
+declare me uuid := auth.uid(); pr public.profiles; st public.statuses; colour text := 'off'; crews jsonb := '[]'::jsonb; amber_ok boolean := false;
+begin
+  if me is null then raise exception 'Sign in first.'; end if;
+  if p_friend is null then raise exception 'Pick a friend.'; end if;
+  if p_friend <> me and (not public.are_friends(p_friend, me) or public.blocked_between(p_friend, me)) then
+    raise exception 'You can only see your friends'' profiles.';
+  end if;
+  select * into pr from public.profiles where id = p_friend;
+  select * into st from public.statuses where user_id = p_friend;
+  -- Amber needs 0036. Without it, amber stays hidden from everyone.
+  if st.colour = 'thinking' and to_regprocedure('private.amber_allowed(uuid)') is not null then
+    execute 'select private.amber_allowed($1)' into amber_ok using p_friend;
+  end if;
+  if p_friend = me then
+    colour := coalesce(case when st.expires_at > now() then st.colour::text end, 'off');
+  elsif st.colour is not null and st.colour <> 'off' and st.expires_at > now() and public.i_am_visible()
+        and not private.hidden_from_me(p_friend) and (st.colour <> 'thinking' or coalesce(amber_ok, false)) then
+    colour := st.colour::text;
+  end if;
+  if to_regclass('private.crew_members') is not null then
+    execute 'select coalesce(jsonb_agg(c.name order by c.name), ''[]''::jsonb) from private.crews c
+             where exists (select 1 from private.crew_members m where m.crew_id = c.id and m.user_id = $1 and m.state = ''member'')
+               and exists (select 1 from private.crew_members m where m.crew_id = c.id and m.user_id = $2 and m.state = ''member'')'
+      into crews using me, p_friend;
+  end if;
+  return private.level_json(p_friend) || jsonb_build_object(
+    'id', pr.id, 'name', pr.name, 'about', pr.about, 'colour', colour,
+    'photo', (select picture from public.profile_photos where user_id = p_friend and not public.photo_hidden_from_me(p_friend)),
+    'mutual', (select count(*) from public.friendships a join public.friendships b
+                 on (case when a.requester = me then a.addressee else a.requester end)
+                  = (case when b.requester = p_friend then b.addressee else b.requester end)
+               where a.state = 'accepted' and b.state = 'accepted' and p_friend <> me
+                 and (a.requester = me or a.addressee = me) and (b.requester = p_friend or b.addressee = p_friend)),
+    'crews', crews,
+    'together', coalesce((select jsonb_agg(jsonb_build_object('id', s.id, 'at', s.created_at, 'host', h.name) order by s.created_at)
+                 from public.seshes s join public.profiles h on h.id = s.creator
+                 where p_friend <> me and s.ended_at is null and s.created_at > now() - interval '8 hours'
+                   and exists (select 1 from public.sesh_members m where m.sesh_id = s.id and m.user_id = me)
+                   and exists (select 1 from public.sesh_members m where m.sesh_id = s.id and m.user_id = p_friend)), '[]'::jsonb));
+end $$;
+
+create or replace function public.set_about(p_about text) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare me uuid := auth.uid(); t text := nullif(btrim(coalesce(p_about, '')), '');
+begin
+  if me is null then raise exception 'Sign in first.'; end if;
+  if char_length(t) > 80 then raise exception 'Keep it to 80 characters.'; end if;
+  update public.profiles set about = t where id = me;
+  return jsonb_build_object('about', t);
+end $$;
+
+revoke all on function public.friend_profile(uuid), public.set_about(text) from public, anon;
+grant execute on function public.friend_profile(uuid), public.set_about(text) to authenticated;
+
+-- ======================= 0041_profile_style.sql
+-- Customise your profile page: a cover photo, a colour theme, a frame round your photo, and which of your
+-- badges show. Only your friends see it, through profile_style(), with the same rules as friend_profile() (0040):
+-- strangers and blocked people get nothing, and women-only mode hides the cover just as it hides your photo.
+-- Shown badges must be ones you've earned; anything else is dropped when the page is read. It also adds the
+-- badge progress counts the page shows.
+-- Needs 0013 and 0040. Safe to run more than once.
+
+-- The badge progress shown on the page ("8/10"): the same totals that earn the badges. Counts only, never where.
+create or replace function private.level_json(u uuid) returns jsonb
+language sql stable security definer set search_path = public, private as $$
+  with x as (select coalesce(points, 0) pts, coalesce(seshes, 0) seshes, coalesce(hosted, 0) hosted, coalesce(planned, 0) planned
+             from (select 1) one left join private.xp on user_id = u),
+       f as (select count(*) friends from public.friendships where state = 'accepted' and (requester = u or addressee = u)),
+       l as (select floor(sqrt(pts / 50.0))::integer + 1 lvl, pts, seshes, hosted, planned from x)
+  select jsonb_build_object(
+    'level', l.lvl, 'xp', l.pts, 'next', 50 * l.lvl * l.lvl, 'from', 50 * (l.lvl - 1) * (l.lvl - 1),
+    'seshes', l.seshes + l.hosted + l.planned, 'friends', f.friends,
+    'counts', jsonb_build_object('joined', l.seshes, 'hosted', l.hosted, 'planned', l.planned, 'friends', f.friends),
+    'badges', to_jsonb(array_remove(array[
+      case when l.seshes >= 1 then 'first_round' end,
+      case when l.seshes >= 10 then 'regular' end,
+      case when l.hosted >= 5 then 'ringleader' end,
+      case when l.planned >= 3 then 'planner' end,
+      case when f.friends >= 10 then 'social' end], null)))
+  from l, f;
+$$;
+revoke all on function private.level_json(uuid) from public, anon, authenticated;
+
+create table if not exists private.profile_style (
+  user_id uuid primary key references public.profiles (id) on delete cascade,
+  theme text not null default 'neon' check (theme in ('neon', 'sunset', 'ocean', 'pop', 'lime', 'mono')),
+  frame text not null default 'glow' check (frame in ('glow', 'neon', 'gold', 'rainbow', 'none')),
+  cover text check (cover is null or (cover ~ '^data:image/jpeg;base64,[A-Za-z0-9+/]+=*$' and char_length(cover) <= 150000)),
+  badges text[] not null default '{}' check (cardinality(badges) <= 3),
+  updated_at timestamptz not null default now()
+);
+alter table private.profile_style enable row level security;
+revoke all on private.profile_style from public, anon, authenticated;
+
+create or replace function public.profile_style(p_friend uuid) returns jsonb
+language plpgsql stable security definer set search_path = public, private as $$
+declare me uuid := auth.uid(); s private.profile_style; earned jsonb;
+begin
+  if me is null then raise exception 'Sign in first.'; end if;
+  if p_friend is null then raise exception 'Pick a friend.'; end if;
+  if p_friend <> me and (not public.are_friends(p_friend, me) or public.blocked_between(p_friend, me)) then
+    raise exception 'You can only see your friends'' profiles.';
+  end if;
+  select * into s from private.profile_style where user_id = p_friend;
+  earned := coalesce(private.level_json(p_friend) -> 'badges', '[]'::jsonb);
+  return jsonb_build_object(
+    'theme', coalesce(s.theme, 'neon'),
+    'frame', coalesce(s.frame, 'glow'),
+    'cover', case when p_friend = me or not public.photo_hidden_from_me(p_friend) then s.cover end,
+    'badges', coalesce((select jsonb_agg(b order by i) from unnest(coalesce(s.badges, '{}')) with ordinality as t(b, i) where earned ? b), '[]'::jsonb));
+end $$;
+
+-- Change any of theme, frame and shown badges. Leave one out (null) to keep it as it is.
+create or replace function public.set_profile_style(p_theme text default null, p_frame text default null, p_badges text[] default null) returns jsonb
+language plpgsql security definer set search_path = public, private as $$
+declare me uuid := auth.uid();
+begin
+  if me is null then raise exception 'Sign in first.'; end if;
+  if p_theme is not null and p_theme not in ('neon', 'sunset', 'ocean', 'pop', 'lime', 'mono') then raise exception 'Pick one of the themes.'; end if;
+  if p_frame is not null and p_frame not in ('glow', 'neon', 'gold', 'rainbow', 'none') then raise exception 'Pick one of the frames.'; end if;
+  if p_badges is not null and cardinality(p_badges) > 3 then raise exception 'Pick up to 3 badges to show.'; end if;
+  insert into private.profile_style (user_id) values (me) on conflict do nothing;
+  update private.profile_style set theme = coalesce(p_theme, theme), frame = coalesce(p_frame, frame),
+    badges = coalesce(p_badges, badges), updated_at = now()
+  where user_id = me;
+  return public.profile_style(me);
+end $$;
+
+-- Your cover photo: a JPEG as a data address, or null to remove it.
+create or replace function public.set_cover(p_cover text) returns jsonb
+language plpgsql security definer set search_path = public, private as $$
+declare me uuid := auth.uid();
+begin
+  if me is null then raise exception 'Sign in first.'; end if;
+  if p_cover is not null and (p_cover !~ '^data:image/jpeg;base64,[A-Za-z0-9+/]+=*$' or char_length(p_cover) > 150000) then
+    raise exception 'That photo could not be used. Try a different one.';
+  end if;
+  insert into private.profile_style (user_id) values (me) on conflict do nothing;
+  update private.profile_style set cover = p_cover, updated_at = now() where user_id = me;
+  return jsonb_build_object('ok', true);
+end $$;
+
+revoke all on function public.profile_style(uuid), public.set_profile_style(text, text, text[]), public.set_cover(text) from public, anon;
+grant execute on function public.profile_style(uuid), public.set_profile_style(text, text, text[]), public.set_cover(text) to authenticated;
+
+-- ======================= 0042_push_self_setup.sql
+-- 0042: push notifications set themselves up, so nobody has to copy a secret between the dashboard and the SQL editor.
+--
+-- Before this, the "push" Edge Function only ran once someone had (1) saved a PUSH_SECRET in Edge Function secrets and
+-- (2) run private.set_push_config() with the same text. Neither was ever done, so nothing could be sent.
+-- Now the database makes its own random secret (nobody ever sees it), stores it with the function's address in
+-- private.push_config, and the function checks the secret it is sent against the database (push_secret_ok, service
+-- role only). A PUSH_SECRET in Edge Function secrets still works if one is ever set, but is no longer needed.
+
+create or replace function public.push_secret_ok(p_secret text) returns boolean
+language sql stable security definer set search_path = public, private as $$
+  select exists (select 1 from private.push_config c where c.secret is not null and length(c.secret) >= 16 and c.secret = p_secret);
+$$;
+revoke all on function public.push_secret_ok(text) from public, anon, authenticated;
+grant execute on function public.push_secret_ok(text) to service_role;
+
+-- The address of the "push" function on this project, and a fresh random secret, unless a config is already there.
+do $$
+begin
+  if not exists (select 1 from private.push_config where url is not null and secret is not null) then
+    perform private.set_push_config(
+      'https://xfwrhetohauzhqqhkibm.supabase.co/functions/v1/push',
+      replace(gen_random_uuid()::text || gen_random_uuid()::text, '-', '')
+    );
+  end if;
+end $$;
+
+insert into private.migration_log (file) values ('0042_push_self_setup');
+
+-- ======================= 0043_plan_a_year_ahead.sql
+-- 0043: seshes can be planned up to a year ahead (was 2 weeks), so people can plan birthdays, trips and big nights
+-- well in advance (Sarah, 2026-11-03). Same as plan_sesh in 0025 except for that one limit. Everything else stays:
+-- a planned sesh is still deleted 8 hours after its start, and you can still have at most 5 planned at once.
+-- Needs 0025. Safe to run more than once.
+
+create or replace function public.plan_sesh(p_at timestamptz, p_friends uuid[] default null) returns public.seshes
+language plpgsql security definer set search_path = public, private as $$
+declare
+  me uuid := auth.uid();
+  picked boolean := coalesce(array_length(p_friends, 1), 0) > 0;
+  s public.seshes;
+begin
+  if me is null then raise exception 'Sign in first.'; end if;
+  if p_at is null or p_at < now() + interval '5 minutes' then raise exception 'Pick a time later than now.'; end if;
+  if p_at > now() + interval '366 days' then raise exception 'You can plan a sesh up to a year ahead.'; end if;
+  if (select count(*) from public.seshes where creator = me and ended_at is null and created_at > now()) >= 5 then
+    raise exception 'You already have 5 seshes planned. Cancel one first.';
+  end if;
+  if coalesce(array_length(p_friends, 1), 0) > 50 then raise exception 'Pick up to 50 friends.'; end if;
+  insert into public.seshes (creator, private, created_at) values (me, picked, p_at) returning * into s;
+  insert into public.sesh_members (sesh_id, user_id) values (s.id, me);
+  if picked and private.invite_friends(s.id, p_friends) = 0 then raise exception 'Pick at least one friend.'; end if;
+  return s;
+end;
+$$;
+
+revoke all on function public.plan_sesh(timestamptz, uuid[]) from public, anon, authenticated;
+grant execute on function public.plan_sesh(timestamptz, uuid[]) to authenticated;
+
+insert into private.migration_log (file) values ('0043_plan_a_year_ahead');
+
+-- ======================= 0044_sesh_details.sql
+-- Inside a sesh: its own name, emoji, colour and cover photo, and switching it between invite-only and open to
+-- all friends. Only the person who started it can change these; everyone who can see the sesh can read them.
+-- They are deleted with the sesh. Making a sesh invite-only keeps everyone already in it (they are added to its
+-- invites). The cover photo is a small JPEG kept as text, like profile cover photos (0041). Needs 0024.
+-- Safe to run more than once.
+
+alter table public.seshes add column if not exists name text;
+alter table public.seshes add column if not exists emoji text;
+alter table public.seshes add column if not exists colour text;
+alter table public.seshes add column if not exists cover text;
+alter table public.seshes add column if not exists cover_at timestamptz;
+
+-- Can I see this sesh (and so its name, colour and cover)?
+create or replace function private.can_see_sesh(p_sesh uuid) returns boolean
+language sql stable security definer set search_path = public, private as $$
+  select exists (
+    select 1 from public.seshes s
+    where s.id = p_sesh and s.ended_at is null
+      and (s.creator = auth.uid() or public.is_sesh_member(s.id, auth.uid()) or not private.sesh_closed_to_me(s.id))
+  );
+$$;
+
+-- The name, emoji, colour and invite-only of a sesh you can see (null for one you can't). cover_at says when the
+-- cover photo last changed, so the phone only fetches the photo itself (sesh_cover) when it's new.
+create or replace function public.sesh_details(p_sesh uuid) returns jsonb
+language sql stable security definer set search_path = public, private as $$
+  select jsonb_build_object('name', s.name, 'emoji', s.emoji, 'colour', s.colour, 'private', s.private,
+                            'cover_at', case when s.cover is null then null else s.cover_at end)
+  from public.seshes s
+  where s.id = p_sesh and private.can_see_sesh(s.id);
+$$;
+revoke all on function public.sesh_details(uuid) from public, anon;
+grant execute on function public.sesh_details(uuid) to authenticated;
+
+create or replace function public.sesh_cover(p_sesh uuid) returns text
+language sql stable security definer set search_path = public, private as $$
+  select s.cover from public.seshes s where s.id = p_sesh and private.can_see_sesh(s.id);
+$$;
+revoke all on function public.sesh_cover(uuid) from public, anon;
+grant execute on function public.sesh_cover(uuid) to authenticated;
+
+-- Change the name (up to 40 characters, blank for none), the emoji (blank for none), the colour (one of the app's
+-- sesh colours, blank for the theme's) and invite-only.
+drop function if exists public.set_sesh_details(uuid, text, text, boolean);
+create or replace function public.set_sesh_details(p_sesh uuid, p_name text, p_emoji text, p_private boolean, p_colour text)
+returns void language plpgsql security definer set search_path = public, private as $$
+declare
+  v_name text := nullif(btrim(coalesce(p_name, '')), '');
+  v_emoji text := nullif(btrim(coalesce(p_emoji, '')), '');
+  v_colour text := nullif(btrim(coalesce(p_colour, '')), '');
+begin
+  if not exists (select 1 from public.seshes s where s.id = p_sesh and s.creator = auth.uid() and s.ended_at is null) then
+    raise exception 'Only the person who started the sesh can change it.';
+  end if;
+  if v_name is not null and char_length(v_name) > 40 then raise exception 'Keep the name to 40 characters.'; end if;
+  if v_emoji is not null and char_length(v_emoji) > 8 then raise exception 'Pick one emoji.'; end if;
+  if v_colour is not null and v_colour not in ('sunset', 'ocean', 'violet', 'gold', 'forest', 'pop') then
+    raise exception 'Pick one of the colours.';
+  end if;
+  if p_private then   -- everyone already in stays in
+    insert into public.sesh_invites (sesh_id, user_id)
+    select m.sesh_id, m.user_id from public.sesh_members m where m.sesh_id = p_sesh
+    on conflict do nothing;
+  end if;
+  update public.seshes set name = v_name, emoji = v_emoji, colour = v_colour, private = coalesce(p_private, private)
+  where id = p_sesh;
+end $$;
+revoke all on function public.set_sesh_details(uuid, text, text, boolean, text) from public, anon;
+grant execute on function public.set_sesh_details(uuid, text, text, boolean, text) to authenticated;
+
+-- Set the cover photo (a JPEG data address, at most 150,000 characters), or null to remove it.
+create or replace function public.set_sesh_cover(p_sesh uuid, p_cover text)
+returns void language plpgsql security definer set search_path = public, private as $$
+begin
+  if not exists (select 1 from public.seshes s where s.id = p_sesh and s.creator = auth.uid() and s.ended_at is null) then
+    raise exception 'Only the person who started the sesh can change it.';
+  end if;
+  if p_cover is not null and (p_cover !~ '^data:image/jpeg;base64,[A-Za-z0-9+/]+=*$' or char_length(p_cover) > 150000) then
+    raise exception 'That photo could not be used. Try a different one.';
+  end if;
+  update public.seshes set cover = p_cover, cover_at = now() where id = p_sesh;
+end $$;
+revoke all on function public.set_sesh_cover(uuid, text) from public, anon;
+grant execute on function public.set_sesh_cover(uuid, text) to authenticated;
+
+insert into private.migration_log (file) values ('0044_sesh_details');
+
+-- ======================= 0045_mates_on_the_map.sql
+-- 0045: mates on the map in a live sesh (Sarah chose "Yes, opt-in, rough area" on 2026-11-03).
+-- Builds on 0037 (Meet in the middle): the same one switch shares your rough spot (rounded to ~500 m) for this sesh
+-- only. Anyone sharing now also sees the other sharing members of the sesh as faces at their rough spot.
+-- Nothing new is stored, and the spot is still deleted when you stop, leave or the sesh ends.
+-- Safe to run more than once.
+
+-- Anyone sharing now said yes when the switch said nobody would see them, so those shares are cleared: everyone
+-- switches it on again under the new wording.
+delete from private.meet_spots;
+
+create or replace function public.meet_venues(p_sesh uuid) returns jsonb
+language plpgsql stable security definer set search_path = public, private as $$
+declare
+  me uuid := auth.uid();
+  n integer;
+  picks jsonb := '[]'::jsonb;
+  mates jsonb := '[]'::jsonb;
+begin
+  if me is null or not public.is_sesh_member(p_sesh, me) or not public.sesh_is_live(p_sesh) then
+    return jsonb_build_object('shared', 0, 'mine', false, 'venues', '[]'::jsonb, 'mates', '[]'::jsonb);
+  end if;
+  select count(*) into n from private.meet_spots s
+  where s.sesh_id = p_sesh and exists (select 1 from public.sesh_members m where m.sesh_id = p_sesh and m.user_id = s.user_id);
+  if n >= 2 then
+    select coalesce(jsonb_agg(x.id order by x.worst, x.total), '[]'::jsonb) into picks from (
+      select v.id,
+        max(d.km) as worst, sum(d.km) as total
+      from public.venues v
+      cross join lateral (
+        select 12742 * asin(least(1, sqrt(
+          power(sin(radians(v.lat - s.lat) / 2), 2) + cos(radians(s.lat)) * cos(radians(v.lat)) * power(sin(radians(v.lng - s.lng) / 2), 2)
+        ))) as km
+        from private.meet_spots s
+        where s.sesh_id = p_sesh and exists (select 1 from public.sesh_members m where m.sesh_id = p_sesh and m.user_id = s.user_id)
+      ) d
+      where v.lat between -90 and 90 and v.lng between -180 and 180
+      group by v.id
+      order by max(d.km), sum(d.km)
+      limit 6
+    ) x;
+  end if;
+  -- Mates on the map (Sarah, 2026-11-03): only to someone who is sharing too, only the other members of this live
+  -- sesh who switched sharing on, and only their rounded (~500 m) spot. Gone when they stop, leave or the sesh ends.
+  if exists (select 1 from private.meet_spots where sesh_id = p_sesh and user_id = me) then
+    select coalesce(jsonb_agg(jsonb_build_object('id', s.user_id, 'name', p.name, 'lat', s.lat, 'lng', s.lng) order by p.name), '[]'::jsonb)
+      into mates
+    from private.meet_spots s
+    join public.profiles p on p.id = s.user_id
+    where s.sesh_id = p_sesh and s.user_id <> me
+      and exists (select 1 from public.sesh_members m where m.sesh_id = p_sesh and m.user_id = s.user_id)
+      and not public.blocked_between(s.user_id, me);
+  end if;
+  return jsonb_build_object(
+    'shared', n,
+    'mine', exists (select 1 from private.meet_spots where sesh_id = p_sesh and user_id = me),
+    'venues', picks,
+    'mates', mates
+  );
+end;
+$$;
+
+revoke all on function public.meet_venues(uuid) from public, anon;
+grant execute on function public.meet_venues(uuid) to authenticated;
+
+insert into private.migration_log (file) values ('0045_mates_on_the_map') on conflict do nothing;
+
+-- ======================= 0046_message_reactions.sql
+-- Emoji reactions on sesh chat messages (Sarah, 2026-11-03). One reaction per person per message, from a short
+-- list of fun emojis (never drinks). They are deleted with the message, so they go when the sesh ends.
+-- get_messages now also sends each message's reactions: {"❤️": 2, ...} and the one you picked.
+-- Friend messages are locked end to end and never stored, so their reactions travel inside the locked messages.
+-- Safe to run more than once.
+-- Written compactly (long statements on one line) because the phone SQL editor drops parts of long pasted queries.
+
+create table if not exists public.message_reactions (message_id uuid not null references public.messages (id) on delete cascade, user_id uuid not null references public.profiles (id) on delete cascade, emoji text not null check (emoji in ('❤️', '😂', '🔥', '👍', '😮', '🙌')), created_at timestamptz not null default now(), primary key (message_id, user_id));
+alter table public.message_reactions enable row level security;
+
+create or replace function public.react_message(p_message uuid, p_emoji text) returns void
+language plpgsql security definer set search_path = public as $f$
+declare
+  me uuid := auth.uid();
+  v_sesh uuid;
+begin
+  if me is null then raise exception 'Sign in first.'; end if;
+  select m.sesh_id into v_sesh from public.messages m where m.id = p_message;
+  if v_sesh is null or not public.is_sesh_member(v_sesh, me) or not public.sesh_is_live(v_sesh) then raise exception 'That message has gone.'; end if;
+  if coalesce(p_emoji, '') = '' or exists (select 1 from public.message_reactions r where r.message_id = p_message and r.user_id = me and r.emoji = p_emoji) then
+    delete from public.message_reactions where message_id = p_message and user_id = me;
+    return;
+  end if;
+  insert into public.message_reactions (message_id, user_id, emoji) values (p_message, me, p_emoji) on conflict (message_id, user_id) do update set emoji = excluded.emoji, created_at = now();
+end $f$;
+
+create or replace function public.reactions_for(p_message uuid, me uuid) returns jsonb
+language sql stable security definer set search_path = public as $f$
+  select coalesce(jsonb_object_agg(e.emoji, e.n), '{}'::jsonb) from (select r.emoji, count(*) as n from public.message_reactions r where r.message_id = p_message and (r.user_id = me or not public.blocked_between(r.user_id, me)) group by r.emoji) e;
+$f$;
+
+create or replace function public.get_messages(p_sesh uuid) returns jsonb
+language plpgsql volatile security definer set search_path = public as $f$
+declare
+  me uuid := auth.uid();
+  out jsonb;
+begin
+  if me is null then raise exception 'Sign in first.'; end if;
+  if not public.is_sesh_member(p_sesh, me) or not public.sesh_is_live(p_sesh) then return '[]'::jsonb; end if;
+  if random() < 0.05 then perform public.purge_chat(); end if;
+  select coalesce(jsonb_agg(t.x order by t.x_at), '[]'::jsonb) into out from (select jsonb_build_object('id', m.id, 'sender', m.sender, 'name', p.name, 'body', m.body, 'at', m.created_at, 'reactions', public.reactions_for(m.id, me), 'my_reaction', (select r.emoji from public.message_reactions r where r.message_id = m.id and r.user_id = me)) as x, m.created_at as x_at from public.messages m join public.profiles p on p.id = m.sender where m.sesh_id = p_sesh and (m.sender = me or not public.blocked_between(m.sender, me)) order by m.created_at desc limit 200) t;
+  return out;
+end $f$;
+
+revoke all on function public.react_message(uuid, text) from public, anon;
+grant execute on function public.react_message(uuid, text) to authenticated;
+revoke all on function public.reactions_for(uuid, uuid) from public, anon, authenticated;
+insert into private.migration_log (file) values ('0046_message_reactions');
+
+-- ======================= 0047_any_emoji_reaction.sql
+-- Any emoji as a reaction (Sarah, 2026-11-03): besides the quick six, people can pick any emoji from their phone's
+-- keyboard. A reaction must be short (one emoji, with skin tone or joins) and have no letters, numbers or spaces.
+-- Safe to run more than once. Compact on purpose: the phone SQL editor drops parts of long pasted queries.
+
+alter table public.message_reactions drop constraint if exists message_reactions_emoji_check;
+alter table public.message_reactions add constraint message_reactions_emoji_check check (char_length(emoji) between 1 and 16 and emoji !~ '[[:alnum:][:space:]!-~]');
+insert into private.migration_log (file) values ('0047_any_emoji_reaction');
+
+-- ======================= 0048_message_push.sql
+-- 0048: phone notifications for new messages from friends and for sesh chat.
+-- Before this, only friend requests, sesh invites, friends going Green and crew catch-ups sent a notification; new
+-- messages only showed inside the app. A notification never carries the message itself: friend messages are locked so
+-- only the phones can read them, and sesh chat stays inside the app too. It says only who wrote.
+-- Each sender sends at most one notification a minute per person (one per sesh for sesh chat), so a burst of
+-- messages does not buzz the phone over and over. Blocks, hidden status and women-only mode are honoured by
+-- private.push_enqueue, as for every other kind. Both kinds are on by default and can be switched off on the You page.
+-- Needs 0004, 0035 and 0038. Safe to run more than once.
+
+insert into private.push_kinds (kind, label, hint, default_on, live, sort) values
+  ('message', 'Messages', 'When a friend sends you a message. It says who, never what.', true, true, 3),
+  ('sesh_chat', 'Sesh chat', 'When someone writes in a sesh you are in. It says who, never what.', true, true, 4)
+on conflict (kind) do update set label = excluded.label, hint = excluded.hint, default_on = excluded.default_on, live = true, sort = excluded.sort;
+update private.push_kinds set sort = 5 where kind = 'friend_green';
+update private.push_kinds set sort = 6 where kind = 'catch_up';
+
+-- A friend left a message for you.
+create or replace function private.push_on_friend_message() returns trigger
+language plpgsql security definer set search_path = public, private as $$
+begin
+  begin
+    if private.push_enqueue(new.to_user, 'message', new.from_user, 'New message from ' || private.push_name(new.from_user),
+         'Open Crewzy to read it.', 'messages', new.from_user::text, interval '1 minute') then
+      perform private.push_poke();
+    end if;
+  exception when others then
+    null;
+  end;
+  return new;
+end;
+$$;
+revoke all on function private.push_on_friend_message() from public, anon, authenticated;
+drop trigger if exists message_queue_push on private.message_queue;
+create trigger message_queue_push after insert on private.message_queue
+for each row execute function private.push_on_friend_message();
+
+-- Someone wrote in a sesh: tell the other people in it.
+create or replace function private.push_on_sesh_chat() returns trigger
+language plpgsql security definer set search_path = public, private as $$
+declare r record; n integer := 0; who text;
+begin
+  begin
+    who := private.push_name(new.sender);
+    for r in select m.user_id from public.sesh_members m where m.sesh_id = new.sesh_id and m.user_id <> new.sender loop
+      if private.push_enqueue(r.user_id, 'sesh_chat', new.sender, who || ' wrote in your sesh',
+           'Open Crewzy to read it.', 'sesh', new.sesh_id::text || ':' || new.sender::text, interval '1 minute') then
+        n := n + 1;
+      end if;
+    end loop;
+    if n > 0 then perform private.push_poke(); end if;
+  exception when others then
+    null;
+  end;
+  return new;
+end;
+$$;
+revoke all on function private.push_on_sesh_chat() from public, anon, authenticated;
+drop trigger if exists messages_push on public.messages;
+create trigger messages_push after insert on public.messages
+for each row execute function private.push_on_sesh_chat();
+
+insert into private.migration_log (file) values ('0048_message_push');
+
+-- ======================= 0049_home_safe_and_hangouts.sql
+-- 0049: "Home safe" ticks and hangout kinds. Needs 0001, 0004, 0035 and 0044. Safe to run more than once.
+-- Home safe: in a live sesh each person can tick "home safe", and anyone in it can nudge the ones who haven't (a push
+-- that says who asked, at most once every 15 minutes per sesh). No location. The ticks are deleted with the sesh.
+-- Hangouts: the starter can say what kind of sesh it is (night out, food, coffee, gym, footy, chill, gig).
+create table if not exists private.home_safe (sesh_id uuid not null references public.seshes (id) on delete cascade, user_id uuid not null references public.profiles (id) on delete cascade, at timestamptz not null default now(), primary key (sesh_id, user_id));
+alter table private.home_safe enable row level security;
+revoke all on private.home_safe from public, anon, authenticated;
+alter table public.seshes add column if not exists hangout text;
+
+create or replace function private.in_sesh(p_sesh uuid) returns boolean language sql stable security definer set search_path = public, private as $f$ select auth.uid() is not null and public.sesh_is_live(p_sesh) and (public.is_sesh_member(p_sesh, auth.uid()) or public.sesh_creator(p_sesh) = auth.uid()) $f$;
+revoke all on function private.in_sesh(uuid) from public, anon, authenticated;
+
+create or replace function public.home_safe_list(p_sesh uuid) returns jsonb language sql stable security definer set search_path = public, private as $f$ select case when private.in_sesh(p_sesh) then coalesce((select jsonb_agg(h.user_id order by h.at) from private.home_safe h where h.sesh_id = p_sesh), '[]'::jsonb) else '[]'::jsonb end $f$;
+
+create or replace function public.home_safe(p_sesh uuid, p_safe boolean) returns jsonb language plpgsql security definer set search_path = public, private as $f$
+begin
+  if not private.in_sesh(p_sesh) then raise exception 'You are not in this sesh.'; end if;
+  if p_safe then insert into private.home_safe (sesh_id, user_id) values (p_sesh, auth.uid()) on conflict do nothing;
+  else delete from private.home_safe where sesh_id = p_sesh and user_id = auth.uid(); end if;
+  return public.home_safe_list(p_sesh);
+end $f$;
+
+create or replace function public.home_safe_nudge(p_sesh uuid) returns integer language plpgsql security definer set search_path = public, private as $f$
+declare r record; n integer := 0; who text;
+begin
+  if not private.in_sesh(p_sesh) then raise exception 'You are not in this sesh.'; end if;
+  who := private.push_name(auth.uid());
+  for r in select m.user_id from public.sesh_members m where m.sesh_id = p_sesh and m.user_id <> auth.uid() and not exists (select 1 from private.home_safe h where h.sesh_id = p_sesh and h.user_id = m.user_id) loop
+    if private.push_enqueue(r.user_id, 'home_safe', auth.uid(), who || ' wants to know you got home OK', 'Tap Home safe in your sesh when you are in.', 'sesh', p_sesh::text, interval '15 minutes') then n := n + 1; end if;
+  end loop;
+  if n > 0 then perform private.push_poke(); end if;
+  return n;
+end $f$;
+
+update private.push_kinds set label = 'Home safe', hint = 'When a mate checks you got home OK after a sesh.', default_on = true, live = true where kind = 'home_safe';
+
+create or replace function public.set_sesh_hangout(p_sesh uuid, p_hangout text) returns void language plpgsql security definer set search_path = public, private as $f$
+declare v text := nullif(btrim(coalesce(p_hangout, '')), '');
+begin
+  if not exists (select 1 from public.seshes s where s.id = p_sesh and s.creator = auth.uid() and s.ended_at is null) then raise exception 'Only the person who started the sesh can change it.'; end if;
+  if v is not null and v not in ('night', 'food', 'coffee', 'gym', 'footy', 'chill', 'gig') then raise exception 'Pick one of the kinds.'; end if;
+  update public.seshes set hangout = v where id = p_sesh;
+end $f$;
+
+create or replace function public.sesh_details(p_sesh uuid) returns jsonb language sql stable security definer set search_path = public, private as $f$ select jsonb_build_object('name', s.name, 'emoji', s.emoji, 'colour', s.colour, 'private', s.private, 'hangout', s.hangout, 'cover_at', case when s.cover is null then null else s.cover_at end) from public.seshes s where s.id = p_sesh and private.can_see_sesh(s.id) $f$;
+
+revoke all on function public.home_safe_list(uuid), public.home_safe(uuid, boolean), public.home_safe_nudge(uuid), public.set_sesh_hangout(uuid, text) from public, anon;
+grant execute on function public.home_safe_list(uuid), public.home_safe(uuid, boolean), public.home_safe_nudge(uuid), public.set_sesh_hangout(uuid, text) to authenticated;
+notify pgrst, 'reload schema';
+insert into private.migration_log (file) values ('0049_home_safe_and_hangouts');
+
 -- ======================= examples.sql
 -- Example venues and deals, so the app has something to show before real venues sign up.
 -- None of these are real places. The app labels them "Example".
